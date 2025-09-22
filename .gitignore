@@ -2,15 +2,15 @@
 #
 # Get latest from https://github.com/github/gitignore/blob/main/Unity.gitignore
 #
-Library/
-.utmp/
-/[Ll]ibrary/
-/[Tt]emp/
-/[Oo]bj/
-/[Bb]uild/
-/[Bb]uilds/
-/[Ll]ogs/
-/[Uu]ser[Ss]ettings/
+project_koschei_new/Library/
+project_koschei_new/.utmp/
+project_koschei_new/[Ll]ibrary/
+project_koschei_new/[Tt]emp/
+project_koschei_new/[Oo]bj/
+project_koschei_new/[Bb]uild/
+project_koschei_new/[Bb]uilds/
+project_koschei_new/[Ll]ogs/
+project_koschei_new/[Uu]ser[Ss]ettings/
 *.log
 
 # MemoryCaptures can get excessive in size.
