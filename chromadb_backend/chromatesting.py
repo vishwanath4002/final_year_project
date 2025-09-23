@@ -134,9 +134,10 @@ if __name__ == "__main__":
 
     # Example recent messages for style imitation
     recent_p1_msgs = [
-        "lol just did the task in Pavillion",
-        "idk, saw some ppl near Mansion",
-        "Church was empty when I passed by"
+        "hlo.. ik i was der ok .."
+"brb, gonna check Church"
+"lol Mansion is clear"
+
     ]
 
     # Simulate a player asking NPC
