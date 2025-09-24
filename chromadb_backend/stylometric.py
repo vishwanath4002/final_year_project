@@ -19,9 +19,10 @@ You are analyzing chat messages from a player in a multiplayer game.
 Summarize their style in 2-3 sentences for NPC imitation:
 - How they write messages
 - Sentence length
-- Use of slang, abbreviations, or emojis
+- Use of slang, abbreviations
 - Tone (formal, casual, sarcastic, etc.)
 -noticeable typos or shorthand
+-no use of emojis
 -any unique phrases they use
 -punctuation style
 -any memes or cultural references
