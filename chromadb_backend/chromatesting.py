@@ -1,13 +1,18 @@
-# chromtesting.py
+# chromatesting.py
 import chromadb
 from uuid import uuid4
+from datetime import datetime
 from stylometric import summarize_player_style
 from langchain_ollama import OllamaEmbeddings, ChatOllama
+
+# --- Ollama base URL (set explicitly) ---
+OLLAMA_BASE = "http://127.0.0.1:11434"
 
 # 🔹 Wrapper to make Ollama embeddings Chroma-compatible
 class OllamaWrapper:
     def __init__(self, model_name):
-        self.embedder = OllamaEmbeddings(model=model_name)
+        # explicitly pass base_url
+        self.embedder = OllamaEmbeddings(model=model_name, base_url=OLLAMA_BASE)
 
     def __call__(self, input: list[str]):
         return self.embedder.embed(input)
@@ -15,15 +20,17 @@ class OllamaWrapper:
     def name(self):
         return "ollama"
 
-# 🔹 1️⃣ Start ChromaDB client
+# 🔹 1️⃣ Start ChromaDB client (persistent store)
 client = chromadb.PersistentClient(path="./chroma")
 
 # 🔹 2️⃣ Embedding function
 embed = OllamaWrapper("nomic-embed-text")
 
-# 🔹 3️⃣ Collections
+# 🔹 3️⃣ Collections (create or get)
 def safe_get_collection(name, embedding_function):
-    if name in [c.name for c in client.list_collections()]:
+    # if exists, just get (Chroma's API differs by version; this is robust)
+    names = [c.name for c in client.list_collections()]
+    if name in names:
         return client.get_or_create_collection(name=name)
     else:
         return client.get_or_create_collection(name=name, embedding_function=embedding_function)
@@ -33,20 +40,29 @@ game_events     = safe_get_collection("game_events", embed)
 npc_memory      = safe_get_collection("npc_memory", embed)
 
 # --- Add helpers ---
-def add_player_message(text, player_id, round_id, location):
+def add_player_message(text, player_id, round_id, location="Unknown", timestamp=None):
+    if timestamp is None:
+        timestamp = datetime.utcnow().isoformat()  # e.g. 2025-10-04T12:34:56.789123
     msg_id = f"msg-{uuid4()}"
     player_messages.add(
         documents=[text],
-        metadatas=[{"player_id": player_id, "round_id": round_id, "location": location}],
+        metadatas=[{
+            "player_id": player_id,
+            "round_id": round_id,
+            "location": location,
+            "timestamp": timestamp
+        }],
         ids=[msg_id]
     )
     return msg_id
 
-def add_npc_memory(text, memory_type, round_id):
+def add_npc_memory(text, memory_type, round_id, timestamp=None):
+    if timestamp is None:
+        timestamp = datetime.utcnow().isoformat()
     npc_id = f"npc-{uuid4()}"
     npc_memory.add(
         documents=[text],
-        metadatas=[{"memory_type": memory_type, "round_id": round_id}],
+        metadatas=[{"memory_type": memory_type, "round_id": round_id, "timestamp": timestamp}],
         ids=[npc_id]
     )
     return npc_id
@@ -58,13 +74,15 @@ def query_collection(collection, query, k=3, filters=None):
         return collection.query(query_texts=[query], n_results=k)
 
 def format_results(results):
-    docs = results['documents'][0] if results['documents'] else []
-    metas = results['metadatas'][0] if results['metadatas'] else []
-    return [f"{meta.get('player_id','?')} at {meta.get('location','?')}: {doc}" 
+    # results expected to have 'documents' and 'metadatas' lists
+    docs = results.get('documents', [[]])[0] if results.get('documents') else []
+    metas = results.get('metadatas', [[]])[0] if results.get('metadatas') else []
+    return [f"{meta.get('player_id','?')} at {meta.get('location','?')}: {doc}"
             for doc, meta in zip(docs, metas)]
 
-# --- Reply generator ---
-llm = ChatOllama(model="llama3.1:8b", temperature=0.7)
+# --- Reply generator (LLM) ---
+llm = ChatOllama(model="llama3.2:1b", temperature=0.7, base_url=OLLAMA_BASE)
+
 
 # 🔹 Valid map locations
 VALID_LOCATIONS = ["Pavillion", "Church", "Mansion", "Greenhouse", "Sheds"]
@@ -75,9 +93,7 @@ def filter_memory(snippets, valid_locations):
 
 def generate_npc_reply(player_text, round_id="r1", imitate_player_id=None, recent_msgs=None):
     """
-    Generates an NPC reply.
-    - imitate_player_id: ID of the player whose style to imitate
-    - recent_msgs: List of recent messages from that player
+    Generates an NPC reply using memory + optional style imitation.
     """
     # 1️⃣ Query memory
     past_msgs = query_collection(player_messages, player_text, k=3, filters={"round_id": round_id})
@@ -93,7 +109,11 @@ def generate_npc_reply(player_text, round_id="r1", imitate_player_id=None, recen
     # 4️⃣ Generate player style summary if imitation requested
     style_text = ""
     if imitate_player_id and recent_msgs:
-        style_text = summarize_player_style(imitate_player_id, recent_msgs)
+        try:
+            style_text = summarize_player_style(imitate_player_id, recent_msgs)
+        except Exception as e:
+            print("⚠️ stylometric summarization failed:", e)
+            style_text = ""
 
     # 5️⃣ Build prompt
     prompt = f"""
@@ -117,30 +137,31 @@ Player asked: "{player_text}"
 """
 
     # 6️⃣ Call LLM
-    response = llm.invoke(prompt)
-    reply = response.content.strip()
+    try:
+        response = llm.invoke(prompt)
+        reply = response.content.strip()
+    except Exception as e:
+        # fail gracefully; return a fallback reply
+        print("❌ LLM call failed:", e)
+        reply = "I don't recall — was busy checking a place."
 
     # 7️⃣ Save reply into memory
     add_npc_memory(reply, "said", round_id)
 
     return reply
 
-# --- Demo ---
+# (Optional test block if run directly)
 if __name__ == "__main__":
-    # Add some player history
     add_player_message("I was fixing wires in Pavillion", "p1", "r1", "Pavillion")
     add_player_message("I stayed in Church the whole round", "p2", "r1", "Church")
     add_npc_memory("Alien claimed it was at Mansion", "said", "r1")
 
-    # Example recent messages for style imitation
     recent_p1_msgs = [
-        "hlo.. ik i was der ok .."
-"brb, gonna check Church"
-"lol Mansion is clear"
-
+        "hlo.. ik i was der ok ..",
+        "brb, gonna check Church",
+        "lol Mansion is clear"
     ]
 
-    # Simulate a player asking NPC
     player_text = "Where were you last round?"
     print("\n🔍 NPC generating reply...")
     reply = generate_npc_reply(player_text, imitate_player_id="p1", recent_msgs=recent_p1_msgs)
