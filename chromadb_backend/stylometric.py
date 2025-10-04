@@ -3,7 +3,8 @@ from langchain_ollama import ChatOllama
 
 OLLAMA_BASE = "http://127.0.0.1:11434"
 # Initialize the LLM once
-llm = ChatOllama(model="llama3.1:8b", temperature=0.7)
+llm = ChatOllama(model="llama3.2:1b", temperature=0.7, base_url=OLLAMA_BASE)
+
 
 def summarize_player_style(player_id: str, messages: list[str]) -> str:
     """

@@ -81,7 +81,8 @@ def format_results(results):
             for doc, meta in zip(docs, metas)]
 
 # --- Reply generator (LLM) ---
-llm = ChatOllama(model="llama3.1:8b", temperature=0.7, base_url=OLLAMA_BASE)
+llm = ChatOllama(model="llama3.2:1b", temperature=0.7, base_url=OLLAMA_BASE)
+
 
 # 🔹 Valid map locations
 VALID_LOCATIONS = ["Pavillion", "Church", "Mansion", "Greenhouse", "Sheds"]
