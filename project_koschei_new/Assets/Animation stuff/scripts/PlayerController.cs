@@ -3,68 +3,108 @@ using UnityEngine;
 [RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
 {
-    [Header("Movement")]
-    public float walkSpeed = 5f;
-    public float runSpeed = 10f;
-    public float acceleration = 5f;
+        [Header("Rotation")]
+        public float rotationSmoothTime = 0.12f;  // smoothing for body rotation
+        private float yawSmoothVel;
 
-    [Header("Physics")]
-    public float gravity = -9.81f;
-    public float jumpHeight = 1.5f;
+        [Header("Movement")]
+        public float walkSpeed = 5f;
+        public float runSpeed = 10f;
+        public float acceleration = 5f;
 
-    [Header("References")]
-    public Transform cameraTransform;     // set in inspector or auto-assign to Camera.main
-    public Transform groundCheck;         // optional, if not set we use raycast
-    public LayerMask groundMask;
-    public float groundDistance = 0.2f;
+        [Header("Physics")]
+        public float gravity = -9.81f;
+        public float jumpHeight = 1.5f;
 
-    [Header("Debug")]
-    public bool debugMode = true;         // enable to print diagnostics
+        [Header("References")]
+        public Transform cameraTransform;        // set in inspector or auto-assign to Camera.main
+        public Transform groundCheck;            // optional, if not set we use raycast
+        public LayerMask groundMask;
+        public float groundDistance = 0.2f;
 
-    private CharacterController controller;
-    private Animator anim;
+        [Header("Debug")]
+        public bool debugMode = true;            // enable to print diagnostics
 
-    private Vector3 velocity;
-    private Vector3 lastPosition;
-    private bool isGrounded;
+        // --- Mouse look ---
+        private float yaw;
+        private float pitch;
+        public float mouseSensitivity = 3f;        // horizontal rotation sensitivity
+        public float mouseSmoothing = 0.05f;          // smoothing factor
+        private Vector2 currentMouseDelta;
+        private Vector2 mouseDeltaVel;
 
-    private float currentSpeed = 0f;
-    private float currentDirection = 0f;
-    private float movementMagnitude = 0f;
+        private CharacterController controller;
+        private Animator anim;
 
-    void Start()
-    {
-        controller = GetComponent<CharacterController>();
-        if (controller == null)
-            Debug.LogError("PlayerController: No CharacterController found on the GameObject.");
+        private Vector3 velocity;
+        private Vector3 lastPosition;
+        private bool isGrounded;
 
-        anim = GetComponentInChildren<Animator>();
-        if (anim == null && debugMode)
-            Debug.LogWarning("PlayerController: Animator not found in children. Anim parameters will be skipped.");
+        private float currentSpeed = 0f;
+        private float currentDirection = 0f;
+        private float movementMagnitude = 0f;
 
-        if (cameraTransform == null)
+        void Start()
         {
-            if (Camera.main != null)
-            {
-                cameraTransform = Camera.main.transform;
-                if (debugMode) Debug.Log("PlayerController: cameraTransform not set — using Camera.main");
-            }
-            else if (debugMode)
-            {
-                Debug.LogWarning("PlayerController: No cameraTransform assigned and Camera.main is null.");
-            }
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        
+                
+                controller = GetComponent<CharacterController>();
+                if (controller == null)
+                        Debug.LogError("PlayerController: No CharacterController found on the GameObject.");
+
+                anim = GetComponentInChildren<Animator>();
+                if (anim == null && debugMode)
+                        Debug.LogWarning("PlayerController: Animator not found in children. Anim parameters will be skipped.");
+
+                if (cameraTransform == null)
+                {
+                        if (Camera.main != null)
+                        {
+                                cameraTransform = Camera.main.transform;
+                                if (debugMode) Debug.Log("PlayerController: cameraTransform not set — using Camera.main");
+                        }
+                        else if (debugMode)
+                        {
+                                Debug.LogWarning("PlayerController: No cameraTransform assigned and Camera.main is null.");
+                        }
+                }
+
+                lastPosition = transform.position;
         }
 
-        lastPosition = transform.position;
-    }
+        void Update()
+        {
+                // Quick early-out if compile/runtime errors exist
+                // (if you see exceptions in console fix them first)
+                HandleMouseLook();
+                HandleMovement();
+                HandleGravityAndJump();
+        }
 
-    void Update()
-    {
-        // Quick early-out if compile/runtime errors exist
-        // (if you see exceptions in console fix them first)
-        HandleMovement();
-        HandleGravityAndJump();
-    }
+        private void HandleMouseLook()
+        {
+            // --- Read raw mouse input ---
+            Vector2 rawMouse = new Vector2(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y")) * mouseSensitivity;
+
+            // Smooth it out
+            currentMouseDelta = Vector2.SmoothDamp(currentMouseDelta, rawMouse, ref mouseDeltaVel, mouseSmoothing);
+
+            // --- Apply yaw rotation to player (horizontal mouse) ---
+            yaw += currentMouseDelta.x;
+            float smoothedYaw = Mathf.SmoothDampAngle(transform.eulerAngles.y, yaw, ref yawSmoothVel, rotationSmoothTime);
+            transform.rotation = Quaternion.Euler(0f, smoothedYaw, 0f);
+
+            // --- Apply pitch to camera (vertical mouse) ---
+            pitch -= currentMouseDelta.y;
+            pitch = Mathf.Clamp(pitch, -60f, 60f);
+
+            if (cameraTransform != null)
+                cameraTransform.localEulerAngles = new Vector3(pitch, 0f, 0f);
+        }
+
+
 
     private void HandleMovement()
     {
@@ -86,18 +126,9 @@ public class PlayerController : MonoBehaviour
         float inputZ = Input.GetAxis("Vertical");
         bool isSprinting = Input.GetKey(KeyCode.LeftShift);
 
-        // --- Movement vector relative to camera (safe fallback to world axes)
-        Vector3 right, forward;
-        if (cameraTransform != null)
-        {
-            right = cameraTransform.right;
-            forward = cameraTransform.forward;
-        }
-        else
-        {
-            right = transform.right;
-            forward = transform.forward;
-        }
+        // Move relative to the player's facing direction (player's transform is rotated by mouse)
+        Vector3 forward = transform.forward;
+        Vector3 right = transform.right;
 
         Vector3 rawMove = right * inputX + forward * inputZ;
         rawMove.y = 0f;
@@ -106,6 +137,7 @@ public class PlayerController : MonoBehaviour
         Vector3 move = rawMove;
         if (move.sqrMagnitude > 1f) move = move.normalized;
 
+        // --- movement
         float targetSpeed = isSprinting ? runSpeed : walkSpeed;
         Vector3 movementThisFrame = move * targetSpeed * Time.deltaTime;
 
@@ -141,7 +173,6 @@ public class PlayerController : MonoBehaviour
         currentDirection = Mathf.Lerp(currentDirection, targetRight, Time.deltaTime * acceleration);
         movementMagnitude = new Vector2(currentDirection, currentSpeed).magnitude;
 
-
         // update animator safely
         if (anim != null)
         {
@@ -154,7 +185,8 @@ public class PlayerController : MonoBehaviour
         if (debugMode)
         {
             Debug.DrawRay(transform.position + Vector3.up * 0.5f, move, Color.green); // intended movement
-            Debug.DrawRay(transform.position + Vector3.up * 0.5f, worldVelocity.normalized, Color.blue); // actual velocity direction
+            if (worldVelocity.sqrMagnitude > 0.0001f)
+                Debug.DrawRay(transform.position + Vector3.up * 0.5f, worldVelocity.normalized, Color.blue); // actual velocity direction
             if (Time.frameCount % 10 == 0) // reduce spam
             {
                 Debug.Log($"Inputs H:{inputX:F2} V:{inputZ:F2} move:{move.magnitude:F2} targetSpeed:{targetSpeed:F2} planarVel:{new Vector2(localVel.x, localVel.z).magnitude:F2} grounded:{isGrounded}");
@@ -162,22 +194,23 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    private void HandleGravityAndJump()
-    {
-        // Reset gravity when grounded
-        if (isGrounded && velocity.y < 0f)
-            velocity.y = -2f;
 
-        // Jump
-        if (Input.GetButtonDown("Jump") && isGrounded)
+        private void HandleGravityAndJump()
         {
-            velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
-            if (anim != null) anim.SetTrigger("Jump");
-        }
+                // Reset gravity when grounded
+                if (isGrounded && velocity.y < 0f)
+                        velocity.y = -2f;
 
-        // Apply gravity
-        velocity.y += gravity * Time.deltaTime;
-        if (controller != null)
-            controller.Move(velocity * Time.deltaTime);
-    }
+                // Jump
+                if (Input.GetButtonDown("Jump") && isGrounded)
+                {
+                        velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
+                        if (anim != null) anim.SetTrigger("Jump");
+                }
+
+                // Apply gravity
+                velocity.y += gravity * Time.deltaTime;
+                if (controller != null)
+                        controller.Move(velocity * Time.deltaTime);
+        }
 }
