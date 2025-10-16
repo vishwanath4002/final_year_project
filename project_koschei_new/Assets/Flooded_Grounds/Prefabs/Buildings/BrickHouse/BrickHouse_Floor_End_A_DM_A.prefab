@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 484834}
   - component: {fileID: 3361068}
   - component: {fileID: 2367966}
-  - component: {fileID: 6549036}
+  - component: {fileID: 5325484707138080901}
   m_Layer: 0
   m_Name: BrickHouse_Floor_End_A_DM_A
   m_TagString: Untagged
@@ -84,8 +84,8 @@ MeshRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_AdditionalVertexStreams: {fileID: 0}
---- !u!65 &6549036
-BoxCollider:
+--- !u!64 &5325484707138080901
+MeshCollider:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
@@ -94,6 +94,7 @@ BoxCollider:
   m_Material: {fileID: 0}
   m_IsTrigger: 0
   m_Enabled: 1
-  serializedVersion: 2
-  m_Size: {x: 2.2, y: 0.3004388, z: 11.2}
-  m_Center: {x: 1.1, y: -0.05021915, z: 0}
+  serializedVersion: 4
+  m_Convex: 0
+  m_CookingOptions: 30
+  m_Mesh: {fileID: 4300000, guid: 211b8adf6e53d7f4f82c97942d870bac, type: 3}
