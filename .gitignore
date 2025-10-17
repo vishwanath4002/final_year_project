@@ -35,6 +35,7 @@ project_koschei_new/*.pdb
 project_koschei_new/*.mdb
 project_koschei_new/*.opendb
 project_koschei_new/*.VC.db
+project_koschei_new/Assets/Animation stuff/Miximo/texture/Ch15_nonPBR.fbx
 
 # Crash reports
 project_koschei_new/sysinfo.txt
