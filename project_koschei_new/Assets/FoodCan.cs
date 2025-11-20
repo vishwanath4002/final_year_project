@@ -5,6 +5,7 @@ public class FoodCan : NetworkBehaviour
 {
     private NetworkVariable<bool> isCollected = new NetworkVariable<bool>(false);
     private bool playerInRange = false;
+    private GameObject nearbyPlayer = null;
 
     public override void OnNetworkSpawn()
     {
@@ -30,6 +31,8 @@ public class FoodCan : NetworkBehaviour
         if (other.CompareTag("Player"))
         {
             playerInRange = true;
+            nearbyPlayer = other.gameObject;
+            Debug.Log("Player near food can - Press E to pick up");
         }
     }
 
@@ -38,14 +41,23 @@ public class FoodCan : NetworkBehaviour
         if (other.CompareTag("Player"))
         {
             playerInRange = false;
+            nearbyPlayer = null;
         }
     }
 
     void Update()
     {
-        if (!IsOwner && playerInRange && Input.GetKeyDown(KeyCode.E) && !isCollected.Value)
+        if (playerInRange && Input.GetKeyDown(KeyCode.E) && !isCollected.Value)
         {
-            TryPickupServerRpc(NetworkManager.Singleton.LocalClientId);
+            if (nearbyPlayer != null)
+            {
+                PlayerInventory inventory = nearbyPlayer.GetComponent<PlayerInventory>();
+
+                if (inventory != null && !inventory.IsHoldingItem())
+                {
+                    TryPickupServerRpc(NetworkManager.Singleton.LocalClientId);
+                }
+            }
         }
     }
 
@@ -54,7 +66,6 @@ public class FoodCan : NetworkBehaviour
     {
         if (isCollected.Value) return;
 
-        // Find player
         if (NetworkManager.Singleton.ConnectedClients.TryGetValue(playerId, out var client))
         {
             PlayerInventory inventory = client.PlayerObject.GetComponent<PlayerInventory>();

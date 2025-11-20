@@ -4,8 +4,6 @@ using UnityEngine;
 public class PlayerInventory : NetworkBehaviour
 {
     private NetworkVariable<bool> holdingItem = new NetworkVariable<bool>(false);
-    [SerializeField] private Transform handPosition;
-    private GameObject heldItemVisual;
 
     public bool IsHoldingItem()
     {
@@ -17,7 +15,7 @@ public class PlayerInventory : NetworkBehaviour
         if (IsServer)
         {
             holdingItem.Value = true;
-            ShowItemClientRpc();
+            Debug.Log("Player picked up a can!");
         }
     }
 
@@ -26,24 +24,7 @@ public class PlayerInventory : NetworkBehaviour
         if (IsServer)
         {
             holdingItem.Value = false;
-            HideItemClientRpc();
-        }
-    }
-
-    [ClientRpc]
-    void ShowItemClientRpc()
-    {
-        // Visual feedback: show can in player's hand
-        // You can instantiate a small can model here
-    }
-
-    [ClientRpc]
-    void HideItemClientRpc()
-    {
-        if (heldItemVisual != null)
-        {
-            Destroy(heldItemVisual);
+            Debug.Log("Player deposited a can!");
         }
     }
 }
-
