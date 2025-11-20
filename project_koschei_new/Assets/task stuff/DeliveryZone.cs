@@ -4,7 +4,6 @@ using UnityEngine;
 public class DeliveryZone : NetworkBehaviour
 {
     [SerializeField] private int requiredCans = 12;
-    [SerializeField] private GameObject canVisualPrefab; // Assign FoodCan prefab here
     [SerializeField] private Transform dropOffPoint; // Optional: specific spawn point
 
     private NetworkVariable<int> collectedCans = new NetworkVariable<int>(0);
@@ -76,11 +75,14 @@ public class DeliveryZone : NetworkBehaviour
 
             if (inventory != null && inventory.IsHoldingItem())
             {
+                // Get the can type player is holding
+                GameObject canType = inventory.GetHeldCanPrefab();
+
                 // Remove from inventory
                 inventory.DepositFoodCan();
 
-                // Spawn visual can in zone
-                SpawnCanInZone();
+                // Spawn the specific can type in zone
+                SpawnCanInZone(canType);
 
                 // Increment counter
                 collectedCans.Value++;
@@ -90,11 +92,12 @@ public class DeliveryZone : NetworkBehaviour
         }
     }
 
-    void SpawnCanInZone()
+    void SpawnCanInZone(GameObject canPrefabToSpawn)
     {
-        if (canVisualPrefab == null)
+        // Use the specific can type instead of generic canVisualPrefab
+        if (canPrefabToSpawn == null)
         {
-            Debug.LogError("Can Visual Prefab not assigned to DeliveryZone!");
+            Debug.LogError("Can prefab is null!");
             return;
         }
 
@@ -132,10 +135,10 @@ public class DeliveryZone : NetworkBehaviour
             }
         }
 
-        Debug.Log($"Spawning can at: {spawnPos}");
+        Debug.Log($"Spawning {canPrefabToSpawn.name} at: {spawnPos}");
 
-        // Instantiate the can
-        GameObject depositedCan = Instantiate(canVisualPrefab, spawnPos, Quaternion.identity);
+        // Instantiate the specific can type
+        GameObject depositedCan = Instantiate(canPrefabToSpawn, spawnPos, Quaternion.identity);
 
         // Remove pickup script so it can't be picked up again
         FoodCan pickupScript = depositedCan.GetComponent<FoodCan>();
@@ -159,11 +162,11 @@ public class DeliveryZone : NetworkBehaviour
         if (netObj != null)
         {
             netObj.Spawn();
-            Debug.Log($"✓ Can spawned in delivery zone at {spawnPos}");
+            Debug.Log($"✓ {canPrefabToSpawn.name} spawned in delivery zone at {spawnPos}");
         }
         else
         {
-            Debug.LogError("Can prefab missing NetworkObject component!");
+            Debug.LogError($"{canPrefabToSpawn.name} prefab missing NetworkObject component!");
         }
     }
 
@@ -171,10 +174,12 @@ public class DeliveryZone : NetworkBehaviour
     void TaskCompleteClientRpc()
     {
         Debug.Log("=== TASK COMPLETE! All 12 cans delivered! ===");
+        // You can unlock a door, spawn reward, etc. here
     }
 
     void UpdateUI(int oldValue, int newValue)
     {
         Debug.Log($"Supply Cache Progress: {newValue}/{requiredCans}");
+        // You can update UI text here later
     }
 }
