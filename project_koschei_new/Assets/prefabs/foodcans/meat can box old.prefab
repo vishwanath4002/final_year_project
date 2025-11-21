@@ -15,7 +15,7 @@ GameObject:
   - component: {fileID: 54286641036086266}
   - component: {fileID: 3236871730117482426}
   - component: {fileID: 3861433779234330695}
-  - component: {fileID: -6364157099003632757}
+  - component: {fileID: 4980146928854626208}
   m_Layer: 0
   m_Name: meat can box old
   m_TagString: Untagged
@@ -151,7 +151,7 @@ MonoBehaviour:
   SpawnWithObservers: 1
   DontDestroyWithOwner: 0
   AutoObjectParentSync: 1
---- !u!114 &-6364157099003632757
+--- !u!114 &4980146928854626208
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -160,7 +160,6 @@ MonoBehaviour:
   m_GameObject: {fileID: 1459594811507850}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: b8eaf087da379df4fb400e2bd02dec11, type: 3}
+  m_Script: {fileID: 11500000, guid: 557ad95b364472e47a0c7a3a1029cf90, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  myPrefabReference: {fileID: 0}

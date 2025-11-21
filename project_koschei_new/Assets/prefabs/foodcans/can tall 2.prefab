@@ -13,7 +13,7 @@ GameObject:
   - component: {fileID: 54325742868169348}
   - component: {fileID: -634725081170641544}
   - component: {fileID: 8386095740533189652}
-  - component: {fileID: -2484194646055356766}
+  - component: {fileID: -6794253882294594261}
   m_Layer: 0
   m_Name: can tall 2
   m_TagString: Untagged
@@ -101,7 +101,7 @@ MonoBehaviour:
   SpawnWithObservers: 1
   DontDestroyWithOwner: 0
   AutoObjectParentSync: 1
---- !u!114 &-2484194646055356766
+--- !u!114 &-6794253882294594261
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -110,10 +110,9 @@ MonoBehaviour:
   m_GameObject: {fileID: 1226811400629940}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: b8eaf087da379df4fb400e2bd02dec11, type: 3}
+  m_Script: {fileID: 11500000, guid: 557ad95b364472e47a0c7a3a1029cf90, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  myPrefabReference: {fileID: 0}
 --- !u!1 &1970814144761198
 GameObject:
   m_ObjectHideFlags: 0

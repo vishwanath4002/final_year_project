@@ -1,7 +1,7 @@
 using Unity.Netcode;
 using UnityEngine;
 
-public class FoodCan : NetworkBehaviour
+public class PickupObject : NetworkBehaviour
 {
     private bool playerInRange = false;
     private GameObject nearbyPlayer = null;
@@ -12,7 +12,6 @@ public class FoodCan : NetworkBehaviour
         {
             playerInRange = true;
             nearbyPlayer = other.gameObject;
-            Debug.Log($"Player near {gameObject.name} - Press E to pick up");
         }
     }
 
@@ -32,7 +31,6 @@ public class FoodCan : NetworkBehaviour
             if (nearbyPlayer != null)
             {
                 PlayerInventory inventory = nearbyPlayer.GetComponent<PlayerInventory>();
-
                 if (inventory != null && !inventory.IsHoldingItem())
                 {
                     TryPickupServerRpc(NetworkManager.Singleton.LocalClientId);
@@ -49,16 +47,11 @@ public class FoodCan : NetworkBehaviour
             PlayerInventory inventory = client.PlayerObject.GetComponent<PlayerInventory>();
             if (inventory != null && !inventory.IsHoldingItem())
             {
-                // Find the original prefab from Network Manager's list
                 GameObject prefabReference = FindPrefabInNetworkList();
-
                 if (prefabReference != null)
                 {
-                    // Give it to player
-                    inventory.PickupFoodCan(prefabReference);
-
-                    // Destroy this can
-                    DestroyCanClientRpc();
+                    inventory.PickupItem(prefabReference);
+                    DestroyObjectClientRpc();
                 }
                 else
                 {
@@ -70,29 +63,22 @@ public class FoodCan : NetworkBehaviour
 
     GameObject FindPrefabInNetworkList()
     {
-        // Get clean name (remove "(Clone)" suffix)
         string cleanName = gameObject.name.Replace("(Clone)", "").Trim();
-
-        // Search in NetworkManager's prefab list
         var prefabList = NetworkManager.Singleton.NetworkConfig.Prefabs.Prefabs;
 
         foreach (var networkPrefab in prefabList)
         {
             if (networkPrefab.Prefab.name == cleanName)
             {
-                Debug.Log($"Found prefab match: {cleanName}");
                 return networkPrefab.Prefab;
             }
         }
-
-        Debug.LogError($"Prefab not found in Network Prefabs List: {cleanName}");
         return null;
     }
 
     [ClientRpc]
-    void DestroyCanClientRpc()
+    void DestroyObjectClientRpc()
     {
-        // Despawn and destroy on all clients
         if (NetworkObject != null && NetworkObject.IsSpawned)
         {
             NetworkObject.Despawn();
