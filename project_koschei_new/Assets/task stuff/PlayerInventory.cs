@@ -33,7 +33,8 @@ public class PlayerInventory : NetworkBehaviour
             if (holdingItem.Value)
             {
                 // Calculate drop position in front of player
-                Vector3 dropPos = transform.position + transform.forward * 2f;
+                Vector3 dropPos = transform.position + Vector3.up * 1f + transform.forward * 2f;
+
 
 
                 DropCanServerRpc(dropPos);

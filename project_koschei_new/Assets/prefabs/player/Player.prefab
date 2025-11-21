@@ -156,7 +156,11 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 8504165414389413148, guid: d80e51052c2e484418101ea685069034, type: 3}
       propertyPath: m_Name
-      value: player with movement animations
+      value: Player
+      objectReference: {fileID: 0}
+    - target: {fileID: 8504165414389413148, guid: d80e51052c2e484418101ea685069034, type: 3}
+      propertyPath: m_TagString
+      value: Player
       objectReference: {fileID: 0}
     - target: {fileID: 9029450963586887590, guid: d80e51052c2e484418101ea685069034, type: 3}
       propertyPath: m_RootOrder
@@ -176,15 +180,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 9029450963586887590, guid: d80e51052c2e484418101ea685069034, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 2.669955
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 9029450963586887590, guid: d80e51052c2e484418101ea685069034, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 0.006
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 9029450963586887590, guid: d80e51052c2e484418101ea685069034, type: 3}
       propertyPath: m_LocalPosition.z
-      value: -2.0522935
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 9029450963586887590, guid: d80e51052c2e484418101ea685069034, type: 3}
       propertyPath: m_LocalRotation.w
