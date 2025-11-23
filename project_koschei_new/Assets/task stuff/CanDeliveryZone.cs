@@ -2,11 +2,16 @@
 using Unity.Netcode;
 using UnityEngine;
 
-public class DeliveryZone : NetworkBehaviour
+public class CanDeliveryZone : NetworkBehaviour
 {
     [SerializeField] private int requiredCans = 12;
     [SerializeField] private Transform dropOffPoint;
-    [SerializeField] private List<string> foodCanPrefabNames = new List<string> { "soda can", "spam can", "meat can", "can 2", "can small", "can tall 2", "can tall", "meat can box old", "meat can round", "meat can box"};
+    [SerializeField]
+    private List<string> foodCanPrefabNames = new List<string>
+    {
+        "soda can", "spam can", "meat can", "can 2", "can small", "can tall 2", "can tall",
+        "meat can box old", "meat can round", "meat can box"
+    };
 
     private NetworkVariable<int> collectedCans = new NetworkVariable<int>(0);
     private bool playerInZone = false;
@@ -32,6 +37,7 @@ public class DeliveryZone : NetworkBehaviour
         {
             playerInZone = true;
             playerInTrigger = other.gameObject;
+            Debug.Log($"Player entered CanDeliveryZone. Press E to deposit a can if holding one.");
         }
     }
 
@@ -41,6 +47,7 @@ public class DeliveryZone : NetworkBehaviour
         {
             playerInZone = false;
             playerInTrigger = null;
+            Debug.Log("Player exited CanDeliveryZone.");
         }
     }
 
@@ -48,6 +55,8 @@ public class DeliveryZone : NetworkBehaviour
     {
         if (playerInZone && Input.GetKeyDown(KeyCode.E))
         {
+            Debug.Log("Player pressed E inside CanDeliveryZone.");
+
             if (playerInTrigger != null)
             {
                 PlayerInventory inventory = playerInTrigger.GetComponent<PlayerInventory>();
@@ -56,9 +65,17 @@ public class DeliveryZone : NetworkBehaviour
                     GameObject heldPrefab = inventory.GetHeldPrefab();
                     if (heldPrefab != null && IsFoodCan(heldPrefab))
                     {
+                        Debug.Log($"Deposit option: YES. Depositing {heldPrefab.name}.");
                         DepositCanServerRpc(NetworkManager.Singleton.LocalClientId);
                     }
-                    // else: item not a valid food can, do nothing
+                    else
+                    {
+                        Debug.Log("Deposit option: NO. Item held is NOT a valid food can.");
+                    }
+                }
+                else
+                {
+                    Debug.Log("Deposit option: NO. You are not holding anything.");
                 }
             }
         }
@@ -117,7 +134,6 @@ public class DeliveryZone : NetworkBehaviour
 
         GameObject depositedCan = Instantiate(canPrefabToSpawn, spawnPos, Quaternion.identity);
 
-        // Remove pickup script so it can't be picked up again
         var pickupScript = depositedCan.GetComponent<PickupObject>();
         if (pickupScript != null)
         {
