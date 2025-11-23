@@ -189,7 +189,7 @@ public class PlayerController : MonoBehaviour
                 Debug.DrawRay(transform.position + Vector3.up * 0.5f, worldVelocity.normalized, Color.blue); // actual velocity direction
             if (Time.frameCount % 10 == 0) // reduce spam
             {
-                Debug.Log($"Inputs H:{inputX:F2} V:{inputZ:F2} move:{move.magnitude:F2} targetSpeed:{targetSpeed:F2} planarVel:{new Vector2(localVel.x, localVel.z).magnitude:F2} grounded:{isGrounded}");
+                //Debug.Log($"Inputs H:{inputX:F2} V:{inputZ:F2} move:{move.magnitude:F2} targetSpeed:{targetSpeed:F2} planarVel:{new Vector2(localVel.x, localVel.z).magnitude:F2} grounded:{isGrounded}");
             }
         }
     }
