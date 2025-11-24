@@ -10,6 +10,8 @@ project_koschei_new/[Ll]ogs/
 project_koschei_new/[Uu]ser[Ss]ettings/
 project_koschei_new/[Mm]emoryCaptures/
 project_koschei_new/[Rr]ecordings/
+project_koschei_new/[Pp]ackages/manifest.json
+project_koschei_new/[Pp]ackages/packages-lock.json
 
 # Clones
 project_koschei_new_clone_0
@@ -123,5 +125,3 @@ llm_backend/.ruff_cache/
 # IDE configs
 llm_backend/.idea/
 llm_backend/.vscode/
-project_koschei_new/Packages/packages-lock.json
-/project_koschei_new/Packages
