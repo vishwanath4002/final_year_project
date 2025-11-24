@@ -227,7 +227,7 @@
       "url": "https://packages.unity.com"
     },
     "com.veriorpies.parrelsync": {
-      "version": "file:C:/games/ai/game jam - animal fight/game jam - animal fight/Assets/ParrelSync-master/ParrelSync",
+      "version": "file:E:/github repos/final_year_project/ParrelSync-1.5.2/ParrelSync-1.5.2/ParrelSync",
       "depth": 0,
       "source": "local",
       "dependencies": {}
