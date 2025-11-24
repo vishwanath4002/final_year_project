@@ -26,6 +26,7 @@ public class PickupObject : NetworkBehaviour
 
     void Update()
     {
+        // Only local players can press E
         if (playerInRange && Input.GetKeyDown(KeyCode.E))
         {
             if (nearbyPlayer != null)
@@ -51,7 +52,10 @@ public class PickupObject : NetworkBehaviour
                 if (prefabReference != null)
                 {
                     inventory.PickupItem(prefabReference);
-                    DestroyObjectClientRpc();
+                    // Only the server should call Despawn!
+                    if (NetworkObject != null && NetworkObject.IsSpawned)
+                        NetworkObject.Despawn();
+                    Destroy(gameObject);
                 }
                 else
                 {
@@ -74,15 +78,5 @@ public class PickupObject : NetworkBehaviour
             }
         }
         return null;
-    }
-
-    [ClientRpc]
-    void DestroyObjectClientRpc()
-    {
-        if (NetworkObject != null && NetworkObject.IsSpawned)
-        {
-            NetworkObject.Despawn();
-        }
-        Destroy(gameObject);
     }
 }
