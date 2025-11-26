@@ -1,15 +1,22 @@
+using Unity.Netcode;
 using UnityEngine;
 
-public class MouseLook : MonoBehaviour
+public class MouseLook : NetworkBehaviour
 {
-    public Transform cameraHolder;   // Drag your CameraHolder here
+    public Transform cameraHolder;
     public float mouseSensitivity = 100f;
-
-    float xRotation = 0f;
+    private float xRotation = 0f;
 
     void Start()
     {
-        // Lock cursor in the middle of the screen
+        // Only the owner has camera/mouse control.
+        if (!IsOwner)
+        {
+            if (cameraHolder != null) cameraHolder.gameObject.SetActive(false);
+            enabled = false;
+            return;
+        }
+        // Lock cursor for local player only
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
     }
@@ -19,13 +26,12 @@ public class MouseLook : MonoBehaviour
         float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity * Time.deltaTime;
         float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity * Time.deltaTime;
 
-        // Rotate player left/right (yaw)
         transform.Rotate(Vector3.up * mouseX);
 
-        // Rotate camera up/down (pitch)
         xRotation -= mouseY;
-        xRotation = Mathf.Clamp(xRotation, -80f, 80f); // prevent flipping
+        xRotation = Mathf.Clamp(xRotation, -80f, 80f);
 
-        cameraHolder.localRotation = Quaternion.Euler(xRotation, 0f, 0f);
+        if (cameraHolder != null)
+            cameraHolder.localRotation = Quaternion.Euler(xRotation, 0f, 0f);
     }
 }

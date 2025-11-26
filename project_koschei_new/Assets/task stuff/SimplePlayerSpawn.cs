@@ -3,7 +3,7 @@ using UnityEngine;
 
 public class SimplePlayerSpawn : MonoBehaviour
 {
-    [SerializeField] private Vector3 spawnPosition = new Vector3(0, 1, 0);
+    [SerializeField] private Vector3 spawnPosition = new Vector3(549, 30, 89);
 
     void Start()
     {

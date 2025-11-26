@@ -69697,7 +69697,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c2ed01b99d90ff94ea1a754ab98cbac4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  spawnPosition: {x: 549, y: 30, z: 89}
+  spawnPosition: {x: 550, y: 20, z: 475}
 --- !u!114 &620647180
 MonoBehaviour:
   m_ObjectHideFlags: 0
