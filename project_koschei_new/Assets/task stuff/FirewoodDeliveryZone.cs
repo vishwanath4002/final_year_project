@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -9,8 +9,12 @@ public class FirewoodDeliveryZone : NetworkBehaviour
     [SerializeField] private List<GameObject> firewoodPileObjects;   // Assign exact pile pieces in Inspector
     [SerializeField] private GameObject firePrefab;                  // Assign fire visual GameObject
     [SerializeField] private int requiredWood = 5;
+    [SerializeField] private int requiredMushrooms = 13;
 
     private NetworkVariable<int> depositedWood = new NetworkVariable<int>(0);
+    private NetworkVariable<int> burnedMushrooms = new NetworkVariable<int>(0);
+    private NetworkVariable<bool> fireIsActive = new NetworkVariable<bool>(false);
+
     private bool playerInZone = false;
     private GameObject playerInTrigger = null;
 
@@ -18,6 +22,7 @@ public class FirewoodDeliveryZone : NetworkBehaviour
     {
         base.OnNetworkSpawn();
         depositedWood.OnValueChanged += OnWoodChanged;
+        burnedMushrooms.OnValueChanged += OnMushroomChanged;
     }
 
     void OnWoodChanged(int oldValue, int newValue)
@@ -28,6 +33,13 @@ public class FirewoodDeliveryZone : NetworkBehaviour
                 firewoodPileObjects[i].SetActive(i < newValue);
         }
         Debug.Log($"Pile updated: {newValue}/{requiredWood} wood pieces are now active.");
+    }
+
+    void OnMushroomChanged(int oldValue, int newValue)
+    {
+        Debug.Log($"Mushrooms burned: {newValue}/{requiredMushrooms}");
+        if (newValue >= requiredMushrooms)
+            Debug.Log("All mushrooms burned! Task complete!");
     }
 
     void OnTriggerEnter(Collider other)
@@ -57,11 +69,13 @@ public class FirewoodDeliveryZone : NetworkBehaviour
 
         if (Input.GetKeyDown(KeyCode.E))
         {
+            // 1. Deposit firewood if holding item and wood still needed
             if (inv != null && inv.IsHoldingItem() && depositedWood.Value < requiredWood)
             {
                 GameObject held = inv.GetHeldPrefab();
-                bool isFirewood = held != null && held.name.Replace("(Clone)", "").Trim() == firewoodPrefabName;
-                Debug.Log($"Player pressed E inside FirewoodDeliveryZone. Holding item: {(held != null ? held.name : "None")}. Is firewood: {isFirewood}");
+                string heldName = held != null ? held.name.Replace("(Clone)", "").Trim() : "";
+                bool isFirewood = heldName == firewoodPrefabName;
+                Debug.Log($"Player pressed E inside FirewoodDeliveryZone. Holding item: {heldName}. Is firewood: {isFirewood}");
 
                 if (isFirewood)
                 {
@@ -73,14 +87,38 @@ public class FirewoodDeliveryZone : NetworkBehaviour
                     Debug.Log("Deposit option: NO. You are not holding a valid firewood piece.");
                 }
             }
-            else if (depositedWood.Value >= requiredWood && firePrefab != null && !firePrefab.activeSelf)
+            // 2. Light fire ONLY if not holding anything, after all wood deposited and fire not yet active
+            else if ((inv == null || !inv.IsHoldingItem()) && depositedWood.Value >= requiredWood && firePrefab != null && !firePrefab.activeSelf)
             {
-                Debug.Log("Fire pile is full. Lighting fire.");
+                Debug.Log("Fire pile is full and hands are empty. Lighting fire.");
                 LightFireServerRpc();
             }
-            else if (inv == null || !inv.IsHoldingItem())
+            // 3. Deposit mushrooms, but only after fire is lit
+            else if (inv != null && inv.IsHoldingItem() && fireIsActive.Value && burnedMushrooms.Value < requiredMushrooms)
             {
-                Debug.Log("Deposit option: NO. You are not holding anything.");
+                GameObject held = inv.GetHeldPrefab();
+                string heldName = held != null ? held.name.Replace("(Clone)", "").Trim() : "";
+                bool isMushroom = heldName.StartsWith("mushroom", System.StringComparison.OrdinalIgnoreCase);
+                Debug.Log($"Fire is burning. Holding item: {heldName}. Is mushroom: {isMushroom}");
+
+                if (isMushroom)
+                {
+                    Debug.Log("Mushroom deposit option: YES. Depositing mushroom.");
+                    DepositMushroomServerRpc(NetworkManager.Singleton.LocalClientId);
+                }
+                else
+                {
+                    Debug.Log("Mushroom deposit option: NO. You are not holding a mushroom.");
+                }
+            }
+            // 4. Catch-all
+            else if (inv != null && inv.IsHoldingItem())
+            {
+                Debug.Log("Deposit option: NO. You are holding an item, and can't light the fire right now.");
+            }
+            else
+            {
+                Debug.Log("Deposit option: NO. You are not holding anything, and can't light the fire yet.");
             }
         }
     }
@@ -116,11 +154,46 @@ public class FirewoodDeliveryZone : NetworkBehaviour
     }
 
     [ServerRpc(RequireOwnership = false)]
+    void DepositMushroomServerRpc(ulong playerId)
+    {
+        if (!fireIsActive.Value)
+        {
+            Debug.Log("Mushrooms can only be burned after fire is lit.");
+            return;
+        }
+        if (burnedMushrooms.Value >= requiredMushrooms)
+        {
+            Debug.Log("All mushrooms already burned.");
+            return;
+        }
+        if (NetworkManager.Singleton.ConnectedClients.TryGetValue(playerId, out var client))
+        {
+            var inv = client.PlayerObject.GetComponent<PlayerInventory>();
+            if (inv != null && inv.IsHoldingItem())
+            {
+                GameObject held = inv.GetHeldPrefab();
+                bool isMushroom = held != null && held.name.StartsWith("mushroom", System.StringComparison.OrdinalIgnoreCase);
+                if (isMushroom)
+                {
+                    inv.DepositItem();
+                    burnedMushrooms.Value++;
+                    Debug.Log($"Mushroom burned! Total: {burnedMushrooms.Value}/{requiredMushrooms}");
+                }
+                else
+                {
+                    Debug.Log("Failed to burn: Item is not a mushroom.");
+                }
+            }
+        }
+    }
+
+    [ServerRpc(RequireOwnership = false)]
     void LightFireServerRpc()
     {
         if (firePrefab != null && !firePrefab.activeSelf)
         {
             firePrefab.SetActive(true);
+            fireIsActive.Value = true;
             Debug.Log("Fire activated!");
             TaskCompleteClientRpc();
         }
