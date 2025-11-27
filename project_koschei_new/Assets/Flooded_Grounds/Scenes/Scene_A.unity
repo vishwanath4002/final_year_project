@@ -69597,6 +69597,7 @@ GameObject:
   - component: {fileID: 620647178}
   - component: {fileID: 620647177}
   - component: {fileID: 620647176}
+  - component: {fileID: 620647181}
   - component: {fileID: 620647179}
   - component: {fileID: 620647180}
   m_Layer: 0
@@ -69654,7 +69655,7 @@ MonoBehaviour:
       - {fileID: 11400000, guid: 19826799c68b917499a7486b14cfd5ee, type: 2}
     TickRate: 30
     ClientConnectionBufferTimeout: 10
-    ConnectionApproval: 0
+    ConnectionApproval: 1
     ConnectionData: 
     EnableTimeResync: 0
     TimeResyncInterval: 30
@@ -69692,7 +69693,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 620647175}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: c2ed01b99d90ff94ea1a754ab98cbac4, type: 3}
   m_Name: 
@@ -69710,6 +69711,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7d3243ceb88e87441a676df448ac8048, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &620647181
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 620647175}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7debbc86a27cb5b4f897bea55ad4be38, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  spawnPositions:
+  - {x: 550, y: 20, z: 475}
+  - {x: 560, y: 20, z: 475}
+  - {x: 540, y: 20, z: 475}
+  - {x: 530, y: 20, z: 475}
 --- !u!1001 &620835270
 PrefabInstance:
   m_ObjectHideFlags: 0

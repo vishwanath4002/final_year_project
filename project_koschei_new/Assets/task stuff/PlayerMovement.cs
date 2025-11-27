@@ -31,6 +31,7 @@ public class PlayerMovement : NetworkBehaviour
 
     void Update()
     {
+        if (IsOwner) transform.Translate(Vector3.forward * Time.deltaTime * 2f);
         if (!IsOwner) return;
 
         HandleMovement();
