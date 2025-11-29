@@ -11,11 +11,11 @@ public class AlienMovement : MonoBehaviour
     public float chaseSpeed = 4f;
 
     [Header("Search / Idle")]
-    public float searchDuration = 3f;        // time to look around at last seen pos
-    public float idleTimeAtPatrolPoint = 2f; // stand still before picking next random point
+    public float searchDuration = 3f;
+    public float idleTimeAtPatrolPoint = 2f;
 
     [Header("Random Patrol")]
-    public float patrolRadius = 10f;  // how far from home it can wander
+    public float patrolRadius = 10f;
 
     [Header("Animation")]
     public Animator animator;
@@ -23,14 +23,27 @@ public class AlienMovement : MonoBehaviour
     public string moveZParam = "MoveZ";
 
     [Header("Sensor")]
-    public AlienSensor sensor;  // assign in Inspector (on root or Eye child)
+    public AlienSensor sensor;
+
+    [Header("Attack")]
+    public float attackRange = 2f;
+    public string attack1Trigger = "Attack1Trigger";
+    public string attack2Trigger = "Attack2Trigger";
+    public float attack1Cooldown = 1.2f;
+    public float attack2Cooldown = 1.5f;
+    public float attack1Duration = 0.8f;  // movement lock time for attack1
+    public float attack2Duration = 1.0f;  // movement lock time for attack2
 
     NavMeshAgent agent;
     AIState state = AIState.Idle;
     float stateTimer = 0f;
     Transform currentTargetPlayer;
     Vector3 lastSeenPlayerPos;
-    Vector3 homePosition; // center of random patrol area
+    Vector3 homePosition;
+
+    float attackTimer = 0f;        // cooldown before next attack
+    bool isAttacking = false;      // true while attack animation is considered "running"
+    float attackMoveLockTimer = 0f; // how long movement is locked
 
     void Start()
     {
@@ -40,7 +53,7 @@ public class AlienMovement : MonoBehaviour
         if (sensor == null)
             sensor = GetComponentInChildren<AlienSensor>();
 
-        homePosition = transform.position; // use spawn position as patrol center
+        homePosition = transform.position;
 
         state = AIState.Patrol;
         agent.speed = patrolSpeed;
@@ -49,13 +62,28 @@ public class AlienMovement : MonoBehaviour
 
     void Update()
     {
-        // Use the external raycast sensor to find the closest visible Player
-        Transform player = sensor != null ? sensor.GetClosestTarget("Player") : null;
-        if (player != null)
+        // Sense only when not currently locked in an attack
+        if (!isAttacking)
         {
-            currentTargetPlayer = player;
-            lastSeenPlayerPos = player.position;
-            SwitchToChase();
+            Transform player = sensor != null ? sensor.GetClosestTarget("Player") : null;
+            if (player != null)
+            {
+                currentTargetPlayer = player;
+                lastSeenPlayerPos = player.position;
+                SwitchToChase();
+            }
+        }
+
+        attackTimer -= Time.deltaTime;
+
+        // Count down attack movement lock
+        if (isAttacking)
+        {
+            attackMoveLockTimer -= Time.deltaTime;
+            if (attackMoveLockTimer <= 0f)
+            {
+                isAttacking = false;
+            }
         }
 
         // State machine
@@ -81,9 +109,10 @@ public class AlienMovement : MonoBehaviour
     // ========== Random Patrol ==========
     void UpdatePatrol()
     {
+        if (isAttacking) return; // don't move while attacking
+
         if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance + 0.1f)
         {
-            // Arrived at random patrol point -> idle for a bit, then pick a new one
             state = AIState.Idle;
             stateTimer = idleTimeAtPatrolPoint;
             agent.isStopped = true;
@@ -92,19 +121,15 @@ public class AlienMovement : MonoBehaviour
 
     void SetRandomPatrolDestination()
     {
-        // Pick a random point in a circle on XZ, around homePosition
+        if (isAttacking) return;
+
         Vector2 randomCircle = Random.insideUnitCircle * patrolRadius;
         Vector3 candidate = homePosition + new Vector3(randomCircle.x, 0f, randomCircle.y);
 
-        // Project to NavMesh
         if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 3f, NavMesh.AllAreas))
-        {
             agent.SetDestination(hit.position);
-        }
         else
-        {
             agent.SetDestination(candidate);
-        }
 
         agent.isStopped = false;
     }
@@ -112,9 +137,9 @@ public class AlienMovement : MonoBehaviour
     // ========== Idle ==========
     void UpdateIdle()
     {
-        stateTimer -= Time.deltaTime;
+        if (isAttacking) return;
 
-        // slowly look around
+        stateTimer -= Time.deltaTime;
         transform.Rotate(Vector3.up, 30f * Time.deltaTime);
 
         if (stateTimer <= 0f)
@@ -125,46 +150,109 @@ public class AlienMovement : MonoBehaviour
         }
     }
 
-    // ========== Chase ==========
+    // ========== Chase + Attack ==========
     void SwitchToChase()
     {
         if (state == AIState.Chase) return;
         state = AIState.Chase;
         agent.speed = chaseSpeed;
-        agent.isStopped = false;
+        if (!isAttacking)
+            agent.isStopped = false;
     }
 
     void UpdateChase()
     {
+        if (isAttacking)
+        {
+            agent.isStopped = true;
+            agent.velocity = Vector3.zero;
+            return;
+        }
+
         if (currentTargetPlayer != null)
         {
-            agent.SetDestination(currentTargetPlayer.position);
-            lastSeenPlayerPos = currentTargetPlayer.position;
+            float dist = Vector3.Distance(transform.position, currentTargetPlayer.position);
+
+            if (dist > attackRange)
+            {
+                // Too far -> keep chasing
+                agent.isStopped = false;
+                agent.SetDestination(currentTargetPlayer.position);
+                lastSeenPlayerPos = currentTargetPlayer.position;
+            }
+            else
+            {
+                // In range -> stop and attack
+                agent.isStopped = true;
+                FaceTarget(currentTargetPlayer);
+                TryAttack();
+            }
         }
         else
         {
+            // No target reference -> go to last seen position
+            agent.isStopped = false;
             agent.SetDestination(lastSeenPlayerPos);
+
+            if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance + 0.2f)
+            {
+                state = AIState.Search;
+                stateTimer = searchDuration;
+            }
+        }
+    }
+
+    void FaceTarget(Transform target)
+    {
+        Vector3 dir = target.position - transform.position;
+        dir.y = 0f;
+        if (dir.sqrMagnitude > 0.001f)
+        {
+            Quaternion lookRot = Quaternion.LookRotation(dir);
+            transform.rotation = Quaternion.Slerp(transform.rotation, lookRot, Time.deltaTime * 10f);
+        }
+    }
+
+    void TryAttack()
+    {
+        if (attackTimer > 0f) return;
+        if (animator == null) return;
+        if (isAttacking) return;
+
+        isAttacking = true;
+        agent.isStopped = true;
+        agent.velocity = Vector3.zero;
+
+        int which = Random.Range(0, 2);
+
+        if (which == 0)
+        {
+            animator.SetTrigger(attack1Trigger);
+            attackTimer = attack1Cooldown;
+            attackMoveLockTimer = attack1Duration;
+        }
+        else
+        {
+            animator.SetTrigger(attack2Trigger);
+            attackTimer = attack2Cooldown;
+            attackMoveLockTimer = attack2Duration;
         }
 
-        // At last seen point -> search
-        if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance + 0.2f)
-        {
-            state = AIState.Search;
-            stateTimer = searchDuration;
-        }
+        // Later you can call a damage method here or from an Animation Event:
+        // public void OnAttackHit() { ... }
     }
 
     // ========== Search ==========
     void UpdateSearch()
     {
+        if (isAttacking) return;
+
         agent.SetDestination(lastSeenPlayerPos);
 
         if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance + 0.2f)
         {
             agent.isStopped = true;
             stateTimer -= Time.deltaTime;
-
-            // look around faster
             transform.Rotate(Vector3.up, 60f * Time.deltaTime);
 
             if (stateTimer <= 0f)
@@ -183,7 +271,7 @@ public class AlienMovement : MonoBehaviour
     {
         if (animator == null) return;
 
-        Vector3 worldVel = agent.velocity;
+        Vector3 worldVel = isAttacking ? Vector3.zero : agent.velocity;
         Vector3 localVel = transform.InverseTransformDirection(worldVel);
 
         float maxSpeed = agent.speed > 0 ? agent.speed : 1f;
