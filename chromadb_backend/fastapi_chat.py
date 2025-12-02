@@ -20,7 +20,7 @@ app.add_middleware(
 
 # Simple in‑memory buffer of recent messages per player for better style + context.
 # In production you’d likely pull these from Chroma instead of RAM.
-RECENT_MSG_LIMIT = 5
+RECENT_MSG_LIMIT = 10
 recent_history: dict[str, list[str]] = {}
 
 

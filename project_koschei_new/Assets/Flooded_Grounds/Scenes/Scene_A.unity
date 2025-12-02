@@ -112579,6 +112579,76 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 434612, guid: 15694160f3f4559468922f6c406043a6, type: 3}
   m_PrefabInstance: {fileID: 918501092}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &918760915
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 918760917}
+  - component: {fileID: 918760916}
+  - component: {fileID: 918760918}
+  m_Layer: 0
+  m_Name: ProximityChatManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &918760916
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 918760915}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  GlobalObjectIdHash: 3358322415
+  InScenePlacedSourceGlobalObjectIdHash: 0
+  AlwaysReplicateAsRoot: 0
+  SynchronizeTransform: 1
+  ActiveSceneSynchronization: 0
+  SceneMigrationSynchronization: 1
+  SpawnWithObservers: 1
+  DontDestroyWithOwner: 0
+  AutoObjectParentSync: 1
+--- !u!4 &918760917
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 918760915}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 549.88, y: 30.74, z: 89.62981}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &918760918
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 918760915}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f1a21e96dae12d8419a9505176d1854b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  chatMessagePrefab: {fileID: 502572200}
+  chatContainer: {fileID: 1447384320}
+  maxMessages: 5
+  chatRadius: 15
 --- !u!1001 &919026271
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -133536,6 +133606,7 @@ MonoBehaviour:
   chatMessagePrefab: {fileID: 502572200}
   chatContainer: {fileID: 1447384320}
   maxMessages: 5
+  chatRadius: 15
 --- !u!1 &1088616391
 GameObject:
   m_ObjectHideFlags: 0
@@ -139613,9 +139684,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   inputField: {fileID: 1127948182}
-  chatManager: {fileID: 1088608874}
+  chatManager: {fileID: 918760918}
   apiUrl: http://127.0.0.1:8000/chat
-  playerId: player_1
 --- !u!1001 &1127984398
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -274946,3 +275016,4 @@ SceneRoots:
   - {fileID: 620647178}
   - {fileID: 221949681}
   - {fileID: 526632137}
+  - {fileID: 918760917}

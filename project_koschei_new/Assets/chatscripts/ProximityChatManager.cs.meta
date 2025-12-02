@@ -3,7 +3,9 @@ guid: f1a21e96dae12d8419a9505176d1854b
 MonoImporter:
   externalObjects: {}
   serializedVersion: 2
-  defaultReferences: []
+  defaultReferences:
+  - chatMessagePrefab: {fileID: 6181155287351773216, guid: fc0ec57b9bb888f46958b8574d4b349d, type: 3}
+  - chatContainer: {instanceID: 0}
   executionOrder: 0
   icon: {instanceID: 0}
   userData: 

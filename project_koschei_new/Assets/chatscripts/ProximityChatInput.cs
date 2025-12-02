@@ -3,6 +3,7 @@ using TMPro;
 using UnityEngine.Networking;
 using System.Collections;
 using System;
+using Unity.Netcode;
 
 [Serializable]
 public class ChatPayload
@@ -22,14 +23,11 @@ public class ChatResponse
 
 public class ProximityChatInput : MonoBehaviour
 {
-    public TMP_InputField inputField;   // assign in Inspector
-    public ProximityChatManager chatManager; // assign in Inspector
+    public TMP_InputField inputField;          // assign in Inspector
+    public ProximityChatManager chatManager;   // assign in Inspector
 
     [Tooltip("FastAPI endpoint (keep localhost in editor)")]
     public string apiUrl = "http://127.0.0.1:8000/chat";
-
-    [Tooltip("Local player id used in payload")]
-    public string playerId = "player_1";
 
     void Update()
     {
@@ -39,27 +37,46 @@ public class ProximityChatInput : MonoBehaviour
             {
                 string text = inputField.text.Trim();
 
-                // Show locally
-                chatManager.AddMessage(playerId, text, Color.green);
+                var localIdentity = PlayerIdentity.Local;
+                if (localIdentity == null)
+                {
+                    Debug.LogWarning("No PlayerIdentity.Local found yet.");
+                    return;
+                }
 
-                // clear + lose focus
+                string displayName = localIdentity.GetDisplayName();
+                Transform localTransform = localIdentity.transform;
+
+                // 1) Show locally in UI
+                chatManager.AddMessage(displayName, text, Color.green);
+
+                // 2) Send through proximity chat so nearby players see it
+                if (NetworkManager.Singleton != null &&
+                    NetworkManager.Singleton.IsClient &&
+                    NetworkManager.Singleton.IsConnectedClient &&
+                    localTransform != null)
+                {
+                    Vector3 pos = localTransform.position;
+                    chatManager.SendChatMessageServerRpc(displayName, text, pos);
+                }
+
+                // 3) Clear + lose focus
                 inputField.text = "";
                 inputField.DeactivateInputField();
 
-                // send to server
-                StartCoroutine(SendMessageToServer(text));
+                // 4) Ask backend (alien AI) for a reply, using the same ID/name
+                StartCoroutine(SendMessageToServer(localIdentity.OwnerClientId.ToString(), text));
             }
             else
             {
-                // if empty, focus input so player can type
                 inputField.ActivateInputField();
             }
         }
     }
 
-    IEnumerator SendMessageToServer(string message)
+    IEnumerator SendMessageToServer(string playerIdForBackend, string message)
     {
-        ChatPayload payload = new ChatPayload { player_id = playerId, message = message };
+        ChatPayload payload = new ChatPayload { player_id = playerIdForBackend, message = message };
         string json = JsonUtility.ToJson(payload);
 
         using (UnityWebRequest req = new UnityWebRequest(apiUrl, "POST"))
@@ -73,14 +90,18 @@ public class ProximityChatInput : MonoBehaviour
 
             if (req.result == UnityWebRequest.Result.Success)
             {
-                // parse response
                 try
                 {
                     ChatResponse resp = JsonUtility.FromJson<ChatResponse>(req.downloadHandler.text);
                     if (!string.IsNullOrEmpty(resp.npc_reply))
                     {
-                        // Add NPC reply to UI (use any name you prefer)
-                        chatManager.AddMessage("Alien-01", resp.npc_reply, Color.red);
+                        string npcText = resp.npc_reply;
+
+                        // Show reply locally
+                        chatManager.AddMessage("Alien-01", npcText, Color.red);
+
+                        // Optionally: if you handle alien replies from the server,
+                        // you can broadcast them via SendChatMessageServerRpc from there.
                     }
                 }
                 catch (Exception ex)
