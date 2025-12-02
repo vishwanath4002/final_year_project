@@ -13,7 +13,7 @@ public class ProximityChatManager : NetworkBehaviour
     [Header("Proximity settings")]
     public float chatRadius = 15f; // how close players must be to hear chat
 
-    void Awake()
+    private void Awake()
     {
         if (Instance == null) Instance = this;
         else
@@ -49,6 +49,8 @@ public class ProximityChatManager : NetworkBehaviour
             Destroy(chatContainer.GetChild(0).gameObject);
         }
     }
+
+    // Backwards-compatible wrapper
     public void AddMessage(string playerName, string message, Color nameColor)
     {
         AddMessageLocal(playerName, message, nameColor);

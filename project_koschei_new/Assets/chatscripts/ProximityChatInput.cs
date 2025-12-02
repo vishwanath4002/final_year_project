@@ -47,10 +47,7 @@ public class ProximityChatInput : MonoBehaviour
                 string displayName = localIdentity.GetDisplayName();
                 Transform localTransform = localIdentity.transform;
 
-                // 1) Show locally in UI
-                chatManager.AddMessage(displayName, text, Color.green);
-
-                // 2) Send through proximity chat so nearby players see it
+                // 1) Send through proximity chat so everyone (including sender) gets it via RPC
                 if (NetworkManager.Singleton != null &&
                     NetworkManager.Singleton.IsClient &&
                     NetworkManager.Singleton.IsConnectedClient &&
@@ -59,12 +56,17 @@ public class ProximityChatInput : MonoBehaviour
                     Vector3 pos = localTransform.position;
                     chatManager.SendChatMessageServerRpc(displayName, text, pos);
                 }
+                else
+                {
+                    // fallback: show locally if networking not running
+                    chatManager.AddMessage(displayName, text, Color.green);
+                }
 
-                // 3) Clear + lose focus
+                // 2) Clear + lose focus
                 inputField.text = "";
                 inputField.DeactivateInputField();
 
-                // 4) Ask backend (alien AI) for a reply, using the same ID/name
+                // 3) Ask backend (alien AI) for a reply, using the clientId as backend id
                 StartCoroutine(SendMessageToServer(localIdentity.OwnerClientId.ToString(), text));
             }
             else
@@ -97,11 +99,9 @@ public class ProximityChatInput : MonoBehaviour
                     {
                         string npcText = resp.npc_reply;
 
-                        // Show reply locally
+                        // For now, show reply only locally so you can test behavior.
+                        // Later, you can move alien broadcasting to a server-side script.
                         chatManager.AddMessage("Alien-01", npcText, Color.red);
-
-                        // Optionally: if you handle alien replies from the server,
-                        // you can broadcast them via SendChatMessageServerRpc from there.
                     }
                 }
                 catch (Exception ex)
