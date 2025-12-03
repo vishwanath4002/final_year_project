@@ -28,7 +28,7 @@ public class PlayerController : NetworkBehaviour
     private float xRotation = 0f;
 
     [Header("Debug")]
-    public bool debugMode = true;
+    public bool debugMode = false;
 
     private CharacterController controller;
     private Animator anim;
