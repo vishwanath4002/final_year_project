@@ -23,10 +23,11 @@ public class ChatResponse
 
 public class ProximityChatInput : MonoBehaviour
 {
-    public TMP_InputField inputField;          // assign in Inspector
-    public ProximityChatManager chatManager;   // assign in Inspector
+    public TMP_InputField inputField;
+    public ProximityChatManager chatManager;
 
-    [Tooltip("FastAPI endpoint (keep localhost in editor)")]
+    [Header("API Settings")]
+    [Tooltip("FastAPI endpoint")]
     public string apiUrl = "http://127.0.0.1:8000/chat";
 
     void Update()
@@ -45,16 +46,14 @@ public class ProximityChatInput : MonoBehaviour
                 }
 
                 string displayName = localIdentity.GetDisplayName();
-                Transform localTransform = localIdentity.transform;
 
-                // 1) Send through proximity chat so everyone (including sender) gets it via RPC
+                // Send through proximity chat so everyone (including sender) gets it via RPC
                 if (NetworkManager.Singleton != null &&
                     NetworkManager.Singleton.IsClient &&
-                    NetworkManager.Singleton.IsConnectedClient &&
-                    localTransform != null)
+                    NetworkManager.Singleton.IsConnectedClient)
                 {
-                    Vector3 pos = localTransform.position;
-                    chatManager.SendChatMessageServerRpc(displayName, text, pos);
+                    // Server will determine position automatically - just pass name, message, and color
+                    chatManager.SendChatMessageServerRpc(displayName, text, Color.green);
                 }
                 else
                 {
@@ -62,11 +61,11 @@ public class ProximityChatInput : MonoBehaviour
                     chatManager.AddMessage(displayName, text, Color.green);
                 }
 
-                // 2) Clear + lose focus
+                // Clear + lose focus
                 inputField.text = "";
                 inputField.DeactivateInputField();
 
-                // 3) Ask backend (alien AI) for a reply, using the clientId as backend id
+                // Ask backend (alien AI) for a reply, using the clientId as backend id
                 StartCoroutine(SendMessageToServer(localIdentity.OwnerClientId.ToString(), text));
             }
             else

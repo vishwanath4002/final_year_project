@@ -1,5 +1,6 @@
 using Unity.Netcode;
 using UnityEngine;
+using System.Collections.Generic;
 
 public class ProximityChatManager : NetworkBehaviour
 {
@@ -8,32 +9,36 @@ public class ProximityChatManager : NetworkBehaviour
     [Header("UI")]
     public GameObject chatMessagePrefab;
     public Transform chatContainer;
-    public int maxMessages = 5;
+    public int maxMessages = 10;
 
     [Header("Proximity settings")]
-    public float chatRadius = 15f; // how close players must be to hear chat
+    public float chatRadius = 15f;
 
     private void Awake()
     {
-        if (Instance == null) Instance = this;
+        if (Instance == null)
+        {
+            Instance = this;
+        }
         else
         {
             Destroy(gameObject);
             return;
         }
 
-        // Make sure container stays bottom-left
         if (chatContainer != null)
         {
             RectTransform rt = chatContainer.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0, 0);   // bottom-left
-            rt.anchorMax = new Vector2(0, 0);   // bottom-left
-            rt.pivot = new Vector2(0, 0);       // pivot at bottom-left
-            rt.anchoredPosition = new Vector2(20, 40); // offset from corner
+            rt.anchorMin = new Vector2(0, 0);
+            rt.anchorMax = new Vector2(0, 0);
+            rt.pivot = new Vector2(0, 0);
+            rt.anchoredPosition = new Vector2(20, 40);
         }
     }
 
-    // ===== Local UI helper (no networking) =====
+    /// <summary>
+    /// Adds a message to the local UI only (no networking)
+    /// </summary>
     public void AddMessageLocal(string playerName, string message, Color nameColor)
     {
         if (chatMessagePrefab == null || chatContainer == null) return;
@@ -42,46 +47,148 @@ public class ProximityChatManager : NetworkBehaviour
         obj.SetActive(true);
 
         ProximityChatMessage msg = obj.GetComponent<ProximityChatMessage>();
-        msg.Setup(playerName, message, nameColor);
-
-        if (chatContainer.childCount > maxMessages)
+        if (msg != null)
         {
-            Destroy(chatContainer.GetChild(0).gameObject);
+            msg.Setup(playerName, message, nameColor);
+        }
+
+        // Clean up old messages
+        while (chatContainer.childCount > maxMessages)
+        {
+            Transform oldestChild = chatContainer.GetChild(0);
+            if (oldestChild != null)
+            {
+                Destroy(oldestChild.gameObject);
+            }
         }
     }
 
-    // Backwards-compatible wrapper
+    /// <summary>
+    /// Backwards compatible wrapper for AddMessageLocal
+    /// </summary>
     public void AddMessage(string playerName, string message, Color nameColor)
     {
         AddMessageLocal(playerName, message, nameColor);
     }
 
-    // ===== Networking =====
-
-    // Called by clients (players or alien) to send a message into proximity chat
+    /// <summary>
+    /// Called by clients to send a chat message through proximity system
+    /// </summary>
     [ServerRpc(RequireOwnership = false)]
-    public void SendChatMessageServerRpc(string fromName, string message, Vector3 worldPos)
+    public void SendChatMessageServerRpc(string fromName, string message, Color nameColor, ServerRpcParams serverRpcParams = default)
     {
-        // On server: forward to nearby clients only
+        // Validate inputs
+        if (string.IsNullOrWhiteSpace(message) || string.IsNullOrWhiteSpace(fromName))
+        {
+            Debug.LogWarning("Invalid chat message received");
+            return;
+        }
+
+        // Limit message length
+        if (message.Length > 200)
+        {
+            message = message.Substring(0, 200);
+        }
+
+        if (NetworkManager.Singleton == null) return;
+
+        // Get the sender's actual position from server (don't trust client)
+        ulong senderClientId = serverRpcParams.Receive.SenderClientId;
+
+        if (!NetworkManager.Singleton.ConnectedClients.TryGetValue(senderClientId, out var senderClient))
+        {
+            Debug.LogWarning($"Sender client {senderClientId} not found");
+            return;
+        }
+
+        if (senderClient.PlayerObject == null)
+        {
+            Debug.LogWarning($"Sender client {senderClientId} has no player object");
+            return;
+        }
+
+        Vector3 senderPosition = senderClient.PlayerObject.transform.position;
+
+        // Find all clients within proximity radius
+        List<ulong> nearbyClientIds = new List<ulong>();
+
         foreach (var kvp in NetworkManager.Singleton.ConnectedClients)
         {
             var client = kvp.Value;
-            var playerObject = client.PlayerObject;
-            if (playerObject == null) continue;
+            if (client.PlayerObject == null) continue;
 
-            float dist = Vector3.Distance(worldPos, playerObject.transform.position);
-            if (dist <= chatRadius)
+            float distance = Vector3.Distance(senderPosition, client.PlayerObject.transform.position);
+
+            if (distance <= chatRadius)
             {
-                ReceiveChatMessageClientRpc(fromName, message, client.ClientId);
+                nearbyClientIds.Add(kvp.Key);
             }
+        }
+
+        // Send message only to nearby clients
+        if (nearbyClientIds.Count > 0)
+        {
+            ClientRpcParams clientRpcParams = new ClientRpcParams
+            {
+                Send = new ClientRpcSendParams
+                {
+                    TargetClientIds = nearbyClientIds.ToArray()
+                }
+            };
+
+            ReceiveChatMessageClientRpc(fromName, message, nameColor, clientRpcParams);
         }
     }
 
-    // Runs on selected clients to actually show the message in their UI
+    /// <summary>
+    /// Runs on targeted clients only to display the message
+    /// </summary>
     [ClientRpc]
-    private void ReceiveChatMessageClientRpc(string fromName, string message, ulong clientId = 0)
+    private void ReceiveChatMessageClientRpc(string fromName, string message, Color nameColor, ClientRpcParams clientRpcParams = default)
     {
-        // You can choose a color based on name / team; for now just white
-        AddMessageLocal(fromName, message, Color.white);
+        AddMessageLocal(fromName, message, nameColor);
+    }
+
+    /// <summary>
+    /// Special method for server-controlled entities (like AI aliens) to broadcast messages
+    /// Call this only on the server
+    /// </summary>
+    public void BroadcastMessageFromServer(string fromName, string message, Vector3 worldPos, Color nameColor)
+    {
+        if (!IsServer)
+        {
+            Debug.LogWarning("BroadcastMessageFromServer should only be called on server");
+            return;
+        }
+
+        if (NetworkManager.Singleton == null) return;
+
+        List<ulong> nearbyClientIds = new List<ulong>();
+
+        foreach (var kvp in NetworkManager.Singleton.ConnectedClients)
+        {
+            var client = kvp.Value;
+            if (client.PlayerObject == null) continue;
+
+            float distance = Vector3.Distance(worldPos, client.PlayerObject.transform.position);
+
+            if (distance <= chatRadius)
+            {
+                nearbyClientIds.Add(kvp.Key);
+            }
+        }
+
+        if (nearbyClientIds.Count > 0)
+        {
+            ClientRpcParams clientRpcParams = new ClientRpcParams
+            {
+                Send = new ClientRpcSendParams
+                {
+                    TargetClientIds = nearbyClientIds.ToArray()
+                }
+            };
+
+            ReceiveChatMessageClientRpc(fromName, message, nameColor, clientRpcParams);
+        }
     }
 }
