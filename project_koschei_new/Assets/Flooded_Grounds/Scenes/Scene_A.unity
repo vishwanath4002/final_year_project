@@ -272462,10 +272462,10 @@ MonoBehaviour:
   autoSpawnEnabled: 1
   spawnIntervalSeconds: 30
   maxPlayersInGroup: 3
-  groupRadius: 12
+  groupRadius: 20
   center: {x: 0, y: 0, z: 0}
   searchRadius: 80
-  spawnHeightAboveGround: 1
+  spawnHeightOffset: 0.1
   maxRaycastHeight: 500
   showDebugGizmos: 1
 --- !u!4 &2139008038

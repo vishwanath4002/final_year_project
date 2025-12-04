@@ -38,11 +38,13 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
     [Header("Debug")]
     public bool showDebugInfo = true;
+    public bool verboseLogging = false; // EVERY frame logging
 
     private CharacterController controller;
     private Animator anim;
     private Vector3 velocity;
     private Vector3 lastPosition;
+    private Vector3 lastLoggedPosition;
     private bool isGrounded;
 
     private float currentSpeed = 0f;
@@ -64,6 +66,7 @@ public class ImpostorPlayerAI : NetworkBehaviour
     private float socialTimer;
     private bool hasApproachedPlayer = false;
     private bool isInitialized = false;
+    private int framesSinceLastMove = 0;
 
     void Start()
     {
@@ -75,54 +78,124 @@ public class ImpostorPlayerAI : NetworkBehaviour
             return;
         }
 
+        Debug.Log($"[ImpostorAI] CharacterController found. Enabled: {controller.enabled}, Height: {controller.height}, Radius: {controller.radius}, Center: {controller.center}");
+
         anim = GetComponentInChildren<Animator>();
         if (anim == null)
             Debug.LogWarning("ImpostorPlayerAI: Animator not found in children.");
 
         lastPosition = transform.position;
+        lastLoggedPosition = transform.position;
+
+        if (IsSpawned && IsServer)
+        {
+            InitializeAI();
+        }
     }
 
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
 
+        Debug.Log($"[ImpostorAI] OnNetworkSpawn called. IsServer: {IsServer}, IsClient: {IsClient}");
+
         if (IsServer)
         {
-            // Initialize AI after network spawn
-            Invoke(nameof(InitializeAI), 0.5f); // Small delay to ensure everything is set up
+            if (!isInitialized)
+            {
+                Invoke(nameof(InitializeAI), 0.2f);
+            }
         }
     }
 
     void InitializeAI()
     {
+        if (isInitialized)
+        {
+            Debug.LogWarning("[ImpostorAI] Already initialized, skipping.");
+            return;
+        }
+
         stateTimer = idleWanderInterval;
         socialTimer = 0f;
 
-        // Pick initial wander point away from spawn
+        if (controller != null && controller.enabled)
+        {
+            controller.Move(Vector3.zero);
+            Debug.Log("[ImpostorAI] CharacterController physics initialized with Move(Vector3.zero)");
+        }
+
         PickWanderPoint(transform.position, farWanderRadius);
         isInitialized = true;
 
-        Debug.Log($"[ImpostorAI] Initialized at {transform.position}, wander target: {wanderTarget}");
+        Debug.Log($"[ImpostorAI] ✅ INITIALIZED at {transform.position:F1}, State: {currentState}, WanderTarget: {wanderTarget:F1}, Distance: {Vector3.Distance(transform.position, wanderTarget):F1}");
     }
 
     void Update()
     {
-        if (!IsServer || !isInitialized)
+        if (!IsServer)
         {
+            if (verboseLogging && Time.frameCount % 300 == 0)
+                Debug.Log("[ImpostorAI] Not server, skipping Update");
             return;
         }
 
-        if (controller == null) return;
+        if (!isInitialized)
+        {
+            if (verboseLogging && Time.frameCount % 300 == 0)
+                Debug.Log("[ImpostorAI] Not initialized yet, skipping Update");
+            return;
+        }
+
+        if (controller == null)
+        {
+            Debug.LogError("[ImpostorAI] Controller is NULL!");
+            return;
+        }
+
+        if (!controller.enabled)
+        {
+            Debug.LogWarning("[ImpostorAI] Controller is DISABLED!");
+            return;
+        }
+
+        // Check if we're actually moving
+        float distMoved = Vector3.Distance(transform.position, lastLoggedPosition);
+        if (distMoved < 0.001f)
+        {
+            framesSinceLastMove++;
+        }
+        else
+        {
+            framesSinceLastMove = 0;
+            lastLoggedPosition = transform.position;
+        }
+
+        // Alert if stuck
+        if (framesSinceLastMove > 300 && currentState == AIState.Wandering) // 5 seconds at 60fps
+        {
+            Debug.LogWarning($"[ImpostorAI] ⚠️ STUCK! Position hasn't changed for 5 seconds. State: {currentState}, WanderTarget: {wanderTarget:F1}, Dist: {Vector3.Distance(transform.position, wanderTarget):F1}");
+            framesSinceLastMove = 0; // Reset to avoid spam
+
+            // Force new wander target
+            PickWanderPoint(transform.position, farWanderRadius);
+            Debug.Log("[ImpostorAI] Forced new wander target due to being stuck");
+        }
 
         CheckGrounded();
         UpdateAIBehavior();
         HandleGravity();
         UpdateAnimations();
 
-        // Debug output every 2 seconds
+        // Regular debug output
         if (showDebugInfo && Time.frameCount % 120 == 0)
         {
-            Debug.Log($"[ImpostorAI] State: {currentState} | Target: {(targetPlayer ? targetPlayer.name : "NONE")} | Pos: {transform.position:F1} | WanderTarget: {wanderTarget:F1} | Dist: {Vector3.Distance(transform.position, wanderTarget):F1}");
+            Debug.Log($"[ImpostorAI] State: {currentState} | Player: {(targetPlayer ? targetPlayer.name : "NONE")} | Pos: {transform.position:F1} | Wander: {wanderTarget:F1} | Dist: {Vector3.Distance(transform.position, wanderTarget):F1} | Grounded: {isGrounded} | StateTimer: {stateTimer:F1}");
+        }
+
+        if (verboseLogging)
+        {
+            Debug.Log($"[ImpostorAI VERBOSE] Frame: {Time.frameCount}, Pos: {transform.position:F2}, State: {currentState}, DistToWander: {Vector3.Distance(transform.position, wanderTarget):F2}");
         }
     }
 
@@ -141,6 +214,11 @@ public class ImpostorPlayerAI : NetworkBehaviour
                 groundMask
             );
         }
+
+        if (verboseLogging && Time.frameCount % 60 == 0)
+        {
+            Debug.Log($"[ImpostorAI] Ground check: {isGrounded} (using {(groundCheck != null ? "groundCheck transform" : "raycast")})");
+        }
     }
 
     void UpdateAIBehavior()
@@ -150,10 +228,21 @@ public class ImpostorPlayerAI : NetworkBehaviour
         if (targetPlayer != null)
         {
             float distToPlayer = Vector3.Distance(transform.position, targetPlayer.position);
+
+            if (verboseLogging && Time.frameCount % 60 == 0)
+            {
+                Debug.Log($"[ImpostorAI] Player detected: {targetPlayer.name}, Distance: {distToPlayer:F1}");
+            }
+
             HandlePlayerInteraction(distToPlayer);
         }
         else
         {
+            if (verboseLogging && Time.frameCount % 60 == 0)
+            {
+                Debug.Log("[ImpostorAI] No player detected, solo wandering");
+            }
+
             HandleSoloWandering();
         }
 
@@ -162,7 +251,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
     void HandlePlayerInteraction(float distToPlayer)
     {
-        // PERSONAL SPACE: Too close - stop and face player
         if (distToPlayer < personalSpaceDistance)
         {
             if (currentState != AIState.Stopping)
@@ -175,7 +263,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
             return;
         }
 
-        // CONVERSATION DISTANCE: Perfect spot for interaction
         if (distToPlayer < conversationDistance)
         {
             socialTimer += Time.deltaTime;
@@ -189,7 +276,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
                 Debug.Log("[ImpostorAI] 💬 Started socializing");
             }
 
-            // Stay for minimum time, then can wander slightly
             if (socialTimer < minSocialTime)
             {
                 FaceTarget(targetPlayer.position);
@@ -213,7 +299,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
                 }
             }
 
-            // Exit if socializing too long
             if (socialTimer > maxSocialTime)
             {
                 Debug.Log("[ImpostorAI] ⏰ Social time exceeded, wandering off");
@@ -226,7 +311,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
             return;
         }
 
-        // APPROACH DISTANCE: Walk toward player
         if (distToPlayer < approachDistance)
         {
             if (currentState != AIState.Approaching && currentState != AIState.Socializing)
@@ -243,12 +327,10 @@ public class ImpostorPlayerAI : NetworkBehaviour
             return;
         }
 
-        // DETECTION RANGE: Can see player from afar
         if (distToPlayer < detectionRadius)
         {
             if (currentState == AIState.Wandering)
             {
-                // 30% chance per second to approach visible player
                 if (!hasApproachedPlayer && Random.value < 0.3f * Time.deltaTime)
                 {
                     ChangeState(AIState.Approaching);
@@ -263,7 +345,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
             return;
         }
 
-        // Player moved out of range
         if (currentState != AIState.Wandering)
         {
             Debug.Log("[ImpostorAI] 🚶 Player left range, resuming wandering");
@@ -284,7 +365,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
         float distToWander = Vector3.Distance(transform.position, wanderTarget);
 
-        // Validate wander target
         if (float.IsNaN(wanderTarget.x) || wanderTarget == Vector3.zero)
         {
             PickWanderPoint(transform.position, farWanderRadius);
@@ -293,25 +373,33 @@ public class ImpostorPlayerAI : NetworkBehaviour
             return;
         }
 
+        if (verboseLogging && Time.frameCount % 30 == 0)
+        {
+            Debug.Log($"[ImpostorAI] Solo wandering: DistToWander={distToWander:F2}, StateTimer={stateTimer:F1}, StopThreshold={stopMovingThreshold}");
+        }
+
         if (distToWander < stopMovingThreshold)
         {
-            // Reached destination, pick new one after timer
             if (stateTimer <= 0f)
             {
                 PickWanderPoint(transform.position, farWanderRadius);
                 stateTimer = idleWanderInterval;
-                if (showDebugInfo)
-                    Debug.Log($"[ImpostorAI] ✅ Reached wander point, picking new target");
+                Debug.Log($"[ImpostorAI] ✅ Reached wander point, picking new target");
+            }
+            else
+            {
+                if (verboseLogging && Time.frameCount % 60 == 0)
+                {
+                    Debug.Log($"[ImpostorAI] At wander point, waiting... Timer: {stateTimer:F1}");
+                }
             }
         }
         else if (distToWander < arrivalThreshold)
         {
-            // Close to target, slow down
             MoveTowards(wanderTarget, walkSpeed * 0.6f);
         }
         else
         {
-            // Normal wandering speed
             MoveTowards(wanderTarget, walkSpeed);
         }
     }
@@ -320,9 +408,7 @@ public class ImpostorPlayerAI : NetworkBehaviour
     {
         if (currentState == newState) return;
 
-        if (showDebugInfo)
-            Debug.Log($"[ImpostorAI] 🔄 State: {currentState} → {newState}");
-
+        Debug.Log($"[ImpostorAI] 🔄 State: {currentState} → {newState}");
         currentState = newState;
     }
 
@@ -337,10 +423,7 @@ public class ImpostorPlayerAI : NetworkBehaviour
         foreach (var client in NetworkManager.Singleton.ConnectedClientsList)
         {
             if (client.PlayerObject == null) continue;
-
-            // Make sure it's not this AI itself
-            if (client.PlayerObject.gameObject == gameObject)
-                continue;
+            if (client.PlayerObject.gameObject == gameObject) continue;
 
             float d = Vector3.Distance(transform.position, client.PlayerObject.transform.position);
             if (d < closestDist)
@@ -355,7 +438,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
     void PickWanderPoint(Vector3 centerPos, float radius)
     {
-        // Ensure minimum distance from current position
         float minDistance = 2f;
         int maxAttempts = 10;
 
@@ -365,24 +447,21 @@ public class ImpostorPlayerAI : NetworkBehaviour
             Vector3 potentialTarget = centerPos + new Vector3(randomCircle.x, 0f, randomCircle.y);
             potentialTarget.y = centerPos.y;
 
-            // Make sure it's not too close to current position
             if (Vector3.Distance(transform.position, potentialTarget) >= minDistance)
             {
                 wanderTarget = potentialTarget;
 
-                if (showDebugInfo)
-                {
-                    Debug.Log($"[ImpostorAI] 🎯 New wander target: {wanderTarget:F1} (radius: {radius:F1}, dist: {Vector3.Distance(transform.position, wanderTarget):F1})");
-                    Debug.DrawLine(transform.position, wanderTarget, Color.cyan, 3f);
-                }
+                Debug.Log($"[ImpostorAI] 🎯 New wander target: {wanderTarget:F1} (radius: {radius:F1}, dist: {Vector3.Distance(transform.position, wanderTarget):F1})");
+                Debug.DrawLine(transform.position, wanderTarget, Color.cyan, 3f);
                 return;
             }
         }
 
-        // Fallback: just pick something
         Vector2 fallbackCircle = Random.insideUnitCircle * radius;
         wanderTarget = centerPos + new Vector3(fallbackCircle.x, 0f, fallbackCircle.y);
         wanderTarget.y = centerPos.y;
+
+        Debug.LogWarning($"[ImpostorAI] Used fallback wander target: {wanderTarget:F1}");
     }
 
     void FaceTarget(Vector3 targetPos)
@@ -409,7 +488,11 @@ public class ImpostorPlayerAI : NetworkBehaviour
         float distance = direction.magnitude;
 
         if (distance < 0.1f)
+        {
+            if (verboseLogging)
+                Debug.Log($"[ImpostorAI] Too close to target ({distance:F3}), not moving");
             return;
+        }
 
         // Rotate toward target
         if (direction.sqrMagnitude > 0.01f)
@@ -422,23 +505,39 @@ public class ImpostorPlayerAI : NetworkBehaviour
             );
         }
 
+        // Store position before move
+        Vector3 posBeforeMove = transform.position;
+
         // Move forward
         Vector3 moveDirection = direction.normalized;
-        Vector3 movement = moveDirection * speed * Time.deltaTime;
 
-        // Use SimpleMove if grounded for better CharacterController behavior
         if (isGrounded)
         {
-            controller.SimpleMove(moveDirection * speed);
+            // SimpleMove returns bool indicating if grounded
+            bool moveSuccess = controller.SimpleMove(moveDirection * speed);
+
+            Vector3 posAfterMove = transform.position;
+            float actualDistance = Vector3.Distance(posBeforeMove, posAfterMove);
+
+            if (showDebugInfo && Time.frameCount % 60 == 0)
+            {
+                Debug.Log($"[ImpostorAI] 🚶 SimpleMove called. Success: {moveSuccess}, Speed: {speed:F1}, Distance moved: {actualDistance:F3}, Target dist: {distance:F1}");
+            }
+
+            if (actualDistance < 0.001f && verboseLogging)
+            {
+                Debug.LogWarning($"[ImpostorAI] ⚠️ SimpleMove didn't move character! Controller enabled: {controller.enabled}, isGrounded: {isGrounded}");
+            }
         }
         else
         {
+            Vector3 movement = moveDirection * speed * Time.deltaTime;
             controller.Move(movement);
-        }
 
-        if (showDebugInfo && Time.frameCount % 60 == 0)
-        {
-            Debug.Log($"[ImpostorAI] 🚶 Moving toward {target:F1} at speed {speed:F1}, distance: {distance:F1}");
+            if (verboseLogging)
+            {
+                Debug.Log($"[ImpostorAI] Using Move (not grounded): {movement:F3}");
+            }
         }
 
         if (showDebugInfo)
@@ -449,23 +548,14 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
     void HandleGravity()
     {
-        // Only apply manual gravity if not using SimpleMove
         if (!isGrounded)
         {
-            if (velocity.y < 0f)
-            {
-                velocity.y = groundedGravity;
-            }
-            else
-            {
-                velocity.y += gravity * Time.deltaTime;
-            }
-
+            velocity.y += gravity * Time.deltaTime;
             controller.Move(velocity * Time.deltaTime);
         }
         else
         {
-            velocity.y = groundedGravity;
+            velocity.y = groundedGravity * Time.deltaTime;
         }
     }
 
@@ -497,35 +587,54 @@ public class ImpostorPlayerAI : NetworkBehaviour
         anim.SetFloat("Direction", currentDirection);
     }
 
+    [ContextMenu("Toggle Verbose Logging")]
+    void ToggleVerboseLogging()
+    {
+        verboseLogging = !verboseLogging;
+        Debug.Log($"[ImpostorAI] Verbose logging: {verboseLogging}");
+    }
+
+    [ContextMenu("Force New Wander Target")]
+    void ForceNewWanderTarget()
+    {
+        if (!IsServer)
+        {
+            Debug.LogWarning("Must be server");
+            return;
+        }
+
+        PickWanderPoint(transform.position, farWanderRadius);
+        Debug.Log($"[ImpostorAI] Manually forced new wander target: {wanderTarget:F1}");
+    }
+
     void OnDrawGizmos()
     {
         if (!showDebugInfo) return;
 
-        // Detection radius (yellow)
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(transform.position, detectionRadius);
 
-        // Approach distance (cyan)
         Gizmos.color = Color.cyan;
         Gizmos.DrawWireSphere(transform.position, approachDistance);
 
-        // Conversation distance (green)
         Gizmos.color = Color.green;
         Gizmos.DrawWireSphere(transform.position, conversationDistance);
 
-        // Personal space (red)
         Gizmos.color = Color.red;
         Gizmos.DrawWireSphere(transform.position, personalSpaceDistance);
 
-        // Current wander target
         if (wanderTarget != Vector3.zero)
         {
             Gizmos.color = Color.magenta;
             Gizmos.DrawWireSphere(wanderTarget, 0.5f);
             Gizmos.DrawLine(transform.position, wanderTarget);
+
+            // Draw distance text
+            Gizmos.color = Color.white;
+            float dist = Vector3.Distance(transform.position, wanderTarget);
+            // Unity Gizmos don't support text, but this helps visualize the line
         }
 
-        // Target player
         if (targetPlayer != null)
         {
             Gizmos.color = Color.white;
