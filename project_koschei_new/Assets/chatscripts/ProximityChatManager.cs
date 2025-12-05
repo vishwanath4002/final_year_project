@@ -191,4 +191,80 @@ public class ProximityChatManager : NetworkBehaviour
             ReceiveChatMessageClientRpc(fromName, message, nameColor, clientRpcParams);
         }
     }
+    // ADD THIS METHOD TO YOUR ProximityChatManager.cs
+    // Put it right before the final closing brace }
+
+    /// <summary>
+    /// Broadcasts an impostor message from any client through the server
+    /// This ensures all nearby players see the impostor's message
+    /// </summary>
+    [ServerRpc(RequireOwnership = false)]
+    public void BroadcastImpostorMessageServerRpc(string fromName, string message, Color nameColor, ServerRpcParams serverRpcParams = default)
+    {
+        // Validate inputs
+        if (string.IsNullOrWhiteSpace(message) || string.IsNullOrWhiteSpace(fromName))
+        {
+            Debug.LogWarning("Invalid impostor message received");
+            return;
+        }
+
+        // Limit message length
+        if (message.Length > 200)
+        {
+            message = message.Substring(0, 200);
+        }
+
+        if (NetworkManager.Singleton == null) return;
+
+        // Get the client who triggered this (the player who's message caused impostor to respond)
+        ulong triggerClientId = serverRpcParams.Receive.SenderClientId;
+
+        if (!NetworkManager.Singleton.ConnectedClients.TryGetValue(triggerClientId, out var triggerClient))
+        {
+            Debug.LogWarning($"Trigger client {triggerClientId} not found");
+            return;
+        }
+
+        if (triggerClient.PlayerObject == null)
+        {
+            Debug.LogWarning($"Trigger client {triggerClientId} has no player object");
+            return;
+        }
+
+        // Use the trigger client's position as the "source" of the impostor message
+        // (impostor appears to be "near" whoever just spoke)
+        Vector3 messageOriginPosition = triggerClient.PlayerObject.transform.position;
+
+        // Find all clients within proximity radius
+        List<ulong> nearbyClientIds = new List<ulong>();
+
+        foreach (var kvp in NetworkManager.Singleton.ConnectedClients)
+        {
+            var client = kvp.Value;
+            if (client.PlayerObject == null) continue;
+
+            float distance = Vector3.Distance(messageOriginPosition, client.PlayerObject.transform.position);
+
+            if (distance <= chatRadius)
+            {
+                nearbyClientIds.Add(kvp.Key);
+            }
+        }
+
+        // Send message only to nearby clients
+        if (nearbyClientIds.Count > 0)
+        {
+            ClientRpcParams clientRpcParams = new ClientRpcParams
+            {
+                Send = new ClientRpcSendParams
+                {
+                    TargetClientIds = nearbyClientIds.ToArray()
+                }
+            };
+
+            ReceiveChatMessageClientRpc(fromName, message, nameColor, clientRpcParams);
+        }
+
+        Debug.Log($"Broadcasted impostor message '{fromName}: {message}' to {nearbyClientIds.Count} nearby clients");
+    }
 }

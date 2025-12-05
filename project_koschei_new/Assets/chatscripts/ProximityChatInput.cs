@@ -13,12 +13,20 @@ public class ChatPayload
 }
 
 [Serializable]
+public class ImpostorMessageData
+{
+    public string player_id;
+    public string message;
+    public string timestamp;
+}
+
+[Serializable]
 public class ChatResponse
 {
     public string player_id;
     public string message;
-    public string npc_reply;
     public string timestamp;
+    public ImpostorMessageData impostor_message; // NEW: impostor can inject messages
 }
 
 public class ProximityChatInput : MonoBehaviour
@@ -52,7 +60,6 @@ public class ProximityChatInput : MonoBehaviour
                     NetworkManager.Singleton.IsClient &&
                     NetworkManager.Singleton.IsConnectedClient)
                 {
-                    // Server will determine position automatically - just pass name, message, and color
                     chatManager.SendChatMessageServerRpc(displayName, text, Color.green);
                 }
                 else
@@ -65,8 +72,8 @@ public class ProximityChatInput : MonoBehaviour
                 inputField.text = "";
                 inputField.DeactivateInputField();
 
-                // Ask backend (alien AI) for a reply, using the clientId as backend id
-                StartCoroutine(SendMessageToServer(localIdentity.OwnerClientId.ToString(), text));
+                // Send to impostor backend
+                StartCoroutine(SendMessageToImpostorBackend(displayName, text));
             }
             else
             {
@@ -75,9 +82,14 @@ public class ProximityChatInput : MonoBehaviour
         }
     }
 
-    IEnumerator SendMessageToServer(string playerIdForBackend, string message)
+    IEnumerator SendMessageToImpostorBackend(string playerName, string message)
     {
-        ChatPayload payload = new ChatPayload { player_id = playerIdForBackend, message = message };
+        ChatPayload payload = new ChatPayload
+        {
+            player_id = playerName,
+            message = message
+        };
+
         string json = JsonUtility.ToJson(payload);
 
         using (UnityWebRequest req = new UnityWebRequest(apiUrl, "POST"))
@@ -94,24 +106,44 @@ public class ProximityChatInput : MonoBehaviour
                 try
                 {
                     ChatResponse resp = JsonUtility.FromJson<ChatResponse>(req.downloadHandler.text);
-                    if (!string.IsNullOrEmpty(resp.npc_reply))
-                    {
-                        string npcText = resp.npc_reply;
 
-                        // For now, show reply only locally so you can test behavior.
-                        // Later, you can move alien broadcasting to a server-side script.
-                        chatManager.AddMessage("Alien-01", npcText, Color.red);
+                    // Check if impostor responded
+                    if (resp.impostor_message != null &&
+                        !string.IsNullOrEmpty(resp.impostor_message.message))
+                    {
+                        string impostorName = resp.impostor_message.player_id;
+                        string impostorMessage = resp.impostor_message.message;
+
+                        Debug.Log($"?? Impostor message detected: {impostorName}: {impostorMessage}");
+
+                        // Broadcast impostor message through proximity system
+                        // Only if we're connected to network
+                        if (NetworkManager.Singleton != null &&
+                            NetworkManager.Singleton.IsClient &&
+                            NetworkManager.Singleton.IsConnectedClient)
+                        {
+                            // Use ServerRpc to broadcast from server (ensures all clients get it)
+                            chatManager.BroadcastImpostorMessageServerRpc(
+                                impostorName,
+                                impostorMessage,
+                                Color.red
+                            );
+                        }
+                        else
+                        {
+                            // Fallback: local only
+                            chatManager.AddMessage(impostorName, impostorMessage, Color.red);
+                        }
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogError("Failed to parse chat response: " + ex + " raw: " + req.downloadHandler.text);
+                    Debug.LogError($"Failed to parse chat response: {ex}\nRaw response: {req.downloadHandler.text}");
                 }
             }
             else
             {
-                Debug.LogError("Chat POST failed: " + req.error);
-                chatManager.AddMessage("System", "Connection error", Color.yellow);
+                Debug.LogWarning($"Chat POST failed: {req.error}");
             }
         }
     }
