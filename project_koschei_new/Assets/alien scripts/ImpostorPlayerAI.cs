@@ -1,4 +1,5 @@
-﻿using Unity.Netcode;
+﻿using System.Collections.Generic;
+using Unity.Netcode;
 using UnityEngine;
 
 [RequireComponent(typeof(CharacterController))]
@@ -36,9 +37,13 @@ public class ImpostorPlayerAI : NetworkBehaviour
     public LayerMask groundMask;
     public float groundDistance = 0.2f;
 
+    [Header("Obstacle Avoidance")]
+    public LayerMask obstacleMask;       // separate from ground if you like
+    public float obstacleCheckDistance = 1.0f;
+
     [Header("Debug")]
     public bool showDebugInfo = true;
-    public bool verboseLogging = false; // EVERY frame logging
+    public bool verboseLogging = false;
 
     private CharacterController controller;
     private Animator anim;
@@ -99,12 +104,9 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
         Debug.Log($"[ImpostorAI] OnNetworkSpawn called. IsServer: {IsServer}, IsClient: {IsClient}");
 
-        if (IsServer)
+        if (IsServer && !isInitialized)
         {
-            if (!isInitialized)
-            {
-                Invoke(nameof(InitializeAI), 0.2f);
-            }
+            Invoke(nameof(InitializeAI), 0.2f);
         }
     }
 
@@ -128,7 +130,7 @@ public class ImpostorPlayerAI : NetworkBehaviour
         PickWanderPoint(transform.position, farWanderRadius);
         isInitialized = true;
 
-        Debug.Log($"[ImpostorAI] ✅ INITIALIZED at {transform.position:F1}, State: {currentState}, WanderTarget: {wanderTarget:F1}, Distance: {Vector3.Distance(transform.position, wanderTarget):F1}");
+        Debug.Log($"[ImpostorAI] INITIALIZED at {transform.position:F1}, State: {currentState}, WanderTarget: {wanderTarget:F1}, Distance: {Vector3.Distance(transform.position, wanderTarget):F1}");
     }
 
     void Update()
@@ -159,7 +161,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
             return;
         }
 
-        // Check if we're actually moving
         float distMoved = Vector3.Distance(transform.position, lastLoggedPosition);
         if (distMoved < 0.001f)
         {
@@ -171,15 +172,11 @@ public class ImpostorPlayerAI : NetworkBehaviour
             lastLoggedPosition = transform.position;
         }
 
-        // Alert if stuck
-        if (framesSinceLastMove > 300 && currentState == AIState.Wandering) // 5 seconds at 60fps
+        if (framesSinceLastMove > 300 && currentState == AIState.Wandering)
         {
-            Debug.LogWarning($"[ImpostorAI] ⚠️ STUCK! Position hasn't changed for 5 seconds. State: {currentState}, WanderTarget: {wanderTarget:F1}, Dist: {Vector3.Distance(transform.position, wanderTarget):F1}");
-            framesSinceLastMove = 0; // Reset to avoid spam
-
-            // Force new wander target
+            Debug.LogWarning($"[ImpostorAI] STUCK. Forcing new wander target.");
+            framesSinceLastMove = 0;
             PickWanderPoint(transform.position, farWanderRadius);
-            Debug.Log("[ImpostorAI] Forced new wander target due to being stuck");
         }
 
         CheckGrounded();
@@ -187,7 +184,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
         HandleGravity();
         UpdateAnimations();
 
-        // Regular debug output
         if (showDebugInfo && Time.frameCount % 120 == 0)
         {
             Debug.Log($"[ImpostorAI] State: {currentState} | Player: {(targetPlayer ? targetPlayer.name : "NONE")} | Pos: {transform.position:F1} | Wander: {wanderTarget:F1} | Dist: {Vector3.Distance(transform.position, wanderTarget):F1} | Grounded: {isGrounded} | StateTimer: {stateTimer:F1}");
@@ -217,7 +213,7 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
         if (verboseLogging && Time.frameCount % 60 == 0)
         {
-            Debug.Log($"[ImpostorAI] Ground check: {isGrounded} (using {(groundCheck != null ? "groundCheck transform" : "raycast")})");
+            Debug.Log($"[ImpostorAI] Ground check: {isGrounded}");
         }
     }
 
@@ -256,7 +252,7 @@ public class ImpostorPlayerAI : NetworkBehaviour
             if (currentState != AIState.Stopping)
             {
                 ChangeState(AIState.Stopping);
-                Debug.Log("[ImpostorAI] 🛑 Entered personal space - stopping");
+                Debug.Log("[ImpostorAI] Entered personal space - stopping");
             }
             FaceTarget(targetPlayer.position);
             socialTimer += Time.deltaTime;
@@ -273,12 +269,20 @@ public class ImpostorPlayerAI : NetworkBehaviour
                 socialTimer = 0f;
                 stateTimer = socialWanderInterval;
                 PickWanderPoint(targetPlayer.position, nearPlayerWanderRadius);
-                Debug.Log("[ImpostorAI] 💬 Started socializing");
+                Debug.Log("[ImpostorAI] Started socializing");
             }
 
             if (socialTimer < minSocialTime)
             {
-                FaceTarget(targetPlayer.position);
+                // new: sometimes stand, sometimes gently follow
+                if (Random.value < 0.5f)
+                {
+                    FaceTarget(targetPlayer.position);
+                }
+                else
+                {
+                    MoveTowards(targetPlayer.position, walkSpeed * 0.5f);
+                }
             }
             else
             {
@@ -301,7 +305,7 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
             if (socialTimer > maxSocialTime)
             {
-                Debug.Log("[ImpostorAI] ⏰ Social time exceeded, wandering off");
+                Debug.Log("[ImpostorAI] Social time exceeded, wandering off");
                 ChangeState(AIState.Wandering);
                 PickWanderPoint(transform.position, farWanderRadius);
                 stateTimer = idleWanderInterval;
@@ -317,7 +321,7 @@ public class ImpostorPlayerAI : NetworkBehaviour
             {
                 ChangeState(AIState.Approaching);
                 hasApproachedPlayer = true;
-                Debug.Log("[ImpostorAI] 🚶 Approaching player");
+                Debug.Log("[ImpostorAI] Approaching player");
             }
 
             if (currentState == AIState.Approaching)
@@ -331,11 +335,23 @@ public class ImpostorPlayerAI : NetworkBehaviour
         {
             if (currentState == AIState.Wandering)
             {
-                if (!hasApproachedPlayer && Random.value < 0.3f * Time.deltaTime)
+                // new: stronger initial approach
+                if (!hasApproachedPlayer)
                 {
-                    ChangeState(AIState.Approaching);
-                    hasApproachedPlayer = true;
-                    Debug.Log("[ImpostorAI] 👀 Detected player, approaching");
+                    if (Random.value < 0.8f * Time.deltaTime)
+                    {
+                        ChangeState(AIState.Approaching);
+                        hasApproachedPlayer = true;
+                        Debug.Log("[ImpostorAI] First time seeing player, approaching");
+                    }
+                }
+                else
+                {
+                    if (Random.value < 0.15f * Time.deltaTime)
+                    {
+                        ChangeState(AIState.Approaching);
+                        Debug.Log("[ImpostorAI] Approaching player again");
+                    }
                 }
             }
             else if (currentState == AIState.Approaching)
@@ -347,7 +363,7 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
         if (currentState != AIState.Wandering)
         {
-            Debug.Log("[ImpostorAI] 🚶 Player left range, resuming wandering");
+            Debug.Log("[ImpostorAI] Player left range, resuming wandering");
             HandleSoloWandering();
         }
     }
@@ -369,13 +385,8 @@ public class ImpostorPlayerAI : NetworkBehaviour
         {
             PickWanderPoint(transform.position, farWanderRadius);
             stateTimer = idleWanderInterval;
-            Debug.LogWarning("[ImpostorAI] Invalid wander target detected, picking new one");
+            Debug.LogWarning("[ImpostorAI] Invalid wander target, picking new one");
             return;
-        }
-
-        if (verboseLogging && Time.frameCount % 30 == 0)
-        {
-            Debug.Log($"[ImpostorAI] Solo wandering: DistToWander={distToWander:F2}, StateTimer={stateTimer:F1}, StopThreshold={stopMovingThreshold}");
         }
 
         if (distToWander < stopMovingThreshold)
@@ -384,14 +395,7 @@ public class ImpostorPlayerAI : NetworkBehaviour
             {
                 PickWanderPoint(transform.position, farWanderRadius);
                 stateTimer = idleWanderInterval;
-                Debug.Log($"[ImpostorAI] ✅ Reached wander point, picking new target");
-            }
-            else
-            {
-                if (verboseLogging && Time.frameCount % 60 == 0)
-                {
-                    Debug.Log($"[ImpostorAI] At wander point, waiting... Timer: {stateTimer:F1}");
-                }
+                Debug.Log("[ImpostorAI] Reached wander point, picking new target");
             }
         }
         else if (distToWander < arrivalThreshold)
@@ -408,7 +412,7 @@ public class ImpostorPlayerAI : NetworkBehaviour
     {
         if (currentState == newState) return;
 
-        Debug.Log($"[ImpostorAI] 🔄 State: {currentState} → {newState}");
+        Debug.Log($"[ImpostorAI] State: {currentState} -> {newState}");
         currentState = newState;
     }
 
@@ -451,7 +455,7 @@ public class ImpostorPlayerAI : NetworkBehaviour
             {
                 wanderTarget = potentialTarget;
 
-                Debug.Log($"[ImpostorAI] 🎯 New wander target: {wanderTarget:F1} (radius: {radius:F1}, dist: {Vector3.Distance(transform.position, wanderTarget):F1})");
+                Debug.Log($"[ImpostorAI] New wander target: {wanderTarget:F1}");
                 Debug.DrawLine(transform.position, wanderTarget, Color.cyan, 3f);
                 return;
             }
@@ -486,15 +490,44 @@ public class ImpostorPlayerAI : NetworkBehaviour
         direction.y = 0f;
 
         float distance = direction.magnitude;
-
         if (distance < 0.1f)
         {
             if (verboseLogging)
-                Debug.Log($"[ImpostorAI] Too close to target ({distance:F3}), not moving");
+                Debug.Log("[ImpostorAI] Too close to target, not moving");
             return;
         }
 
-        // Rotate toward target
+        direction.Normalize();
+
+        // --- Obstacle avoidance ray ---
+        Vector3 rayOrigin = transform.position + Vector3.up * 0.5f;
+        LayerMask maskToUse = obstacleMask.value == 0 ? groundMask : obstacleMask;
+
+        if (Physics.Raycast(rayOrigin, direction, out RaycastHit hit, obstacleCheckDistance, maskToUse))
+        {
+            // try right, then left
+            Vector3 avoidDirRight = Vector3.Cross(Vector3.up, direction);
+            if (!Physics.Raycast(rayOrigin, avoidDirRight, obstacleCheckDistance, maskToUse))
+            {
+                direction = avoidDirRight;
+            }
+            else
+            {
+                Vector3 avoidDirLeft = -avoidDirRight;
+                if (!Physics.Raycast(rayOrigin, avoidDirLeft, obstacleCheckDistance, maskToUse))
+                {
+                    direction = avoidDirLeft;
+                }
+                else
+                {
+                    if (verboseLogging)
+                        Debug.Log("[ImpostorAI] Obstacle ahead, no clear side, not moving this frame");
+                    return;
+                }
+            }
+        }
+
+        // Rotate toward move direction
         if (direction.sqrMagnitude > 0.01f)
         {
             Quaternion targetRotation = Quaternion.LookRotation(direction);
@@ -505,44 +538,33 @@ public class ImpostorPlayerAI : NetworkBehaviour
             );
         }
 
-        // Store position before move
         Vector3 posBeforeMove = transform.position;
-
-        // Move forward
-        Vector3 moveDirection = direction.normalized;
 
         if (isGrounded)
         {
-            // SimpleMove returns bool indicating if grounded
-            bool moveSuccess = controller.SimpleMove(moveDirection * speed);
-
+            bool moveSuccess = controller.SimpleMove(direction * speed);
             Vector3 posAfterMove = transform.position;
             float actualDistance = Vector3.Distance(posBeforeMove, posAfterMove);
 
             if (showDebugInfo && Time.frameCount % 60 == 0)
             {
-                Debug.Log($"[ImpostorAI] 🚶 SimpleMove called. Success: {moveSuccess}, Speed: {speed:F1}, Distance moved: {actualDistance:F3}, Target dist: {distance:F1}");
-            }
-
-            if (actualDistance < 0.001f && verboseLogging)
-            {
-                Debug.LogWarning($"[ImpostorAI] ⚠️ SimpleMove didn't move character! Controller enabled: {controller.enabled}, isGrounded: {isGrounded}");
+                Debug.Log($"[ImpostorAI] SimpleMove. Success: {moveSuccess}, Speed: {speed:F1}, DistMoved: {actualDistance:F3}, TargetDist: {distance:F1}");
             }
         }
         else
         {
-            Vector3 movement = moveDirection * speed * Time.deltaTime;
+            Vector3 movement = direction * speed * Time.deltaTime;
             controller.Move(movement);
 
             if (verboseLogging)
             {
-                Debug.Log($"[ImpostorAI] Using Move (not grounded): {movement:F3}");
+                Debug.Log($"[ImpostorAI] Move (not grounded): {movement:F3}");
             }
         }
 
         if (showDebugInfo)
         {
-            Debug.DrawRay(transform.position, moveDirection * 2f, Color.green, 0.1f);
+            Debug.DrawRay(rayOrigin, direction * 2f, Color.green, 0.1f);
         }
     }
 
@@ -628,11 +650,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
             Gizmos.color = Color.magenta;
             Gizmos.DrawWireSphere(wanderTarget, 0.5f);
             Gizmos.DrawLine(transform.position, wanderTarget);
-
-            // Draw distance text
-            Gizmos.color = Color.white;
-            float dist = Vector3.Distance(transform.position, wanderTarget);
-            // Unity Gizmos don't support text, but this helps visualize the line
         }
 
         if (targetPlayer != null)
