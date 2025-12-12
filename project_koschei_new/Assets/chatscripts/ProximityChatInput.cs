@@ -13,20 +13,12 @@ public class ChatPayload
 }
 
 [Serializable]
-public class ImpostorMessageData
-{
-    public string player_id;
-    public string message;
-    public string timestamp;
-}
-
-[Serializable]
 public class ChatResponse
 {
     public string player_id;
     public string message;
+    public string npc_reply;
     public string timestamp;
-    public ImpostorMessageData impostor_message; // NEW: impostor can inject messages
 }
 
 public class ProximityChatInput : MonoBehaviour
@@ -34,9 +26,23 @@ public class ProximityChatInput : MonoBehaviour
     public TMP_InputField inputField;
     public ProximityChatManager chatManager;
 
-    [Header("API Settings")]
-    [Tooltip("FastAPI endpoint")]
-    public string apiUrl = "http://127.0.0.1:8000/chat";
+    [Header("API Settings (optional override)")]
+    [Tooltip("If empty, we derive the URL from NetworkManager's UnityTransport address/port")]
+    public string apiUrlOverride;
+    public int backendPort = 8000;
+    public string backendPath = "/chat";
+
+    string ResolvedApiUrl
+    {
+        get
+        {
+            if (!string.IsNullOrEmpty(apiUrlOverride))
+                return apiUrlOverride;
+
+            // Derive from NetworkManager / UnityTransport
+            return NetworkHostAddressHelper.GetChatApiUrlFromNetworkManager(backendPort, backendPath);
+        }
+    }
 
     void Update()
     {
@@ -55,7 +61,6 @@ public class ProximityChatInput : MonoBehaviour
 
                 string displayName = localIdentity.GetDisplayName();
 
-                // Send through proximity chat so everyone (including sender) gets it via RPC
                 if (NetworkManager.Singleton != null &&
                     NetworkManager.Singleton.IsClient &&
                     NetworkManager.Singleton.IsConnectedClient)
@@ -64,16 +69,13 @@ public class ProximityChatInput : MonoBehaviour
                 }
                 else
                 {
-                    // fallback: show locally if networking not running
                     chatManager.AddMessage(displayName, text, Color.green);
                 }
 
-                // Clear + lose focus
                 inputField.text = "";
                 inputField.DeactivateInputField();
 
-                // Send to impostor backend
-                StartCoroutine(SendMessageToImpostorBackend(displayName, text));
+                StartCoroutine(SendMessageToServer(localIdentity.OwnerClientId.ToString(), text));
             }
             else
             {
@@ -82,17 +84,19 @@ public class ProximityChatInput : MonoBehaviour
         }
     }
 
-    IEnumerator SendMessageToImpostorBackend(string playerName, string message)
+    IEnumerator SendMessageToServer(string playerIdForBackend, string message)
     {
-        ChatPayload payload = new ChatPayload
+        string url = ResolvedApiUrl;
+        if (string.IsNullOrEmpty(url))
         {
-            player_id = playerName,
-            message = message
-        };
+            Debug.LogWarning("ProximityChatInput: could not resolve backend URL from NetworkManager; skipping LLM call.");
+            yield break;
+        }
 
+        ChatPayload payload = new ChatPayload { player_id = playerIdForBackend, message = message };
         string json = JsonUtility.ToJson(payload);
 
-        using (UnityWebRequest req = new UnityWebRequest(apiUrl, "POST"))
+        using (UnityWebRequest req = new UnityWebRequest(url, "POST"))
         {
             byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(json);
             req.uploadHandler = new UploadHandlerRaw(bodyRaw);
@@ -106,44 +110,20 @@ public class ProximityChatInput : MonoBehaviour
                 try
                 {
                     ChatResponse resp = JsonUtility.FromJson<ChatResponse>(req.downloadHandler.text);
-
-                    // Check if impostor responded
-                    if (resp.impostor_message != null &&
-                        !string.IsNullOrEmpty(resp.impostor_message.message))
+                    if (!string.IsNullOrEmpty(resp.npc_reply))
                     {
-                        string impostorName = resp.impostor_message.player_id;
-                        string impostorMessage = resp.impostor_message.message;
-
-                        Debug.Log($"?? Impostor message detected: {impostorName}: {impostorMessage}");
-
-                        // Broadcast impostor message through proximity system
-                        // Only if we're connected to network
-                        if (NetworkManager.Singleton != null &&
-                            NetworkManager.Singleton.IsClient &&
-                            NetworkManager.Singleton.IsConnectedClient)
-                        {
-                            // Use ServerRpc to broadcast from server (ensures all clients get it)
-                            chatManager.BroadcastImpostorMessageServerRpc(
-                                impostorName,
-                                impostorMessage,
-                                Color.red
-                            );
-                        }
-                        else
-                        {
-                            // Fallback: local only
-                            chatManager.AddMessage(impostorName, impostorMessage, Color.red);
-                        }
+                        chatManager.AddMessage("Alien-01", resp.npc_reply, Color.red);
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogError($"Failed to parse chat response: {ex}\nRaw response: {req.downloadHandler.text}");
+                    Debug.LogError("Failed to parse chat response: " + ex + " raw: " + req.downloadHandler.text);
                 }
             }
             else
             {
-                Debug.LogWarning($"Chat POST failed: {req.error}");
+                Debug.LogError($"Chat POST failed to {url}: {req.error}");
+                chatManager.AddMessage("System", "Connection error", Color.yellow);
             }
         }
     }
