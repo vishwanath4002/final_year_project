@@ -139772,7 +139772,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   inputField: {fileID: 1127948182}
   chatManager: {fileID: 918760918}
-  apiUrl: http://127.0.0.1:8000/chat
+  apiUrlOverride: 
+  backendPort: 8000
+  backendPath: /chat
 --- !u!1001 &1127984398
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -275162,8 +275164,8 @@ SceneRoots:
   - {fileID: 353138526}
   - {fileID: 1524058815}
   - {fileID: 1759552048}
-  - {fileID: 695552772}
   - {fileID: 620647178}
+  - {fileID: 695552772}
   - {fileID: 221949681}
   - {fileID: 526632137}
   - {fileID: 918760917}
