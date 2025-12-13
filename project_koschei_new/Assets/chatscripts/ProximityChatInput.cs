@@ -13,12 +13,20 @@ public class ChatPayload
 }
 
 [Serializable]
+public class ImpostorMessage
+{
+    public string player_id;
+    public string message;
+    public string timestamp;
+}
+
+[Serializable]
 public class ChatResponse
 {
     public string player_id;
     public string message;
-    public string npc_reply;
     public string timestamp;
+    public ImpostorMessage impostor_message;
 }
 
 public class ProximityChatInput : MonoBehaviour
@@ -29,7 +37,7 @@ public class ProximityChatInput : MonoBehaviour
     [Header("API Settings (optional override)")]
     [Tooltip("If empty, we derive the URL from NetworkManager's UnityTransport address/port")]
     public string apiUrlOverride;
-    public int backendPort = 8000;
+    public int backendPort = 8000;  // Changed from 8443 to match FastAPI default
     public string backendPath = "/chat";
 
     string ResolvedApiUrl
@@ -93,8 +101,17 @@ public class ProximityChatInput : MonoBehaviour
             yield break;
         }
 
+        // Ensure URL uses HTTP (not HTTPS) for local development
+        if (url.StartsWith("https://127.0.0.1") || url.StartsWith("https://localhost"))
+        {
+            url = url.Replace("https://", "http://");
+            Debug.Log($"Converted HTTPS to HTTP for local development: {url}");
+        }
+
         ChatPayload payload = new ChatPayload { player_id = playerIdForBackend, message = message };
         string json = JsonUtility.ToJson(payload);
+
+        Debug.Log($"Sending message to: {url}");
 
         using (UnityWebRequest req = new UnityWebRequest(url, "POST"))
         {
@@ -110,9 +127,12 @@ public class ProximityChatInput : MonoBehaviour
                 try
                 {
                     ChatResponse resp = JsonUtility.FromJson<ChatResponse>(req.downloadHandler.text);
-                    if (!string.IsNullOrEmpty(resp.npc_reply))
+
+                    // Check if impostor sent a message
+                    if (resp.impostor_message != null && !string.IsNullOrEmpty(resp.impostor_message.message))
                     {
-                        chatManager.AddMessage("Alien-01", resp.npc_reply, Color.red);
+                        chatManager.AddMessage(resp.impostor_message.player_id, resp.impostor_message.message, Color.red);
+                        Debug.Log($"Impostor message received from {resp.impostor_message.player_id}: {resp.impostor_message.message}");
                     }
                 }
                 catch (Exception ex)
@@ -123,7 +143,7 @@ public class ProximityChatInput : MonoBehaviour
             else
             {
                 Debug.LogError($"Chat POST failed to {url}: {req.error}");
-                chatManager.AddMessage("System", "Connection error", Color.yellow);
+                chatManager.AddMessage("System", "Connection error - Is the backend server running?", Color.yellow);
             }
         }
     }
