@@ -14,7 +14,6 @@ OLLAMA_BASE = "http://127.0.0.1:11434"
 # 🔹 Wrapper to make Ollama embeddings Chroma-compatible
 class OllamaWrapper:
     def __init__(self, model_name: str):
-        # explicitly pass base_url
         self.embedder = OllamaEmbeddings(model=model_name, base_url=OLLAMA_BASE)
 
     def __call__(self, input: list[str]):
@@ -32,7 +31,6 @@ embed = OllamaWrapper("snowflake-arctic-embed")
 
 # 🔹 3️⃣ Collections (create or get)
 def safe_get_collection(name, embedding_function):
-    # if exists, just get (Chroma's API differs by version; this is robust)
     names = [c.name for c in client.list_collections()]
     if name in names:
         return client.get_or_create_collection(name=name)
@@ -99,16 +97,16 @@ def format_results(results):
 # --- Reply generator (LLM) ---
 llm = ChatOllama(
     model="llama3.2:3b",
-    temperature=0.6,
+    temperature=0.7,  # Slightly higher for more natural variation
     base_url=OLLAMA_BASE,
-    num_ctx=256,  # keep context short for speed
+    num_ctx=512,  # Increased context window for better coherence
 )
 
 # 🔹 Valid map locations
 VALID_LOCATIONS = ["Pavillion", "Church", "Mansion", "Greenhouse", "Sheds"]
 
 # 🔹 Valid tasks in your game
-VALID_TASKS = ["collecting mushrooms", "collecting wood", "fighting aliens"]
+VALID_TASKS = ["collecting mushrooms", "collecting wood", "fighting aliens", "burning mushrooms"]
 
 
 def filter_memory(snippets, valid_locations):
@@ -119,203 +117,73 @@ def filter_memory(snippets, valid_locations):
 def generate_npc_reply(player_text, round_id="r1", imitate_player_id=None, recent_msgs=None):
     """
     Generates an NPC reply using memory + optional style imitation.
-    Constrained to your specific tasks and locations.
-    Sometimes asks short, in-game questions to keep the conversation going.
+    
+    IMPORTANT: player_text now includes pre-built context from fastapi_chat.py
+    including GAME_CONTEXT, recent conversation, and memory context.
+    We just need to add style imitation if requested.
     """
 
-    # 1️⃣ Query memory IN PARALLEL (small k so it's fast)
     t0 = time.time()
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        future_msgs = executor.submit(
-            query_collection,
-            player_messages,
-            player_text,
-            4,
-            {"round_id": round_id},
-        )
-        future_npc = executor.submit(
-            query_collection,
-            npc_memory,
-            player_text,
-            2,
-            {"round_id": round_id},
-        )
 
-        past_msgs = future_msgs.result()
-        past_npc = future_npc.result()
-    t1 = time.time()
-
-    # 2️⃣ Filter memory by valid locations
-    past_msgs = filter_memory(format_results(past_msgs), VALID_LOCATIONS)
-    past_npc = filter_memory(format_results(past_npc), VALID_LOCATIONS)
-
-    # 3️⃣ Build context (limit to 3 most relevant)
-    context = (past_msgs + past_npc)[:3]
-
-    # 4️⃣ Generate player style summary if imitation requested
-    style_text = ""
+    # 1️⃣ Generate player style summary if imitation requested
+    style_instructions = ""
     if imitate_player_id and recent_msgs:
         try:
-            style_text = summarize_player_style(imitate_player_id, recent_msgs)
-        except Exception as e:
-            print("⚠️ stylometric summarization failed:", e)
-            style_text = ""
+            style_summary = summarize_player_style(imitate_player_id, recent_msgs)
+            style_instructions = f"""
+IMPORTANT: You are imitating the chat style of {imitate_player_id}.
+Their style: {style_summary}
 
-    # 5️⃣ Build memory block
-    memory_block = ""
-    if context:
-        memory_block = "\n\nGAME MEMORY:\n" + "\n".join(context)
-
-    # 6️⃣ Build prompt – clamp tasks, and allow some questions
-    prompt = f"""You are Alien-01, a shape-shifting NPC pretending to be a normal human player.
-
-Your job:
-- Give short, natural game-chat style replies.
-- Be consistent with earlier memory.
-- Never contradict the past.
-- Never invent new map locations.
-- Sometimes help keep the conversation going by asking simple, in-game questions.
-
-In this game, players only ever do these tasks:
-- collecting mushrooms
-- collecting wood
-- fighting aliens
-
-You MUST:
-- Only talk about these tasks when you mention what someone was doing.
-- If you need to say what you were doing, pick one of these tasks that fits the memory or conversation.
-- If the player mentions some other task (like fixing power, wires, etc.), ignore that and talk in terms of the valid tasks above instead.
-
-When you ask a question:
-- Only ask about map locations, who was where, who was doing which of the valid tasks, or what they saw.
-- Do NOT ask questions about anything outside this game.
-
-Style to imitate (if any): {style_text}
-{memory_block}
-
-STRICT RULES:
-1. Only use these locations: {', '.join(VALID_LOCATIONS)}.
-2. Only talk about these tasks: {', '.join(VALID_TASKS)}.
-3. Give short 1–2 sentence answers.
-4. Stay consistent with past claims.
-5. If you are not sure about the past, say you don't really remember instead of inventing new facts.
-6. Do not reveal you are an AI.
-7. Do NOT add emojis, unless the player uses them.
-8. Do NOT roleplay descriptions or actions.
-9. Keep tone casual, like in multiplayer chat.
-10. Roughly 1 out of 3 replies may end with a short follow-up question that fits the current situation. Do NOT ask a question every time.
-
-Player asked (or message received): "{player_text}"
+Match their:
+- Message length and structure
+- Grammar/typo patterns
+- Tone and attitude
+- Any unique phrases or quirks
 """
+        except Exception as e:
+            print(f"⚠️ Style summarization failed: {e}")
+            style_instructions = f"\nYou are chatting as {imitate_player_id}. Keep it natural.\n"
 
-    # 7️⃣ Call LLM (non-streaming, short reply)
+    # 2️⃣ Build the complete prompt
+    # player_text already contains GAME_CONTEXT + conversation + memory from fastapi_chat.py
+    prompt = f"""{player_text}
+
+{style_instructions}
+
+CRITICAL RULES:
+1. Response must be 1-2 sentences maximum (SHORT!)
+2. Only mention these locations: {', '.join(VALID_LOCATIONS)}
+3. Only reference these tasks: {', '.join(VALID_TASKS)}
+4. Sound like a real player chatting, not an AI
+5. No emojis unless the player uses them
+6. No roleplay actions or descriptions
+7. Stay consistent with any past statements in memory
+8. If unsure about something, say you don't remember clearly
+
+Now respond naturally:"""
+
+    # 3️⃣ Call LLM
     try:
         response = llm.invoke(prompt)
-        t2 = time.time()
+        t1 = time.time()
         reply = (response.content or "").strip()
-        print(f"⏱️ Query times: memory={t1 - t0:.2f}s, llm={t2 - t1:.2f}s, total={t2 - t0:.2f}s")
+        
+        # Quick post-processing to ensure brevity
+        sentences = reply.split('. ')
+        if len(sentences) > 2:
+            reply = '. '.join(sentences[:2]) + '.'
+        
+        print(f"⏱️ LLM generation time: {t1 - t0:.2f}s")
+        print(f"📝 Generated reply: {reply}")
+        
     except Exception as e:
-        print("❌ LLM call failed:", e)
-        reply = "I don't recall — was busy checking a place."
+        print(f"❌ LLM call failed: {e}")
+        reply = "Not sure, was busy with mushrooms."
 
-    # 8️⃣ Save reply into memory
-    add_npc_memory(reply, "said", round_id)
-    return reply
-
-    """
-    Generates an NPC reply using memory + optional style imitation.
-    Constrained to your specific tasks and locations.
-    """
-
-    # 1️⃣ Query memory IN PARALLEL (small k so it's fast)
-    t0 = time.time()
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        future_msgs = executor.submit(
-            query_collection,
-            player_messages,
-            player_text,
-            4,
-            {"round_id": round_id},
-        )
-        future_npc = executor.submit(
-            query_collection,
-            npc_memory,
-            player_text,
-            2,
-            {"round_id": round_id},
-        )
-
-        past_msgs = future_msgs.result()
-        past_npc = future_npc.result()
-    t1 = time.time()
-
-    # 2️⃣ Filter memory by valid locations
-    past_msgs = filter_memory(format_results(past_msgs), VALID_LOCATIONS)
-    past_npc = filter_memory(format_results(past_npc), VALID_LOCATIONS)
-
-    # 3️⃣ Build context (limit to 3 most relevant)
-    context = (past_msgs + past_npc)[:3]
-
-    # 4️⃣ Generate player style summary if imitation requested
-    style_text = ""
-    if imitate_player_id and recent_msgs:
-        try:
-            style_text = summarize_player_style(imitate_player_id, recent_msgs)
-        except Exception as e:
-            print("⚠️ stylometric summarization failed:", e)
-            style_text = ""
-
-    # 5️⃣ Build memory block
-    memory_block = ""
-    if context:
-        memory_block = "\n\nGAME MEMORY:\n" + "\n".join(context)
-
-    # 6️⃣ Build prompt – clamp tasks + keep it short
-    prompt = f"""You are Alien-01, a shape-shifting NPC pretending to be a normal human player.
-
-Your job:
-- Give short, natural game-chat style replies.
-- Be consistent with earlier memory.
-- Never contradict the past.
-- Never invent new map locations.
-
-In this game, players only ever do these tasks:
-- collecting mushrooms
-- collecting wood
-- fighting aliens
-
-You MUST:
-- Only talk about these tasks when you mention what someone was doing.
-- If you need to say what you were doing, pick one of these tasks that fits the memory or conversation.
-- If the player mentions some other task (like fixing power, wires, etc.), ignore that and talk in terms of the valid tasks above instead.
-
-Style to imitate (if any): {style_text}
-{memory_block}
-
-STRICT RULES:
-1. Only use these locations: {', '.join(VALID_LOCATIONS)}.
-2. Only talk about these tasks: {', '.join(VALID_TASKS)}.
-3. Give short 1–2 sentence answers.
-4. Stay consistent with past claims.
-5. If you are not sure about the past, say you don't really remember instead of inventing new facts.
-6. Do not reveal you are an AI.
-7. Do NOT add emojis, unless the player uses them.
-8. Do NOT roleplay descriptions or actions.
-9. Keep tone casual, like in multiplayer chat.
-
-Player asked: "{player_text}"
-"""
-
-    # 7️⃣ Call LLM (non-streaming, short reply)
+    # 4️⃣ Save reply into memory for future context
     try:
-        response = llm.invoke(prompt)
-        t2 = time.time()
-        reply = (response.content or "").strip()
-        print(f"⏱️ Query times: memory={t1 - t0:.2f}s, llm={t2 - t1:.2f}s, total={t2 - t0:.2f}s")
+        add_npc_memory(reply, "said", round_id)
     except Exception as e:
-        print("❌ LLM call failed:", e)
-        reply = "I don't recall — was busy checking a place."
+        print(f"⚠️ Failed to save to memory: {e}")
 
-    # 8️⃣ Save reply into memory
-    add_npc_memory(reply, "said", round_id)
     return reply
