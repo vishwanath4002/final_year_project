@@ -38364,6 +38364,76 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 484950, guid: 1eb5970d54060cd4fa9d893223f463e4, type: 3}
   m_PrefabInstance: {fileID: 309339554}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &309538815
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 309538817}
+  - component: {fileID: 309538818}
+  - component: {fileID: 309538816}
+  m_Layer: 0
+  m_Name: PlayerGroupManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &309538816
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 309538815}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 234b438c2407b064a8870ef7a9f520b0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  groupRadius: 12
+  updateInterval: 1
+  showDebugGizmos: 1
+  logGroupChanges: 1
+--- !u!4 &309538817
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 309538815}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 549.16724, y: 20.312729, z: 519.1625}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &309538818
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 309538815}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  GlobalObjectIdHash: 2128829801
+  InScenePlacedSourceGlobalObjectIdHash: 0
+  AlwaysReplicateAsRoot: 0
+  SynchronizeTransform: 1
+  ActiveSceneSynchronization: 0
+  SceneMigrationSynchronization: 1
+  SpawnWithObservers: 1
+  DontDestroyWithOwner: 0
+  AutoObjectParentSync: 1
 --- !u!1001 &309612442
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -112709,6 +112779,7 @@ MonoBehaviour:
   chatContainer: {fileID: 1447384320}
   maxMessages: 5
   chatRadius: 15
+  groupManager: {fileID: 309538816}
 --- !u!1001 &919026271
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -133668,6 +133739,7 @@ MonoBehaviour:
   chatContainer: {fileID: 1447384320}
   maxMessages: 5
   chatRadius: 15
+  groupManager: {fileID: 0}
 --- !u!114 &1088608875
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -275170,3 +275242,4 @@ SceneRoots:
   - {fileID: 526632137}
   - {fileID: 918760917}
   - {fileID: 2139008038}
+  - {fileID: 309538817}

@@ -14,6 +14,10 @@ public class ProximityChatManager : NetworkBehaviour
     [Header("Proximity settings")]
     public float chatRadius = 15f;
 
+    [Header("Group Integration")]
+    public PlayerGroupManager groupManager;
+
+
     private void Awake()
     {
         if (Instance == null)
@@ -109,6 +113,18 @@ public class ProximityChatManager : NetworkBehaviour
 
         Vector3 senderPosition = senderClient.PlayerObject.transform.position;
 
+        // NEW: Get sender's group info
+        string senderGroupId = "solo";
+        if (groupManager != null)
+        {
+            var group = groupManager.GetPlayerGroup(fromName);
+            if (group != null)
+            {
+                senderGroupId = group.groupId;
+                Debug.Log($"[Chat] {fromName} is in {senderGroupId} with {group.playerIds.Count} members");
+            }
+        }
+
         // Find all clients within proximity radius
         List<ulong> nearbyClientIds = new List<ulong>();
 
@@ -137,6 +153,16 @@ public class ProximityChatManager : NetworkBehaviour
             };
 
             ReceiveChatMessageClientRpc(fromName, message, nameColor, clientRpcParams);
+        }
+
+        // NEW: Forward to backend with group info
+        if (Application.isPlaying)
+        {
+            var chatInput = FindObjectOfType<ProximityChatInput>();
+            if (chatInput != null)
+            {
+                chatInput.NotifyBackendOfMessage(fromName, message, senderGroupId);
+            }
         }
     }
 

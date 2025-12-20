@@ -11,7 +11,12 @@ public class ChatPayload
     public string player_id;
     public string message;
 }
-
+public class ChatPayloadWithGroup
+{
+    public string player_id;
+    public string message;
+    public string group_id;  // NEW: Track which group message is from
+}
 [Serializable]
 public class ImpostorMessage
 {
@@ -146,5 +151,91 @@ public class ProximityChatInput : MonoBehaviour
                 chatManager.AddMessage("System", "Connection error - Is the backend server running?", Color.yellow);
             }
         }
+    }
+    IEnumerator SendMessageToServerWithGroup(string playerIdForBackend, string message, string groupId)
+    {
+        string url = ResolvedApiUrl;
+        if (string.IsNullOrEmpty(url))
+        {
+            Debug.LogWarning("ProximityChatInput: could not resolve backend URL from NetworkManager; skipping LLM call.");
+            yield break;
+        }
+
+        // Ensure URL uses HTTP (not HTTPS) for local development
+        if (url.StartsWith("https://127.0.0.1") || url.StartsWith("https://localhost"))
+        {
+            url = url.Replace("https://", "http://");
+            Debug.Log($"Converted HTTPS to HTTP for local development: {url}");
+        }
+
+        ChatPayloadWithGroup payload = new ChatPayloadWithGroup
+        {
+            player_id = playerIdForBackend,
+            message = message,
+            group_id = groupId
+        };
+
+        string json = JsonUtility.ToJson(payload);
+
+        Debug.Log($"Sending message with group '{groupId}' to: {url}");
+
+        using (UnityWebRequest req = new UnityWebRequest(url, "POST"))
+        {
+            byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(json);
+            req.uploadHandler = new UploadHandlerRaw(bodyRaw);
+            req.downloadHandler = new DownloadHandlerBuffer();
+            req.SetRequestHeader("Content-Type", "application/json");
+
+            yield return req.SendWebRequest();
+
+            if (req.result == UnityWebRequest.Result.Success)
+            {
+                try
+                {
+                    ChatResponse resp = JsonUtility.FromJson<ChatResponse>(req.downloadHandler.text);
+
+                    // Check if impostor sent a message
+                    if (resp.impostor_message != null && !string.IsNullOrEmpty(resp.impostor_message.message))
+                    {
+                        // Broadcast impostor message through the server
+                        if (NetworkManager.Singleton != null &&
+                            NetworkManager.Singleton.IsClient &&
+                            chatManager != null)
+                        {
+                            chatManager.BroadcastImpostorMessageServerRpc(
+                                resp.impostor_message.player_id,
+                                resp.impostor_message.message,
+                                Color.red
+                            );
+                        }
+
+                        Debug.Log($"Impostor message received from {resp.impostor_message.player_id}: {resp.impostor_message.message}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError("Failed to parse chat response: " + ex + " raw: " + req.downloadHandler.text);
+                }
+            }
+            else
+            {
+                Debug.LogError($"Chat POST failed to {url}: {req.error}");
+                chatManager.AddMessage("System", "Connection error - Is the backend server running?", Color.yellow);
+            }
+        }
+    }
+    public void NotifyBackendOfMessage(string playerName, string message, string groupId)
+    {
+        var localIdentity = PlayerIdentity.Local;
+        if (localIdentity == null) return;
+
+        // Only send if this is the actual sender (don't echo messages from others)
+        if (localIdentity.GetDisplayName() != playerName) return;
+
+        StartCoroutine(SendMessageToServerWithGroup(
+            localIdentity.OwnerClientId.ToString(),
+            message,
+            groupId
+        ));
     }
 }
