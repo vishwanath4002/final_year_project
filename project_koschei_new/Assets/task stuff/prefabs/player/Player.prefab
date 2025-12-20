@@ -73,6 +73,8 @@ GameObject:
   m_Component:
   - component: {fileID: 31565408535179064}
   - component: {fileID: 31565408535179065}
+  - component: {fileID: 8966088239729315407}
+  - component: {fileID: 7935545605242441658}
   m_Layer: 0
   m_Name: Camera
   m_TagString: Untagged
@@ -146,6 +148,26 @@ Camera:
   m_OcclusionCulling: 1
   m_StereoConvergence: 10
   m_StereoSeparation: 0.022
+--- !u!81 &8966088239729315407
+AudioListener:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 31565408535179071}
+  m_Enabled: 1
+--- !u!114 &7935545605242441658
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 31565408535179071}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 17e25496263615a4aba73db47ea0f802, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1001 &7343648819631965097
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -241,9 +263,6 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 8504165414389413148, guid: d80e51052c2e484418101ea685069034, type: 3}
       insertIndex: -1
       addedObject: {fileID: -6893624896240399781}
-    - targetCorrespondingSourceObject: {fileID: 8504165414389413148, guid: d80e51052c2e484418101ea685069034, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: -4770648095015899258}
     - targetCorrespondingSourceObject: {fileID: 8504165414389413148, guid: d80e51052c2e484418101ea685069034, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1835506142067574734}
@@ -358,14 +377,6 @@ MeshRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_AdditionalVertexStreams: {fileID: 0}
---- !u!81 &-4770648095015899258
-AudioListener:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1435870730363778741}
-  m_Enabled: 1
 --- !u!114 &1835506142067574734
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -378,7 +389,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  GlobalObjectIdHash: 3851128106
+  GlobalObjectIdHash: 89873454
   InScenePlacedSourceGlobalObjectIdHash: 0
   AlwaysReplicateAsRoot: 0
   SynchronizeTransform: 1
