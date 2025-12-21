@@ -106,7 +106,7 @@ public class PlayerGroupManager : NetworkBehaviour
         if (logGroupChanges && !GroupsEqual(activeGroups, newGroups))
         {
             Debug.Log($"═══════════════════════════════════════════════════");
-            Debug.Log($"🔄 [GROUP UPDATE] Total Groups: {newGroups.Count}");
+            Debug.Log($"[GROUP UPDATE] Total Groups: {newGroups.Count}");
             Debug.Log($"═══════════════════════════════════════════════════");
 
             for (int i = 0; i < newGroups.Count; i++)
@@ -141,7 +141,7 @@ public class PlayerGroupManager : NetworkBehaviour
             int soloPlayers = newGroups.Count(g => g.playerIds.Count == 1);
             int groupedPlayers = totalPlayers - soloPlayers;
 
-            Debug.Log($"📊 [SUMMARY]");
+            Debug.Log($"[SUMMARY]");
             Debug.Log($"   └─ Total Players Tracked: {totalPlayers}");
             Debug.Log($"   └─ Solo Players: {soloPlayers}");
             Debug.Log($"   └─ Grouped Players: {groupedPlayers}");

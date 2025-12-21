@@ -64,6 +64,37 @@ def add_player_message(text, player_id, round_id, location="Unknown", timestamp=
     )
     return msg_id
 
+def add_player_message_with_group(text, player_id, round_id, group_id, location="Unknown", timestamp=None):
+    """
+    Store player message WITH group information
+    """
+    if timestamp is None:
+        timestamp = datetime.utcnow().isoformat()
+    msg_id = f"msg-{uuid4()}"
+    player_messages.add(
+        documents=[text],
+        metadatas=[
+            {
+                "player_id": player_id,
+                "round_id": round_id,
+                "group_id": group_id,  # NEW: Track which group message is from
+                "location": location,
+                "timestamp": timestamp,
+            }
+        ],
+        ids=[msg_id],
+    )
+    return msg_id
+
+def query_messages_by_group(group_id, k=10):
+    """
+    Retrieve recent messages from a specific group conversation
+    """
+    return player_messages.query(
+        query_texts=["conversation"],  # Generic query
+        n_results=k,
+        where={"group_id": group_id}
+    )
 
 def add_npc_memory(text, memory_type, round_id, timestamp=None):
     if timestamp is None:

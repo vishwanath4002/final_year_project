@@ -27,6 +27,14 @@ public class ImpostorAlienSpawner : NetworkBehaviour
     [Header("Debug")]
     public bool showDebugGizmos = true;
 
+    [Header("Group Integration")]
+    public PlayerGroupManager groupManager;
+
+    // Track last target group to avoid repeats
+    private PlayerGroup lastTargetGroup = null;
+
+
+
     NetworkObject currentImpostor;
     float nextSpawnTime = 0f;
     Vector3 lastAttemptedSpawnPos = Vector3.zero;
@@ -86,6 +94,37 @@ public class ImpostorAlienSpawner : NetworkBehaviour
 
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)
             return;
+
+        // NEW: Use group system if available
+        if (groupManager != null)
+        {
+            var targetGroup = groupManager.GetTargetGroupForImpostor(
+                transform.position,
+                lastTargetGroup
+            );
+
+            if (targetGroup == null)
+            {
+                Debug.Log("No valid groups found for impostor spawn.");
+                return;
+            }
+
+            Debug.Log($"[Impostor] Targeting group: {targetGroup}");
+            lastTargetGroup = targetGroup;
+
+            // Spawn near the group center
+            if (!TryFindSpawnPositionAroundPoint(targetGroup.centerPosition, out Vector3 groupSpawnPos))
+            {
+                Debug.LogWarning("ImpostorAlienSpawner: could not find spawn position near target group.");
+                return;
+            }
+
+            SpawnImpostorAt(groupSpawnPos);
+            return;
+        }
+
+        // FALLBACK: Original behavior if no group manager
+        Debug.LogWarning("No PlayerGroupManager assigned, using fallback spawn logic.");
 
         var clients = NetworkManager.Singleton.ConnectedClientsList;
         if (clients == null || clients.Count == 0)
@@ -210,7 +249,7 @@ public class ImpostorAlienSpawner : NetworkBehaviour
         netObj.Spawn(true);
         currentImpostor = netObj;
 
-        Debug.Log($"✅ Spawned impostor alien at {spawnPos}");
+        Debug.Log($"Spawned impostor alien at {spawnPos}");
     }
 
     bool TryFindSpawnPositionAroundPoint(Vector3 groupPos, out Vector3 result)
