@@ -81,23 +81,9 @@ public class ProximityChatInput : MonoBehaviour
                     NetworkManager.Singleton.IsClient &&
                     NetworkManager.Singleton.IsConnectedClient)
                 {
-                    // Send through proximity chat system
-                    chatManager.SendChatMessageServerRpc(displayName, text, Color.green);
-
-                    // ALSO send to backend immediately from THIS client
-                    // Get my current group
-                    string myGroupId = "solo";
-                    if (chatManager.groupManager != null)
-                    {
-                        var myGroup = chatManager.groupManager.GetPlayerGroup(displayName);
-                        if (myGroup != null)
-                        {
-                            myGroupId = myGroup.groupId;
-                        }
-                    }
-
-                    // Send to backend from my client
-                    StartCoroutine(SendMessageToServerWithGroup(displayName, text, myGroupId));
+                    // Send through server - it will handle BOTH proximity chat AND backend notification
+                    // Server has the authoritative group information
+                    chatManager.SendChatMessageWithBackendServerRpc(displayName, text, Color.green);
                 }
                 else
                 {
@@ -115,10 +101,10 @@ public class ProximityChatInput : MonoBehaviour
     }
 
     /// <summary>
-    /// Sends message to backend including group information
-    /// Called directly from Update() when player sends a message
+    /// Called BY THE SERVER to send message to backend with correct group info
+    /// Server has authoritative group data
     /// </summary>
-    IEnumerator SendMessageToServerWithGroup(string playerDisplayName, string message, string groupId)
+    public IEnumerator SendMessageToBackend(string playerDisplayName, string message, string groupId)
     {
         string url = ResolvedApiUrl;
         if (string.IsNullOrEmpty(url))
@@ -136,14 +122,14 @@ public class ProximityChatInput : MonoBehaviour
 
         ChatPayloadWithGroup payload = new ChatPayloadWithGroup
         {
-            player_id = playerDisplayName,  // Use display name consistently
+            player_id = playerDisplayName,
             message = message,
             group_id = groupId
         };
 
         string json = JsonUtility.ToJson(payload);
 
-        Debug.Log($" Sending message to backend: player='{playerDisplayName}' group='{groupId}' msg='{message}'");
+        Debug.Log($"📤 Sending message to backend: player='{playerDisplayName}' group='{groupId}' msg='{message}'");
 
         using (UnityWebRequest req = new UnityWebRequest(url, "POST"))
         {
@@ -165,17 +151,33 @@ public class ProximityChatInput : MonoBehaviour
                     {
                         // Broadcast impostor message through the server
                         if (NetworkManager.Singleton != null &&
-                            NetworkManager.Singleton.IsClient &&
+                            NetworkManager.Singleton.IsServer &&
                             chatManager != null)
                         {
-                            chatManager.BroadcastImpostorMessageServerRpc(
+                            // Get impostor message position (use player's position for proximity)
+                            Vector3 messageOrigin = Vector3.zero;
+                            foreach (var client in NetworkManager.Singleton.ConnectedClientsList)
+                            {
+                                if (client.PlayerObject != null)
+                                {
+                                    var identity = client.PlayerObject.GetComponent<PlayerIdentity>();
+                                    if (identity != null && identity.GetDisplayName() == playerDisplayName)
+                                    {
+                                        messageOrigin = client.PlayerObject.transform.position;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            chatManager.BroadcastMessageFromServer(
                                 resp.impostor_message.player_id,
                                 resp.impostor_message.message,
+                                messageOrigin,
                                 Color.red
                             );
                         }
 
-                        Debug.Log($" Impostor message received from {resp.impostor_message.player_id}: {resp.impostor_message.message}");
+                        Debug.Log($"🤖 Impostor message received from {resp.impostor_message.player_id}: {resp.impostor_message.message}");
                     }
                 }
                 catch (Exception ex)
@@ -186,7 +188,6 @@ public class ProximityChatInput : MonoBehaviour
             else
             {
                 Debug.LogError($"Chat POST failed to {url}: {req.error}");
-                chatManager.AddMessage("System", "Connection error - Is the backend server running?", Color.yellow);
             }
         }
     }

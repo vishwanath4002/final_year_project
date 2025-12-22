@@ -1,6 +1,7 @@
 using Unity.Netcode;
 using UnityEngine;
 using System.Collections.Generic;
+using System.Collections;
 
 public class ProximityChatManager : NetworkBehaviour
 {
@@ -14,9 +15,11 @@ public class ProximityChatManager : NetworkBehaviour
     [Header("Proximity settings")]
     public float chatRadius = 15f;
 
-    // ADD THIS TO ProximityChatManager.cs at the top with other headers
     [Header("Group Integration")]
     public PlayerGroupManager groupManager;
+
+    [Header("Backend Integration")]
+    public ProximityChatInput chatInput;  // Reference to send backend requests
 
     private void Awake()
     {
@@ -76,8 +79,103 @@ public class ProximityChatManager : NetworkBehaviour
     }
 
     /// <summary>
-    /// Called by clients to send a chat message through proximity system
-    /// NOW WITH GROUP TRACKING
+    /// NEW: Combined ServerRpc that handles BOTH proximity chat AND backend notification
+    /// Server determines the correct group and sends to backend
+    /// </summary>
+    [ServerRpc(RequireOwnership = false)]
+    public void SendChatMessageWithBackendServerRpc(string fromName, string message, Color nameColor, ServerRpcParams serverRpcParams = default)
+    {
+        // Validate inputs
+        if (string.IsNullOrWhiteSpace(message) || string.IsNullOrWhiteSpace(fromName))
+        {
+            Debug.LogWarning("Invalid chat message received");
+            return;
+        }
+
+        // Limit message length
+        if (message.Length > 200)
+        {
+            message = message.Substring(0, 200);
+        }
+
+        if (NetworkManager.Singleton == null) return;
+
+        // Get the sender's actual position from server (don't trust client)
+        ulong senderClientId = serverRpcParams.Receive.SenderClientId;
+
+        if (!NetworkManager.Singleton.ConnectedClients.TryGetValue(senderClientId, out var senderClient))
+        {
+            Debug.LogWarning($"Sender client {senderClientId} not found");
+            return;
+        }
+
+        if (senderClient.PlayerObject == null)
+        {
+            Debug.LogWarning($"Sender client {senderClientId} has no player object");
+            return;
+        }
+
+        Vector3 senderPosition = senderClient.PlayerObject.transform.position;
+
+        // CRITICAL: Get sender's group info ON THE SERVER (authoritative)
+        string senderGroupId = "solo";
+        if (groupManager != null)
+        {
+            var group = groupManager.GetPlayerGroup(fromName);
+            if (group != null)
+            {
+                senderGroupId = group.groupId;
+                Debug.Log($"[SERVER-Chat] {fromName} is in {senderGroupId} with {group.playerIds.Count} members");
+            }
+            else
+            {
+                Debug.Log($"[SERVER-Chat] {fromName} is solo (no group found)");
+            }
+        }
+
+        // Find all clients within proximity radius for chat display
+        List<ulong> nearbyClientIds = new List<ulong>();
+
+        foreach (var kvp in NetworkManager.Singleton.ConnectedClients)
+        {
+            var client = kvp.Value;
+            if (client.PlayerObject == null) continue;
+
+            float distance = Vector3.Distance(senderPosition, client.PlayerObject.transform.position);
+
+            if (distance <= chatRadius)
+            {
+                nearbyClientIds.Add(kvp.Key);
+            }
+        }
+
+        // Send message only to nearby clients for display
+        if (nearbyClientIds.Count > 0)
+        {
+            ClientRpcParams clientRpcParams = new ClientRpcParams
+            {
+                Send = new ClientRpcSendParams
+                {
+                    TargetClientIds = nearbyClientIds.ToArray()
+                }
+            };
+
+            ReceiveChatMessageClientRpc(fromName, message, nameColor, clientRpcParams);
+        }
+
+        // Send to backend with CORRECT group info (determined by server)
+        if (chatInput != null)
+        {
+            StartCoroutine(chatInput.SendMessageToBackend(fromName, message, senderGroupId));
+        }
+        else
+        {
+            Debug.LogWarning("[SERVER-Chat] No chatInput reference to send to backend!");
+        }
+    }
+
+    /// <summary>
+    /// OLD: Original ServerRpc for backwards compatibility (doesn't send to backend)
     /// </summary>
     [ServerRpc(RequireOwnership = false)]
     public void SendChatMessageServerRpc(string fromName, string message, Color nameColor, ServerRpcParams serverRpcParams = default)
@@ -114,22 +212,6 @@ public class ProximityChatManager : NetworkBehaviour
 
         Vector3 senderPosition = senderClient.PlayerObject.transform.position;
 
-        // NEW: Get sender's group info
-        string senderGroupId = "solo";
-        if (groupManager != null)
-        {
-            var group = groupManager.GetPlayerGroup(fromName);
-            if (group != null)
-            {
-                senderGroupId = group.groupId;
-                Debug.Log($"[Chat] {fromName} is in {senderGroupId} with {group.playerIds.Count} members");
-            }
-            else
-            {
-                Debug.Log($"[Chat] {fromName} is solo (no group found)");
-            }
-        }
-
         // Find all clients within proximity radius
         List<ulong> nearbyClientIds = new List<ulong>();
 
@@ -159,9 +241,6 @@ public class ProximityChatManager : NetworkBehaviour
 
             ReceiveChatMessageClientRpc(fromName, message, nameColor, clientRpcParams);
         }
-
-        // Backend notification is now handled by each client individually in ProximityChatInput
-        // This ensures each player sends their own messages with correct group info
     }
 
     /// <summary>

@@ -112780,6 +112780,7 @@ MonoBehaviour:
   maxMessages: 5
   chatRadius: 15
   groupManager: {fileID: 309538816}
+  chatInput: {fileID: 1127948185}
 --- !u!1001 &919026271
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -133740,6 +133741,7 @@ MonoBehaviour:
   maxMessages: 5
   chatRadius: 15
   groupManager: {fileID: 0}
+  chatInput: {fileID: 0}
 --- !u!114 &1088608875
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -272542,6 +272544,7 @@ MonoBehaviour:
   spawnHeightOffset: 0.1
   maxRaycastHeight: 500
   showDebugGizmos: 1
+  groupManager: {fileID: 0}
 --- !u!4 &2139008038
 Transform:
   m_ObjectHideFlags: 0
