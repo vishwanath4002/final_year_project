@@ -1,11 +1,17 @@
 # fastapi_chat.py
 
 from fastapi import FastAPI, Body
+
 from fastapi.middleware.cors import CORSMiddleware
+
 import uvicorn
+
 from datetime import datetime, timezone
+
 import random
+
 import time
+
 from typing import Optional
 
 from chromatesting import (
@@ -34,7 +40,6 @@ recent_history: dict[str, list[str]] = {}
 # Track active players in current session
 active_players: set[str] = set()
 
-
 # Impostor state
 class ImpostorState:
     def __init__(self):
@@ -62,53 +67,26 @@ def _update_recent_history(player_id: str, message: str) -> list[str]:
     return history
 
 
-
+def normalize_player_id(player_id: str) -> str:
     """
-    Choose a player to disguise as from Chroma memory.
-    FIXED: Only picks inactive players who have chatted before.
+    Normalize player IDs to handle variations like:
+    'Player 1' vs 'player_1' vs 'Player_1' vs 'p1'
+    Returns lowercase with underscores
     """
-    try:
-        all_players = set()
+    if not player_id:
+        return ""
+    
+    # Convert to lowercase and replace spaces with underscores
+    normalized = player_id.lower().replace(" ", "_")
+    
+    # Handle variations: "player1" -> "player_1"
+    if normalized.startswith("player") and len(normalized) > 6:
+        # If it's like "player1", add underscore
+        if normalized[6].isdigit():
+            normalized = "player_" + normalized[6:]
+    
+    return normalized
 
-        # Get a sample of messages to find player IDs
-        results = player_messages.get(limit=100)
-        if results and results.get("metadatas"):
-            for meta in results["metadatas"]:
-                if meta and "player_id" in meta:
-                    player_id = meta["player_id"]
-                    # Skip any impostor messages or invalid IDs
-                    if player_id and not player_id.startswith("Player_"):
-                        all_players.add(player_id)
-
-        print(f"🔍 Found historical players: {all_players}")
-        print(f"🔍 Currently active players: {active_players}")
-        
-        # CRITICAL FIX: Filter out currently active players
-        inactive_players = list(all_players - active_players)
-        
-        print(f"🔍 Available inactive players: {inactive_players}")
-        
-        if inactive_players:
-            chosen = random.choice(inactive_players)
-            print(f"🎭 Impostor disguising as: {chosen} (inactive)")
-            return chosen
-
-        # If no inactive players, use a unique fallback name
-        # Generate a unique name that won't conflict
-        fallback_names = [
-            f"Player_Shadow_{random.randint(1000, 9999)}",
-            f"Player_Ghost_{random.randint(1000, 9999)}",
-            f"Player_Phantom_{random.randint(1000, 9999)}",
-        ]
-        chosen = random.choice(fallback_names)
-        print(f"🎭 No inactive players found, using fallback: {chosen}")
-        return chosen
-
-    except Exception as e:
-        print(f"❌ Error choosing disguise: {e}")
-        return None
-
-# REPLACE the existing choose_impostor_disguise() function in fastapi_chat.py with this:
 
 def choose_impostor_disguise(target_group_id: Optional[str] = None) -> Optional[str]:
     """
@@ -117,7 +95,7 @@ def choose_impostor_disguise(target_group_id: Optional[str] = None) -> Optional[
     FIXED: Only picks inactive players who have chatted before.
     """
     try:
-        all_players = {}  # player_id -> most_recent_group_id
+        all_players = {}  # normalized_id -> (original_id, most_recent_group_id)
 
         # Get a sample of messages to find player IDs and their groups
         results = player_messages.get(limit=100)
@@ -127,44 +105,53 @@ def choose_impostor_disguise(target_group_id: Optional[str] = None) -> Optional[
                     player_id = meta["player_id"]
                     
                     # Skip impostor messages or invalid IDs
-                    if player_id.startswith("impostor_") or player_id.startswith("Player_"):
+                    if player_id.startswith("impostor_") or player_id.startswith("Player_Shadow") or player_id.startswith("Player_Ghost"):
                         continue
+                    
+                    # Normalize for comparison
+                    normalized_id = normalize_player_id(player_id)
                     
                     # Track player's most recent group
                     group_id = meta.get("group_id", "solo")
-                    all_players[player_id] = group_id
+                    all_players[normalized_id] = (player_id, group_id)
 
-        print(f"🔍 Found historical players by group: {all_players}")
-        print(f"🔍 Currently active players: {active_players}")
+        print(f"🔍 Found historical players: {[(norm, orig) for norm, (orig, _) in all_players.items()]}")
         
-        # CRITICAL FIX: Filter out currently active players
+        # Normalize active players for comparison
+        normalized_active = {normalize_player_id(pid) for pid in active_players}
+        print(f"🔍 Normalized active players: {normalized_active}")
+        
+        # CRITICAL FIX: Filter out currently active players (using normalized comparison)
         inactive_players = {
-            pid: gid for pid, gid in all_players.items() 
-            if pid not in active_players
+            norm_id: (orig_id, gid) 
+            for norm_id, (orig_id, gid) in all_players.items() 
+            if norm_id not in normalized_active
         }
         
-        print(f"🔍 Available inactive players: {inactive_players}")
+        print(f"🔍 Available inactive players: {[(norm, orig) for norm, (orig, _) in inactive_players.items()]}")
         
         # If target_group_id provided, prefer players from different groups
         if target_group_id and inactive_players:
             different_group_players = {
-                pid: gid for pid, gid in inactive_players.items()
+                norm_id: (orig_id, gid) 
+                for norm_id, (orig_id, gid) in inactive_players.items()
                 if gid != target_group_id
             }
             
             if different_group_players:
-                chosen = random.choice(list(different_group_players.keys()))
-                chosen_group = different_group_players[chosen]
-                print(f"🎭 Impostor disguising as: {chosen} (from group '{chosen_group}', target was '{target_group_id}')")
-                return chosen
+                chosen_norm = random.choice(list(different_group_players.keys()))
+                chosen_orig, chosen_group = different_group_players[chosen_norm]
+                print(f"🎭 Impostor disguising as: {chosen_orig} (normalized: {chosen_norm}, from group '{chosen_group}', target was '{target_group_id}')")
+                return chosen_orig
             else:
                 print(f"⚠️ No inactive players from different group than '{target_group_id}'")
         
         # Fallback: any inactive player
         if inactive_players:
-            chosen = random.choice(list(inactive_players.keys()))
-            print(f"🎭 Impostor disguising as: {chosen} (inactive, any group)")
-            return chosen
+            chosen_norm = random.choice(list(inactive_players.keys()))
+            chosen_orig, _ = inactive_players[chosen_norm]
+            print(f"🎭 Impostor disguising as: {chosen_orig} (normalized: {chosen_norm}, inactive, any group)")
+            return chosen_orig
 
         # If no inactive players, use a unique fallback name
         fallback_names = [
@@ -181,74 +168,6 @@ def choose_impostor_disguise(target_group_id: Optional[str] = None) -> Optional[
         return None
 
 
-# UPDATE the /impostor/activate endpoint to pass target group:
-
-@app.post("/impostor/activate")
-def activate_impostor(
-    target_player_id: Optional[str] = None,
-    target_group_id: Optional[str] = None,  # NEW: Allow specifying target group
-    engagement_rate: float = 0.3,
-):
-    """
-    Activate the impostor AI.
-    Can optionally specify which group to target and prefer disguises from other groups.
-    FIXED: Validates target isn't active, resets if becomes active.
-    """
-    # Handle "string" default from Swagger UI
-    if target_player_id and target_player_id.lower() in ["string", "null", ""]:
-        target_player_id = None
-    
-    if target_group_id and target_group_id.lower() in ["string", "null", ""]:
-        target_group_id = None
-    
-    # CRITICAL FIX: Don't allow disguising as active players
-    if target_player_id:
-        if target_player_id in active_players:
-            return {
-                "success": False,
-                "message": f"{target_player_id} is currently active, cannot disguise as them",
-                "active_players": list(active_players),
-            }
-        impostor.disguised_as = target_player_id
-        print(f"🎭 Manual disguise selected: {target_player_id}")
-    else:
-        # NEW: Pass target_group_id to choose_impostor_disguise
-        impostor.disguised_as = choose_impostor_disguise(target_group_id)
-
-    if not impostor.disguised_as:
-        return {
-            "success": False,
-            "message": "Could not find suitable player to disguise as",
-        }
-    
-    # FINAL SAFETY CHECK: Verify chosen disguise isn't active
-    if impostor.disguised_as in active_players:
-        print(f"⚠️ Selected disguise {impostor.disguised_as} is active! Aborting.")
-        impostor.disguised_as = None
-        return {
-            "success": False,
-            "message": f"Cannot activate: chosen identity is currently active",
-            "active_players": list(active_players),
-        }
-
-    impostor.is_active = True
-    impostor.conversation_engagement = max(0.1, min(1.0, engagement_rate))
-    impostor.last_message_time = time.time()
-
-    print(f"✅ Impostor activated, disguised as: {impostor.disguised_as}")
-    print(f"   Target group: {target_group_id or 'any'}")
-    print(f"   Engagement rate: {impostor.conversation_engagement}")
-    print(f"   Active players at activation: {active_players}")
-
-    return {
-        "success": True,
-        "disguised_as": impostor.disguised_as,
-        "target_group": target_group_id,
-        "engagement_rate": impostor.conversation_engagement,
-        "active_players": list(active_players),
-    }
-
-
 def should_impostor_respond(recent_messages_count: int, last_msg_player_id: str) -> bool:
     """
     Decide if impostor should inject itself into conversation.
@@ -256,12 +175,12 @@ def should_impostor_respond(recent_messages_count: int, last_msg_player_id: str)
     """
     if not impostor.is_active or not impostor.disguised_as:
         return False
-    
+
     # CRITICAL FIX: Don't respond if disguised as an active player
     if impostor.is_disguised_as_active_player():
         print(f"⚠️ Impostor disguised as active player {impostor.disguised_as}, skipping response")
         return False
-    
+
     # CRITICAL FIX: Don't respond to own messages
     if last_msg_player_id == impostor.disguised_as:
         print(f"⚠️ Impostor won't respond to its own message")
@@ -281,11 +200,11 @@ def should_impostor_respond(recent_messages_count: int, last_msg_player_id: str)
     base_chance = impostor.conversation_engagement
     if recent_messages_count > 2:
         base_chance += 0.2
-    
+
     should_respond = random.random() < base_chance
     if should_respond:
         print(f"🎲 Impostor decided to respond (chance was {base_chance:.1%})")
-    
+
     return should_respond
 
 
@@ -351,8 +270,6 @@ def generate_impostor_message(context_messages: list[dict]) -> str:
     return reply
 
 
-# UPDATE the ChatPayload class at the top:
-
 @app.post("/chat")
 def receive_message(
     player_id: str = Body(..., embed=True),
@@ -360,22 +277,22 @@ def receive_message(
     group_id: str = Body("solo", embed=True),  # NEW: Accept group info
 ):
     """
-    Receives messages from players, stores them with group info, 
+    Receives messages from players, stores them with group info,
     and may inject impostor responses.
     """
     # NORMALIZE player ID to prevent duplicates like "p1" vs "player_1"
     player_id = player_id.strip()
     group_id = group_id.strip() if group_id else "solo"
-    
     timestamp = datetime.now(timezone.utc).isoformat()
+
     print(f"\n💬 Player {player_id} in group '{group_id}' at {timestamp}: {message}")
 
     # Track active player
     active_players.add(player_id)
-    
+
     # CRITICAL FIX: If impostor is disguised as this player, invalidate disguise
     if impostor.is_active and impostor.disguised_as == player_id:
-        print(f" Real {player_id} is active! Impostor disguise compromised.")
+        print(f"   Real {player_id} is active! Impostor disguise compromised.")
         impostor.disguised_as = None
         impostor.is_active = False
 
@@ -383,6 +300,7 @@ def receive_message(
     try:
         # Import add_player_message_with_group from updated chromatesting
         from chromatesting import add_player_message_with_group
+
         add_player_message_with_group(
             text=message,
             player_id=player_id,
@@ -394,6 +312,7 @@ def receive_message(
     except ImportError:
         # Fallback to old method if not updated yet
         from chromatesting import add_player_message
+
         add_player_message(
             text=message,
             player_id=player_id,
@@ -401,9 +320,9 @@ def receive_message(
             location="Unknown",
             timestamp=timestamp,
         )
-        print(" Using legacy message storage without group info")
+        print("   Using legacy message storage without group info")
     except Exception as e:
-        print(f" Failed to store message in Chroma: {e}")
+        print(f"   Failed to store message in Chroma: {e}")
 
     # Update player's message history
     recent_msgs = _update_recent_history(player_id, message)
@@ -435,10 +354,11 @@ def receive_message(
             impostor_msg = generate_impostor_message(context_messages)
             if impostor_msg:
                 impostor_timestamp = datetime.now(timezone.utc).isoformat()
-                
+
                 # Store impostor message WITH GROUP INFO
                 try:
                     from chromatesting import add_player_message_with_group
+
                     add_player_message_with_group(
                         text=impostor_msg,
                         player_id=f"impostor_{impostor.disguised_as}",  # Special ID
@@ -474,25 +394,31 @@ def receive_message(
                     "timestamp": impostor_timestamp,
                 }
 
-                print(f" Impostor as {impostor.disguised_as}: {impostor_msg}")
+                print(f"   Impostor as {impostor.disguised_as}: {impostor_msg}")
         except Exception as e:
-            print(f" Impostor message generation failed: {e}")
+            print(f"   Impostor message generation failed: {e}")
 
     return response_data
+
 
 @app.post("/impostor/activate")
 def activate_impostor(
     target_player_id: Optional[str] = None,
+    target_group_id: Optional[str] = None,  # NEW: Allow specifying target group
     engagement_rate: float = 0.3,
 ):
     """
     Activate the impostor AI.
+    Can optionally specify which group to target and prefer disguises from other groups.
     FIXED: Validates target isn't active, resets if becomes active.
     """
     # Handle "string" default from Swagger UI
     if target_player_id and target_player_id.lower() in ["string", "null", ""]:
         target_player_id = None
-    
+
+    if target_group_id and target_group_id.lower() in ["string", "null", ""]:
+        target_group_id = None
+
     # CRITICAL FIX: Don't allow disguising as active players
     if target_player_id:
         if target_player_id in active_players:
@@ -504,17 +430,18 @@ def activate_impostor(
         impostor.disguised_as = target_player_id
         print(f"🎭 Manual disguise selected: {target_player_id}")
     else:
-        impostor.disguised_as = choose_impostor_disguise()
+        # NEW: Pass target_group_id to choose_impostor_disguise
+        impostor.disguised_as = choose_impostor_disguise(target_group_id)
 
     if not impostor.disguised_as:
         return {
             "success": False,
             "message": "Could not find suitable player to disguise as",
         }
-    
+
     # FINAL SAFETY CHECK: Verify chosen disguise isn't active
     if impostor.disguised_as in active_players:
-        print(f" Selected disguise {impostor.disguised_as} is active! Aborting.")
+        print(f"⚠️ Selected disguise {impostor.disguised_as} is active! Aborting.")
         impostor.disguised_as = None
         return {
             "success": False,
@@ -526,13 +453,15 @@ def activate_impostor(
     impostor.conversation_engagement = max(0.1, min(1.0, engagement_rate))
     impostor.last_message_time = time.time()
 
-    print(f" Impostor activated, disguised as: {impostor.disguised_as}")
+    print(f"✅ Impostor activated, disguised as: {impostor.disguised_as}")
+    print(f"   Target group: {target_group_id or 'any'}")
     print(f"   Engagement rate: {impostor.conversation_engagement}")
     print(f"   Active players at activation: {active_players}")
 
     return {
         "success": True,
         "disguised_as": impostor.disguised_as,
+        "target_group": target_group_id,
         "engagement_rate": impostor.conversation_engagement,
         "active_players": list(active_players),
     }
@@ -544,7 +473,7 @@ def deactivate_impostor():
     impostor.is_active = False
     old_disguise = impostor.disguised_as
     impostor.disguised_as = None
-    print(f" Impostor deactivated (was disguised as: {old_disguise})")
+    print(f"   Impostor deactivated (was disguised as: {old_disguise})")
     return {
         "success": True,
         "message": f"Impostor deactivated (was {old_disguise})",
@@ -577,7 +506,6 @@ def update_impostor_settings(
     if message_cooldown is not None:
         impostor.message_cooldown = max(5.0, message_cooldown)
         updated["message_cooldown"] = impostor.message_cooldown
-
     if engagement_rate is not None:
         impostor.conversation_engagement = max(0.1, min(1.0, engagement_rate))
         updated["engagement_rate"] = impostor.conversation_engagement
@@ -621,22 +549,21 @@ def clear_database():
         # Clear all collections
         player_messages.delete(where={})  # Delete all documents
         npc_memory.delete(where={})
-        
+
         # Also reset session state
         active_players.clear()
         recent_history.clear()
         impostor.is_active = False
         impostor.disguised_as = None
-        
+
         print("🗑️ Database cleared: All messages and memories deleted")
-        
         return {
             "success": True,
             "message": "All ChromaDB data cleared successfully",
             "collections_cleared": ["player_messages", "npc_memory"],
         }
     except Exception as e:
-        print(f" Error clearing database: {e}")
+        print(f"   Error clearing database: {e}")
         return {
             "success": False,
             "message": f"Failed to clear database: {str(e)}",
@@ -651,17 +578,16 @@ def inspect_database():
     """
     try:
         results = player_messages.get(limit=200)
-        
         player_ids = set()
         message_count = {}
-        
+
         if results and results.get("metadatas"):
             for meta in results["metadatas"]:
                 if meta and "player_id" in meta:
                     pid = meta["player_id"]
                     player_ids.add(pid)
                     message_count[pid] = message_count.get(pid, 0) + 1
-        
+
         return {
             "total_messages": len(results.get("ids", [])),
             "unique_player_ids": sorted(list(player_ids)),
@@ -682,7 +608,7 @@ def root():
         "status": "online",
         "message": "Impostor Chat Server is running",
         "impostor_active": impostor.is_active,
-        "ollama_connection": " Check if Ollama is running on port 11434",
+        "ollama_connection": "Check if Ollama is running on port 11434",
     }
 
 
@@ -694,14 +620,13 @@ if __name__ == "__main__":
     print("  POST /chat - Send player messages")
     print("  POST /impostor/activate - Activate impostor")
     print("  POST /impostor/deactivate - Deactivate impostor")
-    print("  GET  /impostor/status - Check impostor status")
+    print("  GET /impostor/status - Check impostor status")
     print("  POST /impostor/settings - Update impostor settings")
-    print("  GET  /players/active - List active players")
+    print("  GET /players/active - List active players")
     print("  POST /session/reset - Reset session")
     print("  POST /database/clear - ⚠️ CLEAR ALL DATA")
-    print("  GET  /database/inspect - 🔍 DEBUG: See stored player IDs")
-    print("  GET  / - Health check")
-    print("\n⚠️  Make sure Unity is connecting to http://172.16.30.250:8000/chat")
-    print("⚠️  Make sure Ollama is running: ollama serve")
-
+    print("  GET /database/inspect - 🔍 DEBUG: See stored player IDs")
+    print("  GET / - Health check")
+    print("\n⚠️ Make sure Unity is connecting to http://172.16.30.250:8000/chat")
+    print("⚠️ Make sure Ollama is running: ollama serve")
     uvicorn.run(app, host="0.0.0.0", port=8000)

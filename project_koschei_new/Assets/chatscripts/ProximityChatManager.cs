@@ -78,6 +78,7 @@ public class ProximityChatManager : NetworkBehaviour
     /// <summary>
     /// Called by clients to send a chat message through proximity system
     /// </summary>
+    
     [ServerRpc(RequireOwnership = false)]
     public void SendChatMessageServerRpc(string fromName, string message, Color nameColor, ServerRpcParams serverRpcParams = default)
     {
@@ -123,6 +124,10 @@ public class ProximityChatManager : NetworkBehaviour
                 senderGroupId = group.groupId;
                 Debug.Log($"[Chat] {fromName} is in {senderGroupId} with {group.playerIds.Count} members");
             }
+            else
+            {
+                Debug.Log($"[Chat] {fromName} is solo (no group found)");
+            }
         }
 
         // Find all clients within proximity radius
@@ -156,12 +161,19 @@ public class ProximityChatManager : NetworkBehaviour
         }
 
         // NEW: Forward to backend with group info
+        Debug.Log($"[Chat Server] Notifying backend: player={fromName}, group={senderGroupId}, message={message}");
+
         if (Application.isPlaying)
         {
             var chatInput = FindObjectOfType<ProximityChatInput>();
             if (chatInput != null)
             {
                 chatInput.NotifyBackendOfMessage(fromName, message, senderGroupId);
+                Debug.Log($"[Chat Server] Called NotifyBackendOfMessage for {fromName}");
+            }
+            else
+            {
+                Debug.LogError("[Chat Server] ProximityChatInput not found!");
             }
         }
     }
