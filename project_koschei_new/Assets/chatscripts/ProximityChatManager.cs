@@ -14,9 +14,9 @@ public class ProximityChatManager : NetworkBehaviour
     [Header("Proximity settings")]
     public float chatRadius = 15f;
 
+    // ADD THIS TO ProximityChatManager.cs at the top with other headers
     [Header("Group Integration")]
     public PlayerGroupManager groupManager;
-
 
     private void Awake()
     {
@@ -77,8 +77,8 @@ public class ProximityChatManager : NetworkBehaviour
 
     /// <summary>
     /// Called by clients to send a chat message through proximity system
+    /// NOW WITH GROUP TRACKING
     /// </summary>
-    
     [ServerRpc(RequireOwnership = false)]
     public void SendChatMessageServerRpc(string fromName, string message, Color nameColor, ServerRpcParams serverRpcParams = default)
     {
@@ -160,22 +160,8 @@ public class ProximityChatManager : NetworkBehaviour
             ReceiveChatMessageClientRpc(fromName, message, nameColor, clientRpcParams);
         }
 
-        // NEW: Forward to backend with group info
-        Debug.Log($"[Chat Server] Notifying backend: player={fromName}, group={senderGroupId}, message={message}");
-
-        if (Application.isPlaying)
-        {
-            var chatInput = FindObjectOfType<ProximityChatInput>();
-            if (chatInput != null)
-            {
-                chatInput.NotifyBackendOfMessage(fromName, message, senderGroupId);
-                Debug.Log($"[Chat Server] Called NotifyBackendOfMessage for {fromName}");
-            }
-            else
-            {
-                Debug.LogError("[Chat Server] ProximityChatInput not found!");
-            }
-        }
+        // Backend notification is now handled by each client individually in ProximityChatInput
+        // This ensures each player sends their own messages with correct group info
     }
 
     /// <summary>
@@ -202,14 +188,12 @@ public class ProximityChatManager : NetworkBehaviour
         if (NetworkManager.Singleton == null) return;
 
         List<ulong> nearbyClientIds = new List<ulong>();
-
         foreach (var kvp in NetworkManager.Singleton.ConnectedClients)
         {
             var client = kvp.Value;
             if (client.PlayerObject == null) continue;
 
             float distance = Vector3.Distance(worldPos, client.PlayerObject.transform.position);
-
             if (distance <= chatRadius)
             {
                 nearbyClientIds.Add(kvp.Key);
@@ -229,8 +213,6 @@ public class ProximityChatManager : NetworkBehaviour
             ReceiveChatMessageClientRpc(fromName, message, nameColor, clientRpcParams);
         }
     }
-    // ADD THIS METHOD TO YOUR ProximityChatManager.cs
-    // Put it right before the final closing brace }
 
     /// <summary>
     /// Broadcasts an impostor message from any client through the server
@@ -254,7 +236,7 @@ public class ProximityChatManager : NetworkBehaviour
 
         if (NetworkManager.Singleton == null) return;
 
-        // Get the client who triggered this (the player who's message caused impostor to respond)
+        // Get the client who triggered this (the player whose message caused impostor to respond)
         ulong triggerClientId = serverRpcParams.Receive.SenderClientId;
 
         if (!NetworkManager.Singleton.ConnectedClients.TryGetValue(triggerClientId, out var triggerClient))
@@ -275,14 +257,12 @@ public class ProximityChatManager : NetworkBehaviour
 
         // Find all clients within proximity radius
         List<ulong> nearbyClientIds = new List<ulong>();
-
         foreach (var kvp in NetworkManager.Singleton.ConnectedClients)
         {
             var client = kvp.Value;
             if (client.PlayerObject == null) continue;
 
             float distance = Vector3.Distance(messageOriginPosition, client.PlayerObject.transform.position);
-
             if (distance <= chatRadius)
             {
                 nearbyClientIds.Add(kvp.Key);

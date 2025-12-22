@@ -82,8 +82,22 @@ public class ProximityChatInput : MonoBehaviour
                     NetworkManager.Singleton.IsConnectedClient)
                 {
                     // Send through proximity chat system
-                    // This will call NotifyBackendOfMessage with proper group info
                     chatManager.SendChatMessageServerRpc(displayName, text, Color.green);
+
+                    // ALSO send to backend immediately from THIS client
+                    // Get my current group
+                    string myGroupId = "solo";
+                    if (chatManager.groupManager != null)
+                    {
+                        var myGroup = chatManager.groupManager.GetPlayerGroup(displayName);
+                        if (myGroup != null)
+                        {
+                            myGroupId = myGroup.groupId;
+                        }
+                    }
+
+                    // Send to backend from my client
+                    StartCoroutine(SendMessageToServerWithGroup(displayName, text, myGroupId));
                 }
                 else
                 {
@@ -92,9 +106,6 @@ public class ProximityChatInput : MonoBehaviour
 
                 inputField.text = "";
                 inputField.DeactivateInputField();
-
-                // REMOVED: Don't call backend here - let ProximityChatManager handle it
-                // This prevents duplicate messages with wrong group info
             }
             else
             {
@@ -104,39 +115,8 @@ public class ProximityChatInput : MonoBehaviour
     }
 
     /// <summary>
-    /// Called by ProximityChatManager to notify backend of messages with group info
-    /// </summary>
-    public void NotifyBackendOfMessage(string playerName, string message, string groupId)
-    {
-        Debug.Log($"[ChatInput] NotifyBackendOfMessage called: player={playerName}, msg={message}");
-
-        var localIdentity = PlayerIdentity.Local;
-        if (localIdentity == null)
-        {
-            Debug.LogWarning("[ChatInput] No PlayerIdentity.Local found!");
-            return;
-        }
-
-        string myDisplayName = localIdentity.GetDisplayName();
-        Debug.Log($"[ChatInput] My display name: {myDisplayName}, Message from: {playerName}");
-
-        // Only send if this is the actual sender (don't echo messages from others)
-        if (myDisplayName != playerName)
-        {
-            Debug.Log($"[ChatInput] Skipping backend notify - not my message (I am {myDisplayName}, message from {playerName})");
-            return;
-        }
-
-        Debug.Log($"[ChatInput] This is my message! Starting coroutine to send to backend...");
-        StartCoroutine(SendMessageToServerWithGroup(
-            playerName,  // FIXED: Use display name, not ClientID
-            message,
-            groupId
-        ));
-    }
-
-    /// <summary>
     /// Sends message to backend including group information
+    /// Called directly from Update() when player sends a message
     /// </summary>
     IEnumerator SendMessageToServerWithGroup(string playerDisplayName, string message, string groupId)
     {
@@ -163,7 +143,7 @@ public class ProximityChatInput : MonoBehaviour
 
         string json = JsonUtility.ToJson(payload);
 
-        Debug.Log($"📤 Sending message to backend: player='{playerDisplayName}' group='{groupId}' msg='{message}'");
+        Debug.Log($" Sending message to backend: player='{playerDisplayName}' group='{groupId}' msg='{message}'");
 
         using (UnityWebRequest req = new UnityWebRequest(url, "POST"))
         {
@@ -195,7 +175,7 @@ public class ProximityChatInput : MonoBehaviour
                             );
                         }
 
-                        Debug.Log($"🎭 Impostor message received from {resp.impostor_message.player_id}: {resp.impostor_message.message}");
+                        Debug.Log($" Impostor message received from {resp.impostor_message.player_id}: {resp.impostor_message.message}");
                     }
                 }
                 catch (Exception ex)

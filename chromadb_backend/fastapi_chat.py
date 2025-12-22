@@ -1,19 +1,12 @@
 # fastapi_chat.py
 
 from fastapi import FastAPI, Body
-
 from fastapi.middleware.cors import CORSMiddleware
-
 import uvicorn
-
 from datetime import datetime, timezone
-
 import random
-
 import time
-
 from typing import Optional
-
 from chromatesting import (
     generate_npc_reply,
     add_player_message,
@@ -75,16 +68,13 @@ def normalize_player_id(player_id: str) -> str:
     """
     if not player_id:
         return ""
-    
     # Convert to lowercase and replace spaces with underscores
     normalized = player_id.lower().replace(" ", "_")
-    
     # Handle variations: "player1" -> "player_1"
     if normalized.startswith("player") and len(normalized) > 6:
         # If it's like "player1", add underscore
         if normalized[6].isdigit():
             normalized = "player_" + normalized[6:]
-    
     return normalized
 
 
@@ -103,54 +93,74 @@ def choose_impostor_disguise(target_group_id: Optional[str] = None) -> Optional[
             for meta in results["metadatas"]:
                 if meta and "player_id" in meta:
                     player_id = meta["player_id"]
-                    
+
                     # Skip impostor messages or invalid IDs
-                    if player_id.startswith("impostor_") or player_id.startswith("Player_Shadow") or player_id.startswith("Player_Ghost"):
+                    if (
+                        player_id.startswith("impostor_")
+                        or player_id.startswith("Player_Shadow")
+                        or player_id.startswith("Player_Ghost")
+                    ):
                         continue
-                    
+
                     # Normalize for comparison
                     normalized_id = normalize_player_id(player_id)
-                    
+
                     # Track player's most recent group
                     group_id = meta.get("group_id", "solo")
                     all_players[normalized_id] = (player_id, group_id)
 
-        print(f"🔍 Found historical players: {[(norm, orig) for norm, (orig, _) in all_players.items()]}")
-        
+        print(
+            f"🔍 Found historical players: "
+            f"{[(norm, orig) for norm, (orig, _) in all_players.items()]}"
+        )
+
         # Normalize active players for comparison
         normalized_active = {normalize_player_id(pid) for pid in active_players}
         print(f"🔍 Normalized active players: {normalized_active}")
-        
+
         # CRITICAL FIX: Filter out currently active players (using normalized comparison)
         inactive_players = {
-            norm_id: (orig_id, gid) 
-            for norm_id, (orig_id, gid) in all_players.items() 
+            norm_id: (orig_id, gid)
+            for norm_id, (orig_id, gid) in all_players.items()
             if norm_id not in normalized_active
         }
-        
-        print(f"🔍 Available inactive players: {[(norm, orig) for norm, (orig, _) in inactive_players.items()]}")
-        
+
+        print(
+            f"🔍 Available inactive players: "
+            f"{[(norm, orig) for norm, (orig, _) in inactive_players.items()]}"
+        )
+
         # If target_group_id provided, prefer players from different groups
         if target_group_id and inactive_players:
             different_group_players = {
-                norm_id: (orig_id, gid) 
+                norm_id: (orig_id, gid)
                 for norm_id, (orig_id, gid) in inactive_players.items()
                 if gid != target_group_id
             }
-            
+
             if different_group_players:
                 chosen_norm = random.choice(list(different_group_players.keys()))
                 chosen_orig, chosen_group = different_group_players[chosen_norm]
-                print(f"🎭 Impostor disguising as: {chosen_orig} (normalized: {chosen_norm}, from group '{chosen_group}', target was '{target_group_id}')")
+                print(
+                    f"🎭 Impostor disguising as: {chosen_orig} "
+                    f"(normalized: {chosen_norm}, from group '{chosen_group}', "
+                    f"target was '{target_group_id}')"
+                )
                 return chosen_orig
             else:
-                print(f"⚠️ No inactive players from different group than '{target_group_id}'")
-        
+                print(
+                    f"⚠️ No inactive players from different group than "
+                    f"'{target_group_id}'"
+                )
+
         # Fallback: any inactive player
         if inactive_players:
             chosen_norm = random.choice(list(inactive_players.keys()))
             chosen_orig, _ = inactive_players[chosen_norm]
-            print(f"🎭 Impostor disguising as: {chosen_orig} (normalized: {chosen_norm}, inactive, any group)")
+            print(
+                f"🎭 Impostor disguising as: {chosen_orig} "
+                f"(normalized: {chosen_norm}, inactive, any group)"
+            )
             return chosen_orig
 
         # If no inactive players, use a unique fallback name
@@ -178,12 +188,15 @@ def should_impostor_respond(recent_messages_count: int, last_msg_player_id: str)
 
     # CRITICAL FIX: Don't respond if disguised as an active player
     if impostor.is_disguised_as_active_player():
-        print(f"⚠️ Impostor disguised as active player {impostor.disguised_as}, skipping response")
+        print(
+            f"⚠️ Impostor disguised as active player "
+            f"{impostor.disguised_as}, skipping response"
+        )
         return False
 
     # CRITICAL FIX: Don't respond to own messages
     if last_msg_player_id == impostor.disguised_as:
-        print(f"⚠️ Impostor won't respond to its own message")
+        print("⚠️ Impostor won't respond to its own message")
         return False
 
     # Skip if disguised_as is invalid
@@ -217,20 +230,18 @@ def generate_impostor_message(context_messages: list[dict]) -> str:
         return None
 
     # Get the disguised player's message history for style imitation
-    # FILTER OUT impostor's own recent messages
     disguised_history = recent_history.get(impostor.disguised_as, [])
 
     # Build context from recent conversation
-    # CRITICAL FIX: Exclude impostor's own messages from context
     context_text = ""
     if context_messages:
         recent_msgs = [
-            msg for msg in context_messages[-5:]
-            if msg['player_id'] != impostor.disguised_as  # Don't include own messages
+            msg
+            for msg in context_messages[-5:]
+            if msg["player_id"] != impostor.disguised_as  # Don't include own messages
         ]
         context_text = "\n".join(
-            f"{msg['player_id']}: {msg['message']}"
-            for msg in recent_msgs
+            f"{msg['player_id']}: {msg['message']}" for msg in recent_msgs
         )
 
     # Query relevant memories about what the disguised player might know
@@ -249,15 +260,19 @@ def generate_impostor_message(context_messages: list[dict]) -> str:
         print(f"⚠️ Memory query failed: {e}")
 
     # Generate response as the disguised player
-    prompt_context = f"Recent conversation:\n{context_text}\n\n" if context_text else ""
+    prompt_context = (
+        f"Recent conversation:\n{context_text}\n\n" if context_text else ""
+    )
     if memory_context:
         prompt_context += (
-            f"What {impostor.disguised_as} might remember:\n{memory_context}\n\n"
+            f"What {impostor.disguised_as} might remember:\n"
+            f"{memory_context}\n\n"
         )
 
     prompt = (
         f"{prompt_context}"
-        f"Now naturally join or comment on this conversation as {impostor.disguised_as}."
+        f"Now naturally join or comment on this conversation as "
+        f"{impostor.disguised_as}."
     )
 
     reply = generate_npc_reply(
@@ -266,7 +281,6 @@ def generate_impostor_message(context_messages: list[dict]) -> str:
         imitate_player_id=impostor.disguised_as,
         recent_msgs=disguised_history,
     )
-
     return reply
 
 
@@ -277,22 +291,22 @@ def receive_message(
     group_id: str = Body("solo", embed=True),  # NEW: Accept group info
 ):
     """
-    Receives messages from players, stores them with group info,
+    Receives messages from players, stores them with group info, 
     and may inject impostor responses.
     """
     # NORMALIZE player ID to prevent duplicates like "p1" vs "player_1"
     player_id = player_id.strip()
     group_id = group_id.strip() if group_id else "solo"
+    
     timestamp = datetime.now(timezone.utc).isoformat()
-
     print(f"\n💬 Player {player_id} in group '{group_id}' at {timestamp}: {message}")
 
     # Track active player
     active_players.add(player_id)
-
+    
     # CRITICAL FIX: If impostor is disguised as this player, invalidate disguise
     if impostor.is_active and impostor.disguised_as == player_id:
-        print(f"   Real {player_id} is active! Impostor disguise compromised.")
+        print(f"⚠️ Real {player_id} is active! Impostor disguise compromised.")
         impostor.disguised_as = None
         impostor.is_active = False
 
@@ -300,7 +314,6 @@ def receive_message(
     try:
         # Import add_player_message_with_group from updated chromatesting
         from chromatesting import add_player_message_with_group
-
         add_player_message_with_group(
             text=message,
             player_id=player_id,
@@ -312,7 +325,6 @@ def receive_message(
     except ImportError:
         # Fallback to old method if not updated yet
         from chromatesting import add_player_message
-
         add_player_message(
             text=message,
             player_id=player_id,
@@ -320,9 +332,9 @@ def receive_message(
             location="Unknown",
             timestamp=timestamp,
         )
-        print("   Using legacy message storage without group info")
+        print("⚠️ Using legacy message storage without group info")
     except Exception as e:
-        print(f"   Failed to store message in Chroma: {e}")
+        print(f"⚠️ Failed to store message in Chroma: {e}")
 
     # Update player's message history
     recent_msgs = _update_recent_history(player_id, message)
@@ -354,11 +366,10 @@ def receive_message(
             impostor_msg = generate_impostor_message(context_messages)
             if impostor_msg:
                 impostor_timestamp = datetime.now(timezone.utc).isoformat()
-
+                
                 # Store impostor message WITH GROUP INFO
                 try:
                     from chromatesting import add_player_message_with_group
-
                     add_player_message_with_group(
                         text=impostor_msg,
                         player_id=f"impostor_{impostor.disguised_as}",  # Special ID
@@ -394,9 +405,9 @@ def receive_message(
                     "timestamp": impostor_timestamp,
                 }
 
-                print(f"   Impostor as {impostor.disguised_as}: {impostor_msg}")
+                print(f"🎭 Impostor as {impostor.disguised_as}: {impostor_msg}")
         except Exception as e:
-            print(f"   Impostor message generation failed: {e}")
+            print(f"❌ Impostor message generation failed: {e}")
 
     return response_data
 
@@ -445,7 +456,7 @@ def activate_impostor(
         impostor.disguised_as = None
         return {
             "success": False,
-            "message": f"Cannot activate: chosen identity is currently active",
+            "message": "Cannot activate: chosen identity is currently active",
             "active_players": list(active_players),
         }
 
@@ -529,7 +540,7 @@ def get_active_players():
 def reset_session():
     """Reset the current session (clear active players and recent history)."""
     active_players.clear()
-    recent_history.clear()  # ADDED: Clear recent message history too
+    recent_history.clear()  # Clear recent message history too
     impostor.is_active = False
     impostor.disguised_as = None
     return {
@@ -538,7 +549,6 @@ def reset_session():
     }
 
 
-# NEW ENDPOINT: Clear all ChromaDB data
 @app.post("/database/clear")
 def clear_database():
     """
@@ -546,11 +556,9 @@ def clear_database():
     This action cannot be undone!
     """
     try:
-        # Clear all collections
-        player_messages.delete(where={})  # Delete all documents
+        player_messages.delete(where={})
         npc_memory.delete(where={})
 
-        # Also reset session state
         active_players.clear()
         recent_history.clear()
         impostor.is_active = False
@@ -570,12 +578,9 @@ def clear_database():
         }
 
 
-# NEW ENDPOINT: Debug - see what's in the database
 @app.get("/database/inspect")
 def inspect_database():
-    """
-    Debug endpoint to see what player IDs are stored in ChromaDB.
-    """
+    """Debug endpoint to see what player IDs are stored in ChromaDB."""
     try:
         results = player_messages.get(limit=200)
         player_ids = set()
