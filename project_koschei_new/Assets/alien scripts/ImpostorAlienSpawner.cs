@@ -15,13 +15,11 @@ public class ImpostorAlienSpawner : NetworkBehaviour
     [Header("Auto Spawn")]
     public bool autoSpawnEnabled = true;
     public float spawnIntervalSeconds = 30f;
-    public int maxPlayersInGroup = 3;
-    public float groupRadius = 12f;
 
     [Header("Spawn Area")]
     public Vector3 center;
     public float searchRadius = 80f;
-    public float spawnHeightOffset = 0.1f; // REDUCED: Just a tiny offset to prevent clipping
+    public float spawnHeightOffset = 0.1f;
     public float maxRaycastHeight = 500f;
 
     [Header("Debug")]
@@ -29,11 +27,10 @@ public class ImpostorAlienSpawner : NetworkBehaviour
 
     [Header("Group Integration")]
     public PlayerGroupManager groupManager;
+    public ImpostorBackendConnector backendConnector;  // NEW: Backend integration
 
     // Track last target group to avoid repeats
     private PlayerGroup lastTargetGroup = null;
-
-
 
     NetworkObject currentImpostor;
     float nextSpawnTime = 0f;
@@ -52,16 +49,19 @@ public class ImpostorAlienSpawner : NetworkBehaviour
         if (NetworkManager.Singleton == null) return;
         if (!NetworkManager.Singleton.IsListening) return;
 
+        // Check if current impostor is still alive
         if (currentImpostor == null || !currentImpostor.IsSpawned)
         {
             currentImpostor = null;
         }
 
+        // Don't spawn new impostor if one already exists
         if (currentImpostor != null) return;
 
+        // Check if it's time to spawn
         if (Time.time >= nextSpawnTime)
         {
-            TrySpawnNearSmallGroup();
+            TrySpawnNearTargetGroup();
             nextSpawnTime = Time.time + spawnIntervalSeconds;
         }
     }
@@ -81,136 +81,81 @@ public class ImpostorAlienSpawner : NetworkBehaviour
             return;
         }
 
-        TrySpawnImpostorAnywhere();
+        TrySpawnNearTargetGroup();
     }
 
-    void TrySpawnNearSmallGroup()
+    void TrySpawnNearTargetGroup()
     {
         if (impostorAlienPrefab == null)
         {
-            Debug.LogError("ImpostorAlienSpawner: impostorAlienPrefab not assigned.");
+            Debug.LogError("[ImpostorSpawner] impostorAlienPrefab not assigned.");
             return;
         }
 
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)
             return;
 
-        // NEW: Use group system if available
-        if (groupManager != null)
+        // CRITICAL: Use group system
+        if (groupManager == null)
         {
-            var targetGroup = groupManager.GetTargetGroupForImpostor(
-                transform.position,
-                lastTargetGroup
-            );
-
-            if (targetGroup == null)
-            {
-                Debug.Log("No valid groups found for impostor spawn.");
-                return;
-            }
-
-            Debug.Log($"[Impostor] Targeting group: {targetGroup}");
-            lastTargetGroup = targetGroup;
-
-            // Spawn near the group center
-            if (!TryFindSpawnPositionAroundPoint(targetGroup.centerPosition, out Vector3 groupSpawnPos))
-            {
-                Debug.LogWarning("ImpostorAlienSpawner: could not find spawn position near target group.");
-                return;
-            }
-
-            SpawnImpostorAt(groupSpawnPos);
+            Debug.LogError("[ImpostorSpawner] PlayerGroupManager not assigned!");
             return;
         }
 
-        // FALLBACK: Original behavior if no group manager
-        Debug.LogWarning("No PlayerGroupManager assigned, using fallback spawn logic.");
+        // Get target group using existing logic
+        var targetGroup = groupManager.GetTargetGroupForImpostor(
+            transform.position,
+            lastTargetGroup
+        );
 
-        var clients = NetworkManager.Singleton.ConnectedClientsList;
-        if (clients == null || clients.Count == 0)
+        if (targetGroup == null)
         {
-            Debug.Log("No players connected, cannot spawn impostor.");
+            Debug.Log("[ImpostorSpawner] No valid groups found for impostor spawn.");
             return;
         }
 
-        List<Transform> players = new List<Transform>();
-        foreach (var c in clients)
-        {
-            if (c.PlayerObject != null)
-                players.Add(c.PlayerObject.transform);
-        }
+        Debug.Log($"[ImpostorSpawner] ═══════════════════════════════════");
+        Debug.Log($"[ImpostorSpawner] 🎯 TARGET GROUP SELECTED");
+        Debug.Log($"[ImpostorSpawner]    Group ID: {targetGroup.groupId}");
+        Debug.Log($"[ImpostorSpawner]    Members: {string.Join(", ", targetGroup.playerIds)}");
+        Debug.Log($"[ImpostorSpawner]    Size: {targetGroup.playerIds.Count}");
+        Debug.Log($"[ImpostorSpawner]    Location: {targetGroup.centerPosition}");
+        Debug.Log($"[ImpostorSpawner] ═══════════════════════════════════");
 
-        if (players.Count == 0)
+        lastTargetGroup = targetGroup;
+
+        // Find spawn position near group
+        if (!TryFindSpawnPositionAroundPoint(targetGroup.centerPosition, out Vector3 spawnPos))
         {
-            Debug.Log("No player objects found.");
+            Debug.LogWarning("[ImpostorSpawner] Could not find spawn position near target group.");
             return;
         }
 
-        Transform groupCenter = null;
-        int smallestGroupSize = int.MaxValue;
-
-        foreach (var p in players)
-        {
-            int nearbyCount = 0;
-            foreach (var q in players)
-            {
-                if (Vector3.Distance(p.position, q.position) <= groupRadius)
-                    nearbyCount++;
-            }
-
-            if (nearbyCount > 0 && nearbyCount <= maxPlayersInGroup && nearbyCount < smallestGroupSize)
-            {
-                smallestGroupSize = nearbyCount;
-                groupCenter = p;
-            }
-        }
-
-        if (groupCenter == null)
-        {
-            groupCenter = players[Random.Range(0, players.Count)];
-            Debug.Log("No small group found, targeting random player.");
-        }
-
-        if (!TryFindSpawnPositionAroundPoint(groupCenter.position, out Vector3 spawnPos))
-        {
-            Debug.LogWarning("ImpostorAlienSpawner: could not find spawn position near small group.");
-            return;
-        }
-
+        // Spawn the impostor
         SpawnImpostorAt(spawnPos);
-    }
 
-    void TrySpawnImpostorAnywhere()
-    {
-        if (impostorAlienPrefab == null)
+        // NEW: Notify backend about the impostor spawning
+        if (backendConnector != null)
         {
-            Debug.LogError("ImpostorAlienSpawner: impostorAlienPrefab not assigned.");
-            return;
+            backendConnector.NotifyImpostorSpawned(targetGroup);
         }
-
-        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)
-            return;
-
-        List<Vector3> playerPositions = new List<Vector3>();
-        foreach (var client in NetworkManager.Singleton.ConnectedClientsList)
+        else
         {
-            if (client.PlayerObject != null)
-                playerPositions.Add(client.PlayerObject.transform.position);
+            Debug.LogWarning("[ImpostorSpawner] ⚠️ No ImpostorBackendConnector assigned! Backend won't know about impostor.");
         }
-
-        if (!TryFindSpawnPositionAwayFromPlayers(playerPositions, out Vector3 spawnPos))
-        {
-            Debug.LogWarning("ImpostorAlienSpawner: could not find suitable spawn position.");
-            return;
-        }
-
-        SpawnImpostorAt(spawnPos);
     }
 
     void SpawnImpostorAt(Vector3 spawnPos)
     {
+        // Despawn existing impostor if any
         if (currentImpostor != null && currentImpostor.IsSpawned)
         {
+            // Notify backend before despawning
+            if (backendConnector != null)
+            {
+                backendConnector.NotifyImpostorDespawned();
+            }
+            
             currentImpostor.Despawn(true);
             currentImpostor = null;
         }
@@ -222,34 +167,27 @@ public class ImpostorAlienSpawner : NetworkBehaviour
         NetworkObject netObj = impostor.GetComponent<NetworkObject>();
         if (netObj == null)
         {
-            Debug.LogError("impostorAlienPrefab is missing NetworkObject component!");
+            Debug.LogError("[ImpostorSpawner] impostorAlienPrefab is missing NetworkObject component!");
             Destroy(impostor);
             return;
         }
 
-        // IMPROVED: Properly ground the CharacterController
+        // Handle CharacterController positioning
         CharacterController cc = impostor.GetComponent<CharacterController>();
         if (cc != null)
         {
-            // Disable controller to set position
             cc.enabled = false;
-
-            // Account for CharacterController's center offset
-            // If your CC has center.y = 1, this ensures feet are on ground
             float heightOffset = cc.center.y;
             impostor.transform.position = spawnPos + Vector3.up * heightOffset;
-
-            // Re-enable and do a small Move to ensure proper physics state
             cc.enabled = true;
-            cc.Move(Vector3.zero); // Initialize physics state
-
-            Debug.Log($"Spawned impostor with CC center offset: {heightOffset}");
+            cc.Move(Vector3.zero);
+            Debug.Log($"[ImpostorSpawner] Spawned with CC offset: {heightOffset}");
         }
 
         netObj.Spawn(true);
         currentImpostor = netObj;
 
-        Debug.Log($"Spawned impostor alien at {spawnPos}");
+        Debug.Log($"[ImpostorSpawner] ✅ Impostor spawned at {spawnPos}");
     }
 
     bool TryFindSpawnPositionAroundPoint(Vector3 groupPos, out Vector3 result)
@@ -276,72 +214,30 @@ public class ImpostorAlienSpawner : NetworkBehaviour
         return false;
     }
 
-    bool TryFindSpawnPositionAwayFromPlayers(List<Vector3> playerPositions, out Vector3 result)
-    {
-        Vector3 origin = (center == Vector3.zero) ? transform.position : center;
-
-        for (int attempt = 0; attempt < 40; attempt++)
-        {
-            Vector2 circle = Random.insideUnitCircle.normalized *
-                             Random.Range(minSpawnDistanceFromPlayers, maxSpawnDistanceFromPlayers);
-            Vector3 candidate = origin + new Vector3(circle.x, 0f, circle.y);
-
-            if (Vector3.Distance(origin, candidate) > searchRadius)
-                continue;
-
-            if (!TryProjectToGround(candidate, out Vector3 groundPos))
-                continue;
-
-            bool tooClose = false;
-            foreach (var p in playerPositions)
-            {
-                if (Vector3.Distance(groundPos, p) < minSpawnDistanceFromPlayers)
-                {
-                    tooClose = true;
-                    break;
-                }
-            }
-
-            if (tooClose)
-                continue;
-
-            result = groundPos;
-            return true;
-        }
-
-        result = Vector3.zero;
-        return false;
-    }
-
     bool TryProjectToGround(Vector3 candidate, out Vector3 groundPos)
     {
-        // STRATEGY 1: NavMesh - returns exact walkable surface position
+        // STRATEGY 1: NavMesh
         if (NavMesh.SamplePosition(candidate, out NavMeshHit navHit, navmeshSampleRadius, NavMesh.AllAreas))
         {
             groundPos = navHit.position + Vector3.up * spawnHeightOffset;
-            Debug.DrawLine(candidate, groundPos, Color.green, 2f);
             return true;
         }
 
         // STRATEGY 2: Raycast from high above
         Vector3 worldTop = new Vector3(candidate.x, maxRaycastHeight, candidate.z);
-
         if (Physics.Raycast(worldTop, Vector3.down, out RaycastHit hit, maxRaycastHeight * 2f, groundMask))
         {
             groundPos = hit.point + Vector3.up * spawnHeightOffset;
-            Debug.DrawLine(worldTop, groundPos, Color.cyan, 2f);
             return true;
         }
 
-        // STRATEGY 3: Raycast from elevated candidate position
+        // STRATEGY 3: Raycast from elevated candidate
         if (Physics.Raycast(candidate + Vector3.up * 50f, Vector3.down, out RaycastHit downHit, 100f, groundMask))
         {
             groundPos = downHit.point + Vector3.up * spawnHeightOffset;
-            Debug.DrawLine(candidate, groundPos, Color.yellow, 2f);
             return true;
         }
 
-        Debug.DrawLine(candidate, candidate + Vector3.down * 10f, Color.red, 2f);
         groundPos = Vector3.zero;
         return false;
     }
@@ -372,5 +268,16 @@ public class ImpostorAlienSpawner : NetworkBehaviour
             Gizmos.color = Color.red;
             Gizmos.DrawWireSphere(currentImpostor.transform.position, 1.5f);
         }
+    }
+
+    // Call this when impostor is manually despawned
+    public void OnImpostorDespawned()
+    {
+        if (backendConnector != null)
+        {
+            backendConnector.NotifyImpostorDespawned();
+        }
+        currentImpostor = null;
+        lastTargetGroup = null;
     }
 }

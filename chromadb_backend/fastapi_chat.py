@@ -1,4 +1,4 @@
-# fastapi_chat.py
+# fastapi_chat.py - FULLY FIXED VERSION
 
 from fastapi import FastAPI, Body
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,7 +9,7 @@ import time
 from typing import Optional
 from chromatesting import (
     generate_npc_reply,
-    add_player_message,
+    add_player_message_with_group,
     add_npc_memory,
     query_collection,
     player_messages,
@@ -27,467 +27,481 @@ app.add_middleware(
 )
 
 # Track recent messages per player for style imitation
-RECENT_MSG_LIMIT = 15
+RECENT_MSG_LIMIT = 20
 recent_history: dict[str, list[str]] = {}
 
-# Track active players in current session
+# Track active players in current session (NORMALIZED names)
 active_players: set[str] = set()
+
+# Track all active groups
+active_groups: dict[str, list[str]] = {}  # NORMALIZED group_id -> [player1, player2, ...]
+
 
 # Impostor state
 class ImpostorState:
     def __init__(self):
-        self.disguised_as: Optional[str] = None
+        self.disguised_as: Optional[str] = None  # Normalized player name
+        self.target_group_id: Optional[str] = None  # NORMALIZED group ID
         self.is_active: bool = False
         self.last_message_time: float = 0
-        self.message_cooldown: float = 15.0
-        self.conversation_engagement: float = 0.3
+        self.message_cooldown: float = 10.0  # Reduced from 15 to 10 seconds
+        self.conversation_engagement: float = 0.5  # Increased from 0.4 to 0.5
 
-    def is_disguised_as_active_player(self) -> bool:
-        """Check if impostor is disguised as a currently active player."""
-        return self.disguised_as in active_players
+    def reset(self):
+        """Reset impostor state"""
+        self.disguised_as = None
+        self.target_group_id = None
+        self.is_active = False
+        self.last_message_time = 0
 
 
 impostor = ImpostorState()
 
 
-def _update_recent_history(player_id: str, message: str) -> list[str]:
-    """Keep a rolling window of recent messages per player."""
-    history = recent_history.get(player_id, [])
-    history.append(message)
-    if len(history) > RECENT_MSG_LIMIT:
-        history = history[-RECENT_MSG_LIMIT:]
-    recent_history[player_id] = history
-    return history
-
-
-def normalize_player_id(player_id: str) -> str:
+def normalize_player_name(player_name: str) -> str:
     """
-    Normalize player IDs to handle variations like:
-    'Player 1' vs 'player_1' vs 'Player_1' vs 'p1'
-    Returns lowercase with underscores
+    Normalize player names to EXACTLY match Unity's PlayerIdentity format.
+    Unity uses: Player_1, Player_2, Player_3, Player_4
+    
+    This handles:
+    - "Player 1" -> "Player_1"
+    - "player_1" -> "Player_1" 
+    - "Player1" -> "Player_1"
+    - "p1" -> "Player_1"
     """
-    if not player_id:
+    if not player_name:
         return ""
-    # Convert to lowercase and replace spaces with underscores
-    normalized = player_id.lower().replace(" ", "_")
-    # Handle variations: "player1" -> "player_1"
-    if normalized.startswith("player") and len(normalized) > 6:
-        # If it's like "player1", add underscore
-        if normalized[6].isdigit():
-            normalized = "player_" + normalized[6:]
-    return normalized
+    
+    # Remove extra whitespace
+    name = player_name.strip()
+    
+    # Handle variations
+    name_lower = name.lower().replace(" ", "_")
+    
+    # Extract number from various formats
+    import re
+    match = re.search(r'(\d+)', name)
+    if match:
+        num = match.group(1)
+        # Return Unity format: Player_N
+        return f"Player_{num}"
+    
+    # If no number found, return as-is with capitalization
+    return name.replace(" ", "_").title()
 
 
-def choose_impostor_disguise(target_group_id: Optional[str] = None) -> Optional[str]:
+def normalize_group_id(group_id: str) -> str:
     """
-    Choose a player to disguise as from Chroma memory.
-    If target_group_id is provided, prefer players from DIFFERENT groups.
-    FIXED: Only picks inactive players who have chatted before.
+    Normalize group IDs to use normalized player names.
+    
+    Example:
+    - "group_Player 1_Player 2" -> "group_Player_1_Player_2"
+    - "solo" -> "solo"
     """
-    try:
-        all_players = {}  # normalized_id -> (original_id, most_recent_group_id)
-
-        # Get a sample of messages to find player IDs and their groups
-        results = player_messages.get(limit=100)
-        if results and results.get("metadatas"):
-            for meta in results["metadatas"]:
-                if meta and "player_id" in meta:
-                    player_id = meta["player_id"]
-
-                    # Skip impostor messages or invalid IDs
-                    if (
-                        player_id.startswith("impostor_")
-                        or player_id.startswith("Player_Shadow")
-                        or player_id.startswith("Player_Ghost")
-                    ):
-                        continue
-
-                    # Normalize for comparison
-                    normalized_id = normalize_player_id(player_id)
-
-                    # Track player's most recent group
-                    group_id = meta.get("group_id", "solo")
-                    all_players[normalized_id] = (player_id, group_id)
-
-        print(
-            f"🔍 Found historical players: "
-            f"{[(norm, orig) for norm, (orig, _) in all_players.items()]}"
-        )
-
-        # Normalize active players for comparison
-        normalized_active = {normalize_player_id(pid) for pid in active_players}
-        print(f"🔍 Normalized active players: {normalized_active}")
-
-        # CRITICAL FIX: Filter out currently active players (using normalized comparison)
-        inactive_players = {
-            norm_id: (orig_id, gid)
-            for norm_id, (orig_id, gid) in all_players.items()
-            if norm_id not in normalized_active
-        }
-
-        print(
-            f"🔍 Available inactive players: "
-            f"{[(norm, orig) for norm, (orig, _) in inactive_players.items()]}"
-        )
-
-        # If target_group_id provided, prefer players from different groups
-        if target_group_id and inactive_players:
-            different_group_players = {
-                norm_id: (orig_id, gid)
-                for norm_id, (orig_id, gid) in inactive_players.items()
-                if gid != target_group_id
-            }
-
-            if different_group_players:
-                chosen_norm = random.choice(list(different_group_players.keys()))
-                chosen_orig, chosen_group = different_group_players[chosen_norm]
-                print(
-                    f"🎭 Impostor disguising as: {chosen_orig} "
-                    f"(normalized: {chosen_norm}, from group '{chosen_group}', "
-                    f"target was '{target_group_id}')"
-                )
-                return chosen_orig
+    if not group_id or group_id == "solo":
+        return group_id
+    
+    # Split by underscore, normalize player names, rejoin
+    parts = group_id.split("_")
+    
+    if len(parts) < 2:
+        return group_id
+    
+    # First part is "group", rest are player names
+    if parts[0] == "group":
+        normalized_players = []
+        current_name = ""
+        
+        for i, part in enumerate(parts[1:], 1):
+            # Build player name (handle "Player 1" with space)
+            if current_name:
+                current_name += " " + part
             else:
-                print(
-                    f"⚠️ No inactive players from different group than "
-                    f"'{target_group_id}'"
-                )
+                current_name = part
+            
+            # Check if this could be a complete player name
+            if i == len(parts) - 1 or (i < len(parts) - 1 and parts[i+1].lower().startswith("player")):
+                # Normalize and add
+                normalized = normalize_player_name(current_name)
+                if normalized:
+                    normalized_players.append(normalized)
+                current_name = ""
+        
+        # Handle last accumulated name
+        if current_name:
+            normalized = normalize_player_name(current_name)
+            if normalized:
+                normalized_players.append(normalized)
+        
+        if normalized_players:
+            # Sort for consistency (group_Player_1_Player_2 == group_Player_2_Player_1)
+            return "group_" + "_".join(sorted(normalized_players))
+    
+    return group_id
 
-        # Fallback: any inactive player
-        if inactive_players:
-            chosen_norm = random.choice(list(inactive_players.keys()))
-            chosen_orig, _ = inactive_players[chosen_norm]
-            print(
-                f"🎭 Impostor disguising as: {chosen_orig} "
-                f"(normalized: {chosen_norm}, inactive, any group)"
-            )
-            return chosen_orig
 
-        # If no inactive players, use a unique fallback name
-        fallback_names = [
-            f"Player_Shadow_{random.randint(1000, 9999)}",
-            f"Player_Ghost_{random.randint(1000, 9999)}",
-            f"Player_Phantom_{random.randint(1000, 9999)}",
-        ]
-        chosen = random.choice(fallback_names)
-        print(f"🎭 No inactive players found, using fallback: {chosen}")
-        return chosen
+def update_active_groups(player_id: str, group_id: str):
+    """
+    Update the active groups tracking.
+    Removes player from ALL old groups, adds to new group.
+    """
+    # Normalize the group ID
+    normalized_group = normalize_group_id(group_id)
+    
+    # Remove player from ALL groups first
+    for gid, members in list(active_groups.items()):
+        if player_id in members:
+            members.remove(player_id)
+            # Remove empty groups
+            if not members:
+                del active_groups[gid]
+                print(f"   🗑️ Removed empty group: {gid}")
+    
+    # Add to new group
+    if normalized_group not in active_groups:
+        active_groups[normalized_group] = []
+    
+    if player_id not in active_groups[normalized_group]:
+        active_groups[normalized_group].append(player_id)
+        print(f"   ➕ Added {player_id} to {normalized_group}")
 
-    except Exception as e:
-        print(f"❌ Error choosing disguise: {e}")
+
+def get_group_members(group_id: str) -> list[str]:
+    """Get list of players in a group"""
+    normalized_group = normalize_group_id(group_id)
+    return active_groups.get(normalized_group, [])
+
+
+def get_all_groups_except(exclude_group_id: str) -> dict[str, list[str]]:
+    """Get all groups except the specified one"""
+    normalized_exclude = normalize_group_id(exclude_group_id)
+    return {gid: members for gid, members in active_groups.items() 
+            if gid != normalized_exclude and len(members) > 0}  # Only non-empty groups
+
+
+def choose_impostor_disguise(target_group_id: str) -> Optional[str]:
+    """
+    Choose which player the impostor should disguise as.
+    
+    Rules:
+    1. Must be from a DIFFERENT group than target_group_id
+    2. Must be a currently ACTIVE player (in this session)
+    3. Randomly select from available players
+    
+    Returns: Normalized player name or None
+    """
+    normalized_target = normalize_group_id(target_group_id)
+    
+    if normalized_target not in active_groups:
+        print(f"❌ Invalid target group: {normalized_target}")
+        print(f"   Available groups: {list(active_groups.keys())}")
         return None
+    
+    target_members = active_groups[normalized_target]
+    print(f"🎯 Target group '{normalized_target}' has members: {target_members}")
+    
+    # Get all OTHER groups
+    other_groups = get_all_groups_except(normalized_target)
+    
+    if not other_groups:
+        print("❌ No other groups available for disguise selection")
+        print(f"   Total groups: {len(active_groups)}")
+        print(f"   Active groups: {active_groups}")
+        return None
+    
+    # Collect all players NOT in target group
+    available_disguises = []
+    for gid, members in other_groups.items():
+        available_disguises.extend(members)
+    
+    if not available_disguises:
+        print("❌ No available players to disguise as")
+        return None
+    
+    # Choose randomly from available players
+    chosen = random.choice(available_disguises)
+    
+    # Find which group they're from (for logging)
+    chosen_group = "unknown"
+    for gid, members in other_groups.items():
+        if chosen in members:
+            chosen_group = gid
+            break
+    
+    print(f"🎭 Impostor will disguise as: {chosen} (from group '{chosen_group}')")
+    print(f"   Available options were: {available_disguises}")
+    
+    return chosen
 
 
-def should_impostor_respond(recent_messages_count: int, last_msg_player_id: str) -> bool:
+def should_impostor_respond(
+    recent_messages_count: int, 
+    last_msg_player_id: str,
+    message_group_id: str
+) -> bool:
     """
     Decide if impostor should inject itself into conversation.
-    FIXED: Don't respond if disguised as active player or responding to self.
+    
+    Rules:
+    1. Must be active and have a disguise
+    2. Must be in the same group as the message
+    3. Cooldown must have passed
+    4. Random chance based on engagement rate
     """
     if not impostor.is_active or not impostor.disguised_as:
+        print(f"   ⏸️ Impostor not responding: active={impostor.is_active}, disguised={impostor.disguised_as}")
         return False
-
-    # CRITICAL FIX: Don't respond if disguised as an active player
-    if impostor.is_disguised_as_active_player():
-        print(
-            f"⚠️ Impostor disguised as active player "
-            f"{impostor.disguised_as}, skipping response"
-        )
+    
+    # Normalize both group IDs for comparison
+    normalized_message_group = normalize_group_id(message_group_id)
+    normalized_target_group = normalize_group_id(impostor.target_group_id)
+    
+    # Only respond to messages in the target group
+    if normalized_message_group != normalized_target_group:
+        print(f"   ⏸️ Wrong group: message in '{normalized_message_group}', targeting '{normalized_target_group}'")
         return False
-
-    # CRITICAL FIX: Don't respond to own messages
+    
+    # Don't respond to own messages
     if last_msg_player_id == impostor.disguised_as:
-        print("⚠️ Impostor won't respond to its own message")
+        print(f"   ⏸️ Won't respond to own message")
         return False
-
-    # Skip if disguised_as is invalid
-    if impostor.disguised_as.lower() in ["string", "null", ""]:
-        print("⚠️ Invalid impostor disguise, skipping response")
-        return False
-
+    
     # Check cooldown
     time_since_last = time.time() - impostor.last_message_time
     if time_since_last < impostor.message_cooldown:
+        remaining = impostor.message_cooldown - time_since_last
+        print(f"   ⏸️ Cooldown: {remaining:.1f}s remaining")
         return False
-
+    
     # Higher chance to respond during active conversation
     base_chance = impostor.conversation_engagement
     if recent_messages_count > 2:
         base_chance += 0.2
-
+    
     should_respond = random.random() < base_chance
     if should_respond:
-        print(f"🎲 Impostor decided to respond (chance was {base_chance:.1%})")
-
+        print(f"   🎲 Impostor decided to respond (chance was {base_chance:.1%})")
+    else:
+        print(f"   🎲 Impostor skipped response (chance was {base_chance:.1%})")
+    
     return should_respond
 
 
-def generate_impostor_message(context_messages: list[dict]) -> str:
-    """
-    Generate a message from the impostor pretending to be the disguised player.
-    FIXED: Filters out impostor's own messages from context.
-    """
-    if not impostor.disguised_as:
-        return None
-
-    # Get the disguised player's message history for style imitation
-    disguised_history = recent_history.get(impostor.disguised_as, [])
-
-    # Build context from recent conversation
-    context_text = ""
-    if context_messages:
-        recent_msgs = [
-            msg
-            for msg in context_messages[-5:]
-            if msg["player_id"] != impostor.disguised_as  # Don't include own messages
-        ]
-        context_text = "\n".join(
-            f"{msg['player_id']}: {msg['message']}" for msg in recent_msgs
-        )
-
-    # Query relevant memories about what the disguised player might know
-    memory_context = ""
-    try:
-        if context_text:
-            mem_results = query_collection(
-                player_messages,
-                context_text,
-                k=3,
-                filters={"player_id": impostor.disguised_as},
-            )
-            if mem_results and mem_results.get("documents"):
-                memory_context = "\n".join(mem_results["documents"][0])
-    except Exception as e:
-        print(f"⚠️ Memory query failed: {e}")
-
-    # Generate response as the disguised player
-    prompt_context = (
-        f"Recent conversation:\n{context_text}\n\n" if context_text else ""
-    )
-    if memory_context:
-        prompt_context += (
-            f"What {impostor.disguised_as} might remember:\n"
-            f"{memory_context}\n\n"
-        )
-
-    prompt = (
-        f"{prompt_context}"
-        f"Now naturally join or comment on this conversation as "
-        f"{impostor.disguised_as}."
-    )
-
-    reply = generate_npc_reply(
-        player_text=prompt,
-        round_id="r1",
-        imitate_player_id=impostor.disguised_as,
-        recent_msgs=disguised_history,
-    )
-    return reply
-
-
 @app.post("/chat")
-def receive_message(
-    player_id: str = Body(..., embed=True),
-    message: str = Body(..., embed=True),
-    group_id: str = Body("solo", embed=True),  # NEW: Accept group info
+def chat_endpoint(
+    player_id: str = Body(...),
+    message: str = Body(...),
+    group_id: str = Body("solo"),
 ):
     """
-    Receives messages from players, stores them with group info, 
-    and may inject impostor responses.
+    Main chat endpoint - receives player messages with group info.
     """
-    # NORMALIZE player ID to prevent duplicates like "p1" vs "player_1"
-    player_id = player_id.strip()
-    group_id = group_id.strip() if group_id else "solo"
+    start_time = time.time()
     
-    timestamp = datetime.now(timezone.utc).isoformat()
-    print(f"\n💬 Player {player_id} in group '{group_id}' at {timestamp}: {message}")
-
-    # Track active player
-    active_players.add(player_id)
+    # Normalize player name and group ID
+    normalized_player = normalize_player_name(player_id)
+    normalized_group = normalize_group_id(group_id)
     
-    # CRITICAL FIX: If impostor is disguised as this player, invalidate disguise
-    if impostor.is_active and impostor.disguised_as == player_id:
-        print(f"⚠️ Real {player_id} is active! Impostor disguise compromised.")
-        impostor.disguised_as = None
-        impostor.is_active = False
-
-    # Store player message WITH GROUP INFO
+    print(f"\n{'='*60}")
+    print(f"📨 Message received:")
+    print(f"   Player: '{player_id}' -> '{normalized_player}'")
+    print(f"   Group: '{group_id}' -> '{normalized_group}'")
+    print(f"   Message: '{message}'")
+    
+    # Track active players and groups
+    active_players.add(normalized_player)
+    update_active_groups(normalized_player, normalized_group)
+    
+    # Update recent history
+    if normalized_player not in recent_history:
+        recent_history[normalized_player] = []
+    recent_history[normalized_player].append(message)
+    if len(recent_history[normalized_player]) > RECENT_MSG_LIMIT:
+        recent_history[normalized_player] = recent_history[normalized_player][-RECENT_MSG_LIMIT:]
+    
+    # Store in database with normalized names
     try:
-        # Import add_player_message_with_group from updated chromatesting
-        from chromatesting import add_player_message_with_group
         add_player_message_with_group(
             text=message,
-            player_id=player_id,
+            player_id=normalized_player,
             round_id="r1",
-            group_id=group_id,
-            location="Unknown",
-            timestamp=timestamp,
+            group_id=normalized_group,
+            timestamp=datetime.now(timezone.utc).isoformat(),
         )
-    except ImportError:
-        # Fallback to old method if not updated yet
-        from chromatesting import add_player_message
-        add_player_message(
-            text=message,
-            player_id=player_id,
-            round_id="r1",
-            location="Unknown",
-            timestamp=timestamp,
-        )
-        print("⚠️ Using legacy message storage without group info")
     except Exception as e:
-        print(f"⚠️ Failed to store message in Chroma: {e}")
-
-    # Update player's message history
-    recent_msgs = _update_recent_history(player_id, message)
-
-    # Standard response: acknowledge receipt
-    response_data = {
-        "player_id": player_id,
-        "message": message,
-        "timestamp": timestamp,
-        "group_id": group_id,  # NEW: Include in response
-        "impostor_message": None,
-    }
-
-    # Check if impostor should inject a message
-    # PASS the last message sender to avoid self-response
-    if should_impostor_respond(len(recent_history), player_id):
-        # Get recent conversation context
-        context_messages = []
-        for pid, msgs in recent_history.items():
-            for msg in msgs[-3:]:
-                context_messages.append(
-                    {
-                        "player_id": pid,
-                        "message": msg,
-                    }
-                )
-
-        try:
-            impostor_msg = generate_impostor_message(context_messages)
-            if impostor_msg:
-                impostor_timestamp = datetime.now(timezone.utc).isoformat()
+        print(f"❌ Failed to store message: {e}")
+    
+    # Debug: Show current state
+    print(f"\n📊 Current state:")
+    print(f"   Active players: {sorted(active_players)}")
+    print(f"   Active groups: {active_groups}")
+    print(f"   Impostor active: {impostor.is_active}")
+    if impostor.is_active:
+        print(f"   Impostor disguised as: {impostor.disguised_as}")
+        print(f"   Impostor target group: {impostor.target_group_id}")
+    
+    # Check if impostor should respond
+    impostor_response = None
+    if impostor.is_active and impostor.target_group_id:
+        print(f"\n🤔 Checking if impostor should respond...")
+        
+        # Get recent messages from this group's conversation
+        group_members = get_group_members(normalized_group)
+        recent_count = sum(
+            len(recent_history.get(member, []))
+            for member in group_members
+        )
+        
+        if should_impostor_respond(recent_count, normalized_player, normalized_group):
+            print(f"🤖 Generating impostor response...")
+            
+            try:
+                # Build conversation context
+                conversation_buffer = []
+                for member in group_members:
+                    for msg in recent_history.get(member, [])[-10:]:
+                        conversation_buffer.append(f"{member}: {msg}")
                 
-                # Store impostor message WITH GROUP INFO
-                try:
-                    from chromatesting import add_player_message_with_group
-                    add_player_message_with_group(
-                        text=impostor_msg,
-                        player_id=f"impostor_{impostor.disguised_as}",  # Special ID
-                        round_id="r1",
-                        group_id=group_id,  # Same group as conversation
-                        location="Unknown",
-                        timestamp=impostor_timestamp,
-                    )
-                except ImportError:
-                    add_player_message(
-                        text=impostor_msg,
-                        player_id=impostor.disguised_as,
-                        round_id="r1",
-                        location="Unknown",
-                        timestamp=impostor_timestamp,
-                    )
-
-                # Also store in NPC memory
-                add_npc_memory(
-                    impostor_msg,
-                    "impostor_said",
+                # Get style history for the player being imitated
+                style_history = recent_history.get(impostor.disguised_as, [])
+                
+                if not style_history:
+                    print(f"⚠️ No style history for {impostor.disguised_as}, using generic style")
+                
+                # Generate impostor reply
+                impostor_message = generate_npc_reply(
+                    player_text="\n".join(conversation_buffer[-5:]),  # Last 5 messages
                     round_id="r1",
-                    timestamp=impostor_timestamp,
+                    imitate_player_id=impostor.disguised_as,
+                    recent_msgs=style_history if style_history else ["hey", "what's up"]
                 )
-
-                # Update impostor's message history
-                _update_recent_history(impostor.disguised_as, impostor_msg)
-                impostor.last_message_time = time.time()
-
-                response_data["impostor_message"] = {
-                    "player_id": impostor.disguised_as,
-                    "message": impostor_msg,
-                    "timestamp": impostor_timestamp,
-                }
-
-                print(f"🎭 Impostor as {impostor.disguised_as}: {impostor_msg}")
-        except Exception as e:
-            print(f"❌ Impostor message generation failed: {e}")
-
-    return response_data
+                
+                if impostor_message:
+                    # Store impostor message in database
+                    impostor_id = f"impostor_{impostor.disguised_as}"
+                    add_player_message_with_group(
+                        text=impostor_message,
+                        player_id=impostor_id,
+                        round_id="r1",
+                        group_id=normalized_group,
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                    )
+                    
+                    impostor_response = {
+                        "player_id": impostor.disguised_as,
+                        "message": impostor_message,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                    
+                    impostor.last_message_time = time.time()
+                    print(f"✅ Impostor response: '{impostor_message}'")
+                else:
+                    print(f"⚠️ No impostor message generated")
+            
+            except Exception as e:
+                print(f"❌ Error generating impostor response: {e}")
+                import traceback
+                traceback.print_exc()
+    
+    elapsed = time.time() - start_time
+    print(f"⏱️ Request processed in {elapsed:.2f}s")
+    print(f"{'='*60}\n")
+    
+    response = {
+        "player_id": normalized_player,
+        "message": message,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    
+    if impostor_response:
+        response["impostor_message"] = impostor_response
+    
+    return response
 
 
 @app.post("/impostor/activate")
 def activate_impostor(
-    target_player_id: Optional[str] = None,
-    target_group_id: Optional[str] = None,  # NEW: Allow specifying target group
-    engagement_rate: float = 0.3,
+    target_group_id: str = Body(...),
+    engagement_rate: float = Body(0.5),
 ):
     """
-    Activate the impostor AI.
-    Can optionally specify which group to target and prefer disguises from other groups.
-    FIXED: Validates target isn't active, resets if becomes active.
+    Activate impostor for a specific group.
+    Unity will call this when spawning an impostor alien near a group.
+    
+    target_group_id: The group the impostor is approaching (e.g., "group_Player_1_Player_2")
+    engagement_rate: How often impostor responds (0.0 to 1.0)
     """
-    # Handle "string" default from Swagger UI
-    if target_player_id and target_player_id.lower() in ["string", "null", ""]:
-        target_player_id = None
-
-    if target_group_id and target_group_id.lower() in ["string", "null", ""]:
-        target_group_id = None
-
-    # CRITICAL FIX: Don't allow disguising as active players
-    if target_player_id:
-        if target_player_id in active_players:
-            return {
-                "success": False,
-                "message": f"{target_player_id} is currently active, cannot disguise as them",
-                "active_players": list(active_players),
-            }
-        impostor.disguised_as = target_player_id
-        print(f"🎭 Manual disguise selected: {target_player_id}")
-    else:
-        # NEW: Pass target_group_id to choose_impostor_disguise
-        impostor.disguised_as = choose_impostor_disguise(target_group_id)
-
-    if not impostor.disguised_as:
+    print(f"\n{'='*60}")
+    print(f"🚀 IMPOSTOR ACTIVATION REQUEST")
+    print(f"   Raw target_group_id: '{target_group_id}'")
+    
+    # Normalize group ID
+    normalized_target = normalize_group_id(target_group_id)
+    print(f"   Normalized target: '{normalized_target}'")
+    
+    # Validate group exists
+    if normalized_target not in active_groups:
+        print(f"❌ Group not found!")
+        print(f"   Looking for: '{normalized_target}'")
+        print(f"   Available groups: {list(active_groups.keys())}")
+        return {
+            "success": False,
+            "message": f"Group '{normalized_target}' not found",
+            "active_groups": list(active_groups.keys()),
+            "all_groups_data": active_groups,
+        }
+    
+    # Choose which player to disguise as
+    disguise = choose_impostor_disguise(normalized_target)
+    
+    if not disguise:
         return {
             "success": False,
             "message": "Could not find suitable player to disguise as",
+            "active_groups": active_groups,
         }
-
-    # FINAL SAFETY CHECK: Verify chosen disguise isn't active
-    if impostor.disguised_as in active_players:
-        print(f"⚠️ Selected disguise {impostor.disguised_as} is active! Aborting.")
-        impostor.disguised_as = None
-        return {
-            "success": False,
-            "message": "Cannot activate: chosen identity is currently active",
-            "active_players": list(active_players),
-        }
-
+    
+    # Activate impostor
+    impostor.disguised_as = disguise
+    impostor.target_group_id = normalized_target
     impostor.is_active = True
     impostor.conversation_engagement = max(0.1, min(1.0, engagement_rate))
-    impostor.last_message_time = time.time()
-
-    print(f"✅ Impostor activated, disguised as: {impostor.disguised_as}")
-    print(f"   Target group: {target_group_id or 'any'}")
+    impostor.last_message_time = time.time() - impostor.message_cooldown  # Allow immediate response
+    
+    target_members = get_group_members(normalized_target)
+    
+    print(f"✅ IMPOSTOR ACTIVATED")
+    print(f"   Disguised as: {impostor.disguised_as}")
+    print(f"   Target group: {impostor.target_group_id}")
+    print(f"   Group members: {target_members}")
     print(f"   Engagement rate: {impostor.conversation_engagement}")
-    print(f"   Active players at activation: {active_players}")
-
+    print(f"{'='*60}\n")
+    
     return {
         "success": True,
         "disguised_as": impostor.disguised_as,
-        "target_group": target_group_id,
+        "target_group_id": impostor.target_group_id,
+        "target_group_members": target_members,
         "engagement_rate": impostor.conversation_engagement,
-        "active_players": list(active_players),
+        "all_active_groups": active_groups,
     }
 
 
 @app.post("/impostor/deactivate")
 def deactivate_impostor():
     """Deactivate the impostor AI."""
-    impostor.is_active = False
     old_disguise = impostor.disguised_as
-    impostor.disguised_as = None
-    print(f"   Impostor deactivated (was disguised as: {old_disguise})")
+    old_group = impostor.target_group_id
+    
+    impostor.reset()
+    
+    print(f"\n🛑 IMPOSTOR DEACTIVATED")
+    print(f"   Was disguised as: {old_disguise}")
+    print(f"   Was targeting group: {old_group}\n")
+    
     return {
         "success": True,
-        "message": f"Impostor deactivated (was {old_disguise})",
+        "message": f"Impostor deactivated (was {old_disguise} in group {old_group})",
     }
 
 
@@ -497,33 +511,21 @@ def impostor_status():
     return {
         "is_active": impostor.is_active,
         "disguised_as": impostor.disguised_as,
+        "target_group_id": impostor.target_group_id,
+        "target_group_members": get_group_members(impostor.target_group_id) if impostor.target_group_id else [],
         "engagement_rate": impostor.conversation_engagement,
         "cooldown_remaining": max(
             0, impostor.message_cooldown - (time.time() - impostor.last_message_time)
         ),
-        "active_players": list(active_players),
-        "available_disguises": list(set(recent_history.keys()) - active_players),
-        "is_disguised_as_active": impostor.is_disguised_as_active_player(),
     }
 
 
-@app.post("/impostor/settings")
-def update_impostor_settings(
-    message_cooldown: Optional[float] = None,
-    engagement_rate: Optional[float] = None,
-):
-    """Update impostor behavior settings."""
-    updated = {}
-    if message_cooldown is not None:
-        impostor.message_cooldown = max(5.0, message_cooldown)
-        updated["message_cooldown"] = impostor.message_cooldown
-    if engagement_rate is not None:
-        impostor.conversation_engagement = max(0.1, min(1.0, engagement_rate))
-        updated["engagement_rate"] = impostor.conversation_engagement
-
+@app.get("/groups/active")
+def get_active_groups_endpoint():
+    """Get all currently active groups."""
     return {
-        "success": True,
-        "updated": updated,
+        "active_groups": active_groups,
+        "group_count": len(active_groups),
     }
 
 
@@ -531,21 +533,24 @@ def update_impostor_settings(
 def get_active_players():
     """Get list of currently active players."""
     return {
-        "active_players": list(active_players),
+        "active_players": sorted(list(active_players)),
         "count": len(active_players),
     }
 
 
 @app.post("/session/reset")
 def reset_session():
-    """Reset the current session (clear active players and recent history)."""
+    """Reset the current session (clear active players and groups)."""
     active_players.clear()
-    recent_history.clear()  # Clear recent message history too
-    impostor.is_active = False
-    impostor.disguised_as = None
+    active_groups.clear()
+    recent_history.clear()
+    impostor.reset()
+    
+    print("\n🔄 SESSION RESET\n")
+    
     return {
         "success": True,
-        "message": "Session reset complete (active players and history cleared)",
+        "message": "Session reset complete (players, groups, and history cleared)",
     }
 
 
@@ -558,20 +563,20 @@ def clear_database():
     try:
         player_messages.delete(where={})
         npc_memory.delete(where={})
-
+        
         active_players.clear()
+        active_groups.clear()
         recent_history.clear()
-        impostor.is_active = False
-        impostor.disguised_as = None
-
-        print("🗑️ Database cleared: All messages and memories deleted")
+        impostor.reset()
+        
+        print("🗑️ DATABASE CLEARED: All messages and memories deleted\n")
         return {
             "success": True,
             "message": "All ChromaDB data cleared successfully",
             "collections_cleared": ["player_messages", "npc_memory"],
         }
     except Exception as e:
-        print(f"   Error clearing database: {e}")
+        print(f"❌ Error clearing database: {e}")
         return {
             "success": False,
             "message": f"Failed to clear database: {str(e)}",
@@ -580,25 +585,29 @@ def clear_database():
 
 @app.get("/database/inspect")
 def inspect_database():
-    """Debug endpoint to see what player IDs are stored in ChromaDB."""
+    """Debug endpoint to see what's stored in ChromaDB."""
     try:
         results = player_messages.get(limit=200)
         player_ids = set()
         message_count = {}
-
+        group_ids = set()
+        
         if results and results.get("metadatas"):
             for meta in results["metadatas"]:
                 if meta and "player_id" in meta:
                     pid = meta["player_id"]
                     player_ids.add(pid)
                     message_count[pid] = message_count.get(pid, 0) + 1
-
+                if meta and "group_id" in meta:
+                    group_ids.add(meta["group_id"])
+        
         return {
             "total_messages": len(results.get("ids", [])),
             "unique_player_ids": sorted(list(player_ids)),
+            "unique_group_ids": sorted(list(group_ids)),
             "message_count_per_player": message_count,
-            "currently_active": list(active_players),
-            "recent_history_players": list(recent_history.keys()),
+            "currently_active_players": sorted(list(active_players)),
+            "currently_active_groups": active_groups,
         }
     except Exception as e:
         return {
@@ -613,25 +622,32 @@ def root():
         "status": "online",
         "message": "Impostor Chat Server is running",
         "impostor_active": impostor.is_active,
-        "ollama_connection": "Check if Ollama is running on port 11434",
+        "impostor_disguised_as": impostor.disguised_as,
+        "impostor_target_group": impostor.target_group_id,
+        "active_players": sorted(list(active_players)),
+        "active_groups": active_groups,
     }
 
 
 if __name__ == "__main__":
-    print("🚀 Starting Impostor Chat Server...")
+    print("🚀 Starting Impostor Chat Server (FULLY FIXED VERSION)...")
     print("📍 Server URL: http://0.0.0.0:8000")
-    print("🌐 Accessible at: http://172.16.30.250:8000 (or your local IP)")
-    print("🔧 API Endpoints:")
-    print("  POST /chat - Send player messages")
-    print("  POST /impostor/activate - Activate impostor")
+    print("🔧 Key Features:")
+    print("  ✅ Normalized player names (Player_1, Player_2, etc.)")
+    print("  ✅ Normalized group IDs")
+    print("  ✅ Real-time group tracking")
+    print("  ✅ Automatic group cleanup")
+    print("  ✅ Verbose logging for debugging")
+    print("\n🔧 API Endpoints:")
+    print("  POST /chat - Send player messages with group info")
+    print("  POST /impostor/activate - Activate impostor for a group")
     print("  POST /impostor/deactivate - Deactivate impostor")
     print("  GET /impostor/status - Check impostor status")
-    print("  POST /impostor/settings - Update impostor settings")
+    print("  GET /groups/active - List active groups")
     print("  GET /players/active - List active players")
     print("  POST /session/reset - Reset session")
     print("  POST /database/clear - ⚠️ CLEAR ALL DATA")
-    print("  GET /database/inspect - 🔍 DEBUG: See stored player IDs")
+    print("  GET /database/inspect - 🔍 DEBUG: See stored data")
     print("  GET / - Health check")
-    print("\n⚠️ Make sure Unity is connecting to http://172.16.30.250:8000/chat")
-    print("⚠️ Make sure Ollama is running: ollama serve")
+    print("\n⚠️ Make sure Ollama is running: ollama serve\n")
     uvicorn.run(app, host="0.0.0.0", port=8000)
