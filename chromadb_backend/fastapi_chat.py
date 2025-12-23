@@ -1,4 +1,4 @@
-# fastapi_chat.py - REDESIGNED VERSION (Distance-Based Impostor)
+# fastapi_chat.py - FINAL VERSION WITH CONTINUOUS GROUP SYNC
 
 from fastapi import FastAPI, Body
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,7 +6,7 @@ import uvicorn
 from datetime import datetime, timezone
 import random
 import time
-from typing import Optional
+from typing import Optional, List
 from chromatesting import (
     generate_npc_reply,
     add_player_message_with_group,
@@ -30,8 +30,9 @@ app.add_middleware(
 RECENT_MSG_LIMIT = 20
 recent_history: dict[str, list[str]] = {}
 
-# Track all groups (no more "active players" tracking)
+# Track all groups - CONTINUOUSLY UPDATED FROM UNITY
 all_groups: dict[str, list[str]] = {}  # group_id -> [player1, player2, ...]
+last_group_update_time: float = 0
 
 
 # Impostor state
@@ -56,9 +57,7 @@ impostor = ImpostorState()
 
 
 def normalize_player_name(player_name: str) -> str:
-    """
-    Normalize player names to Unity format: Player_1, Player_2, etc.
-    """
+    """Normalize player names to Unity format: Player_1, Player_2, etc."""
     if not player_name:
         return ""
     
@@ -74,9 +73,7 @@ def normalize_player_name(player_name: str) -> str:
 
 
 def normalize_group_id(group_id: str) -> str:
-    """
-    Normalize group IDs: "group_Player 1_Player 2" -> "group_Player_1_Player_2"
-    """
+    """Normalize group IDs"""
     if not group_id or group_id == "solo":
         return group_id
     
@@ -112,29 +109,6 @@ def normalize_group_id(group_id: str) -> str:
     return group_id
 
 
-def update_groups(player_id: str, group_id: str):
-    """
-    Update group membership - simplified version.
-    Just tracks which group each player is in currently.
-    """
-    normalized_group = normalize_group_id(group_id)
-    
-    # Remove player from all other groups
-    for gid, members in list(all_groups.items()):
-        if player_id in members and gid != normalized_group:
-            members.remove(player_id)
-            if not members:
-                del all_groups[gid]
-                print(f"   🗑️ Removed empty group: {gid}")
-    
-    # Add to current group
-    if normalized_group not in all_groups:
-        all_groups[normalized_group] = []
-    
-    if player_id not in all_groups[normalized_group]:
-        all_groups[normalized_group].append(player_id)
-
-
 def get_group_members(group_id: str) -> list[str]:
     """Get members of a specific group"""
     normalized = normalize_group_id(group_id)
@@ -149,19 +123,16 @@ def get_all_player_names() -> list[str]:
     return sorted(list(players))
 
 
-def choose_impostor_disguise_from_farthest_group(target_group_id: str) -> Optional[str]:
+def choose_impostor_disguise(target_group_id: str) -> Optional[str]:
     """
-    NEW LOGIC: Choose disguise from the FARTHEST group from target.
-    
-    Unity will tell us which group is farthest when calling /impostor/activate.
-    We just need to pick any player NOT in the target group.
-    
-    This is simpler and more reliable than tracking "active" players.
+    Choose disguise from any player NOT in target group.
+    Unity handles distance calculation - we just pick from non-target players.
     """
     normalized_target = normalize_group_id(target_group_id)
     
     if normalized_target not in all_groups:
         print(f"❌ Target group not found: {normalized_target}")
+        print(f"   Available groups: {list(all_groups.keys())}")
         return None
     
     target_members = all_groups[normalized_target]
@@ -221,6 +192,51 @@ def should_impostor_respond(
     return random.random() < base_chance
 
 
+@app.post("/groups/sync")
+def sync_groups(
+    groups: List[dict] = Body(...),
+    timestamp: str = Body(None)
+):
+    """
+    NEW ENDPOINT: Continuously receives group updates from Unity.
+    Unity's GroupSyncManager calls this every 2 seconds.
+    """
+    global all_groups, last_group_update_time
+    
+    # Clear current groups
+    all_groups.clear()
+    
+    # Update with new data
+    for group_data in groups:
+        group_id = normalize_group_id(group_data.get("group_id", ""))
+        player_ids = [normalize_player_name(pid) for pid in group_data.get("player_ids", [])]
+        
+        if group_id and player_ids:
+            all_groups[group_id] = player_ids
+    
+    last_group_update_time = time.time()
+    
+    # Log update
+    print(f"🔄 Group sync received ({len(all_groups)} groups):")
+    for gid, members in all_groups.items():
+        print(f"   • {gid}: {members}")
+    
+    # Check if impostor's target group still exists
+    if impostor.is_active and impostor.target_group_id:
+        normalized_target = normalize_group_id(impostor.target_group_id)
+        if normalized_target not in all_groups:
+            print(f"⚠️ Impostor's target group '{normalized_target}' no longer exists!")
+            print(f"   Deactivating impostor...")
+            impostor.reset()
+    
+    return {
+        "success": True,
+        "groups_received": len(all_groups),
+        "all_groups": all_groups,
+        "impostor_active": impostor.is_active
+    }
+
+
 @app.post("/chat")
 def chat_endpoint(
     player_id: str = Body(...),
@@ -236,9 +252,6 @@ def chat_endpoint(
     print(f"\n{'='*60}")
     print(f"📨 Message from {normalized_player} in {normalized_group}")
     print(f"   Content: '{message}'")
-    
-    # Update groups
-    update_groups(normalized_player, normalized_group)
     
     # Update history
     if normalized_player not in recent_history:
@@ -260,7 +273,8 @@ def chat_endpoint(
         print(f"❌ DB error: {e}")
     
     # Show state
-    print(f"📊 Groups: {all_groups}")
+    time_since_sync = time.time() - last_group_update_time
+    print(f"📊 Groups: {all_groups} (last sync: {time_since_sync:.1f}s ago)")
     print(f"   Impostor: {'✓ Active' if impostor.is_active else '✗ Inactive'}", end="")
     if impostor.is_active:
         print(f" (as {impostor.disguised_as}, targeting {impostor.target_group_id})")
@@ -334,19 +348,17 @@ def chat_endpoint(
 @app.post("/impostor/activate")
 def activate_impostor(
     target_group_id: str = Body(...),
-    farthest_group_id: Optional[str] = Body(None),  # NEW: Unity tells us farthest group
     engagement_rate: float = Body(0.6),
 ):
-    """
-    Activate impostor for a specific group.
-    
-    NEW APPROACH:
-    - Unity determines which group is farthest
-    - We just pick any player from that farthest group
-    - Simpler and more reliable
-    """
+    """Activate impostor for a specific group"""
     print(f"\n{'='*60}")
     print(f"🚀 IMPOSTOR ACTIVATION")
+    
+    # Check if we have recent group data
+    time_since_sync = time.time() - last_group_update_time
+    if time_since_sync > 10:
+        print(f"⚠️ Warning: Group data is stale ({time_since_sync:.1f}s since last sync)")
+        print(f"   Make sure GroupSyncManager is running in Unity!")
     
     normalized_target = normalize_group_id(target_group_id)
     print(f"   Target: {normalized_target}")
@@ -354,15 +366,17 @@ def activate_impostor(
     # Validate target exists
     if normalized_target not in all_groups:
         print(f"❌ Target group not found!")
+        print(f"   Looking for: {normalized_target}")
         print(f"   Available: {list(all_groups.keys())}")
         return {
             "success": False,
             "message": f"Target group not found: {normalized_target}",
             "available_groups": list(all_groups.keys()),
+            "time_since_sync": time_since_sync,
         }
     
     # Choose disguise
-    disguise = choose_impostor_disguise_from_farthest_group(normalized_target)
+    disguise = choose_impostor_disguise(normalized_target)
     
     if not disguise:
         return {
@@ -414,6 +428,7 @@ def impostor_status():
         "target_group_members": get_group_members(impostor.target_group_id) if impostor.target_group_id else [],
         "engagement_rate": impostor.conversation_engagement,
         "cooldown_remaining": max(0, impostor.message_cooldown - (time.time() - impostor.last_message_time)),
+        "time_since_group_sync": time.time() - last_group_update_time,
     }
 
 
@@ -424,6 +439,7 @@ def get_groups():
         "groups": all_groups,
         "group_count": len(all_groups),
         "all_players": get_all_player_names(),
+        "time_since_sync": time.time() - last_group_update_time,
     }
 
 
@@ -455,28 +471,32 @@ def clear_database():
 @app.get("/")
 def root():
     """Health check"""
+    time_since_sync = time.time() - last_group_update_time
     return {
         "status": "online",
         "impostor_active": impostor.is_active,
         "groups": all_groups,
         "all_players": get_all_player_names(),
+        "time_since_group_sync": time_since_sync,
+        "group_sync_healthy": time_since_sync < 5,  # Should sync every 2s
     }
 
 
 if __name__ == "__main__":
-    print("🚀 Impostor Chat Server - REDESIGNED")
+    print("🚀 Impostor Chat Server - WITH CONTINUOUS GROUP SYNC")
     print("📍 http://0.0.0.0:8000")
-    print("\n✨ Changes:")
-    print("  • No more 'active players' tracking")
-    print("  • Simplified group-based logic")
-    print("  • Distance calculation done in Unity")
-    print("  • Faster responses (8s cooldown, 60% engagement)")
+    print("\n✨ Key Features:")
+    print("  • Groups synced from Unity every 2 seconds")
+    print("  • No manual group tracking needed")
+    print("  • Automatic impostor deactivation if group dissolves")
+    print("  • Stale data warnings")
     print("\n🔧 Endpoints:")
-    print("  POST /chat")
-    print("  POST /impostor/activate")
-    print("  GET /impostor/status")
-    print("  GET /groups")
-    print("  POST /session/reset")
-    print("  POST /database/clear")
+    print("  POST /groups/sync - Unity sends group updates (auto)")
+    print("  POST /chat - Send messages")
+    print("  POST /impostor/activate - Activate impostor")
+    print("  GET /impostor/status - Check impostor status")
+    print("  GET /groups - View current groups")
+    print("  POST /session/reset - Reset session")
+    print("  POST /database/clear - Clear all data")
     print("\n")
     uvicorn.run(app, host="0.0.0.0", port=8000)
