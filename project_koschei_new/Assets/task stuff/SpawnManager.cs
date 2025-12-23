@@ -15,7 +15,16 @@ public class SpawnManager : MonoBehaviour
 
     void Start()
     {
-        NetworkManager.Singleton.ConnectionApprovalCallback = ApprovalCheck;
+        // Make sure NetworkManager exists before assigning callback
+        if (NetworkManager.Singleton != null)
+        {
+            NetworkManager.Singleton.ConnectionApprovalCallback = ApprovalCheck;
+            Debug.Log("[SpawnManager] Connection approval callback set");
+        }
+        else
+        {
+            Debug.LogError("[SpawnManager] NetworkManager.Singleton is null!");
+        }
     }
 
     void ApprovalCheck(NetworkManager.ConnectionApprovalRequest request, NetworkManager.ConnectionApprovalResponse response)
@@ -23,10 +32,17 @@ public class SpawnManager : MonoBehaviour
         response.Approved = true;
         response.CreatePlayerObject = true;
 
-        int currentPlayers = NetworkManager.Singleton.ConnectedClients.Count;
-        int spawnIndex = Mathf.Clamp(currentPlayers, 0, spawnPositions.Count - 1);
+        // FIXED: Use ConnectedClientsIds count BEFORE this client connects
+        // The count includes the new client, so subtract 1 for the index
+        int spawnIndex = NetworkManager.Singleton.ConnectedClientsIds.Count;
+        
+        // Make sure we don't go out of bounds
+        spawnIndex = Mathf.Clamp(spawnIndex, 0, spawnPositions.Count - 1);
+        
         response.Position = spawnPositions[spawnIndex];
         response.Rotation = Quaternion.identity;
         response.Pending = false;
+        
+        Debug.Log($"[SpawnManager] Client connecting. Spawn index: {spawnIndex}, Position: {spawnPositions[spawnIndex]}");
     }
 }
