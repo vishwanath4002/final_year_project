@@ -27,10 +27,11 @@ public class ImpostorAlienSpawner : NetworkBehaviour
 
     [Header("Group Integration")]
     public PlayerGroupManager groupManager;
-    public ImpostorBackendConnector backendConnector;  // NEW: Backend integration
+    public ImpostorBackendConnector backendConnector;
 
     // Track last target group to avoid repeats
     private PlayerGroup lastTargetGroup = null;
+    private PlayerGroup currentTargetGroup = null; // NEW: Track current target
 
     NetworkObject currentImpostor;
     float nextSpawnTime = 0f;
@@ -53,6 +54,7 @@ public class ImpostorAlienSpawner : NetworkBehaviour
         if (currentImpostor == null || !currentImpostor.IsSpawned)
         {
             currentImpostor = null;
+            currentTargetGroup = null; // Clear target when impostor dies
         }
 
         // Don't spawn new impostor if one already exists
@@ -123,6 +125,7 @@ public class ImpostorAlienSpawner : NetworkBehaviour
         Debug.Log($"[ImpostorSpawner] ═══════════════════════════════════");
 
         lastTargetGroup = targetGroup;
+        currentTargetGroup = targetGroup; // Store current target
 
         // Find spawn position near group
         if (!TryFindSpawnPositionAroundPoint(targetGroup.centerPosition, out Vector3 spawnPos))
@@ -132,9 +135,9 @@ public class ImpostorAlienSpawner : NetworkBehaviour
         }
 
         // Spawn the impostor
-        SpawnImpostorAt(spawnPos);
+        SpawnImpostorAt(spawnPos, targetGroup);
 
-        // NEW: Notify backend about the impostor spawning
+        // Notify backend about the impostor spawning
         if (backendConnector != null)
         {
             backendConnector.NotifyImpostorSpawned(targetGroup);
@@ -145,7 +148,7 @@ public class ImpostorAlienSpawner : NetworkBehaviour
         }
     }
 
-    void SpawnImpostorAt(Vector3 spawnPos)
+    void SpawnImpostorAt(Vector3 spawnPos, PlayerGroup targetGroup)
     {
         // Despawn existing impostor if any
         if (currentImpostor != null && currentImpostor.IsSpawned)
@@ -155,9 +158,10 @@ public class ImpostorAlienSpawner : NetworkBehaviour
             {
                 backendConnector.NotifyImpostorDespawned();
             }
-            
+
             currentImpostor.Despawn(true);
             currentImpostor = null;
+            currentTargetGroup = null;
         }
 
         lastAttemptedSpawnPos = spawnPos;
@@ -186,6 +190,18 @@ public class ImpostorAlienSpawner : NetworkBehaviour
 
         netObj.Spawn(true);
         currentImpostor = netObj;
+
+        // 🔥 NEW: Tell the impostor AI where to go!
+        ImpostorPlayerAI ai = impostor.GetComponent<ImpostorPlayerAI>();
+        if (ai != null)
+        {
+            ai.SetTargetGroup(targetGroup.centerPosition);
+            Debug.Log($"[ImpostorSpawner] ✅ Told impostor to go to group at {targetGroup.centerPosition:F1}");
+        }
+        else
+        {
+            Debug.LogError("[ImpostorSpawner] ⚠️ ImpostorPlayerAI component not found on impostor prefab!");
+        }
 
         Debug.Log($"[ImpostorSpawner] ✅ Impostor spawned at {spawnPos}");
     }
@@ -267,6 +283,14 @@ public class ImpostorAlienSpawner : NetworkBehaviour
         {
             Gizmos.color = Color.red;
             Gizmos.DrawWireSphere(currentImpostor.transform.position, 1.5f);
+
+            // NEW: Draw line from impostor to target group
+            if (currentTargetGroup != null)
+            {
+                Gizmos.color = Color.magenta;
+                Gizmos.DrawLine(currentImpostor.transform.position, currentTargetGroup.centerPosition);
+                Gizmos.DrawWireSphere(currentTargetGroup.centerPosition, 2f);
+            }
         }
     }
 
@@ -278,6 +302,15 @@ public class ImpostorAlienSpawner : NetworkBehaviour
             backendConnector.NotifyImpostorDespawned();
         }
         currentImpostor = null;
+        currentTargetGroup = null;
         lastTargetGroup = null;
+    }
+
+    /// <summary>
+    /// Get current target group (for debugging/UI)
+    /// </summary>
+    public PlayerGroup GetCurrentTargetGroup()
+    {
+        return currentTargetGroup;
     }
 }
