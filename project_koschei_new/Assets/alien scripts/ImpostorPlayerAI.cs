@@ -31,7 +31,7 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
     [Header("Target Group Settings")]
     public float groupArrivalDistance = 10f; // How close to get to group center before socializing
-
+    
     [Header("Ground Check")]
     public Transform groundCheck;
     public LayerMask groundMask;
@@ -46,10 +46,8 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
     private NavMeshAgent agent;
     private Animator anim;
-
     private Vector3 lastPosition;
     private bool isGrounded;
-
     private float currentSpeed = 0f;
     private float currentDirection = 0f;
     private float movementMagnitude = 0f;
@@ -57,15 +55,15 @@ public class ImpostorPlayerAI : NetworkBehaviour
     // STATE MACHINE
     private enum AIState
     {
-        MovingToGroup,      // NEW: Going to target group
-        Wandering,          // Random wandering (when no target)
-        Approaching,        // Approaching a specific player
-        Socializing,        // Near players, having conversation
-        Stopping,           // Very close, stopped
-        Leaving             // NEW: Conversation done, moving away
+        MovingToGroup,   // NEW: Going to target group (ignores other players)
+        Wandering,       // Random wandering (when no target)
+        Approaching,     // Approaching a specific player
+        Socializing,     // Near players, having conversation
+        Stopping,        // Very close, stopped
+        Leaving          // NEW: Conversation done, moving away
     }
-    private AIState currentState = AIState.MovingToGroup;
 
+    private AIState currentState = AIState.MovingToGroup;
     private Transform targetPlayer;
     private Vector3 wanderTarget;
     private float stateTimer;
@@ -77,6 +75,9 @@ public class ImpostorPlayerAI : NetworkBehaviour
     private Vector3 targetGroupCenter = Vector3.zero;
     private bool hasTargetGroup = false;
     private bool hasReachedGroup = false;
+    
+    // NEW: Track which players are in target group (to ignore others)
+    private HashSet<string> targetGroupPlayerNames = new HashSet<string>();
 
     public override void OnNetworkSpawn()
     {
@@ -101,23 +102,35 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
         agent.updatePosition = true;
         agent.updateRotation = false;
-
         lastPosition = transform.position;
     }
 
     /// <summary>
     /// Call this from ImpostorAlienSpawner to tell impostor where to go
+    /// NEW: Also receives target group member names to ignore other groups
     /// </summary>
-    public void SetTargetGroup(Vector3 groupCenter)
+    public void SetTargetGroup(Vector3 groupCenter, string[] groupMemberNames = null)
     {
         targetGroupCenter = groupCenter;
         hasTargetGroup = true;
         hasReachedGroup = false;
 
+        // Store target group member names
+        targetGroupPlayerNames.Clear();
+        if (groupMemberNames != null)
+        {
+            foreach (string name in groupMemberNames)
+            {
+                if (!string.IsNullOrEmpty(name))
+                    targetGroupPlayerNames.Add(name);
+            }
+        }
+
         if (showDebugInfo)
         {
             Debug.Log($"[ImpostorAI] 🎯 Target group set at {groupCenter:F1}");
-            Debug.Log($"[ImpostorAI]    Distance: {Vector3.Distance(transform.position, groupCenter):F1}m");
+            Debug.Log($"[ImpostorAI] Distance: {Vector3.Distance(transform.position, groupCenter):F1}m");
+            Debug.Log($"[ImpostorAI] Target group members: {string.Join(", ", targetGroupPlayerNames)}");
         }
 
         // Immediately start moving toward group
@@ -142,7 +155,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
             ChangeState(AIState.MovingToGroup);
             agent.speed = walkSpeed;
             agent.SetDestination(targetGroupCenter);
-
             if (showDebugInfo)
                 Debug.Log($"[ImpostorAI] INITIALIZED - Moving to target group at {targetGroupCenter:F1}");
         }
@@ -153,7 +165,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
             agent.speed = walkSpeed;
             agent.SetDestination(wanderTarget);
             ChangeState(AIState.Wandering);
-
             if (showDebugInfo)
                 Debug.Log($"[ImpostorAI] INITIALIZED - No target, wandering");
         }
@@ -186,16 +197,16 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
     void UpdateAIBehavior()
     {
-        // PRIORITY 1: Moving to target group (takes precedence over everything)
+        // PRIORITY 1: Moving to target group (IGNORES OTHER PLAYERS)
         if (hasTargetGroup && !hasReachedGroup && currentState != AIState.Leaving)
         {
             HandleMovingToGroup();
-            return;
+            return; // Don't check for other players while moving to target
         }
 
-        // PRIORITY 2: Check for nearby players for social interaction
-        targetPlayer = FindNearestPlayer();
-
+        // PRIORITY 2: Check for nearby players for social interaction (only after reaching target)
+        targetPlayer = FindNearestTargetGroupPlayer();
+        
         if (targetPlayer != null)
         {
             float dist = Vector3.Distance(transform.position, targetPlayer.position);
@@ -222,7 +233,7 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
         if (showDebugInfo && Time.frameCount % 60 == 0)
         {
-            Debug.Log($"[ImpostorAI] 🚶 Moving to group... Distance: {distToGroup:F1}m");
+            Debug.Log($"[ImpostorAI] 🚶 Moving to group... Distance: {distToGroup:F1}m (ignoring other players)");
         }
 
         // Check if we've arrived at the group area
@@ -230,11 +241,11 @@ public class ImpostorPlayerAI : NetworkBehaviour
         {
             hasReachedGroup = true;
             ChangeState(AIState.Wandering); // Switch to wandering/socializing mode
-
+            
             if (showDebugInfo)
             {
                 Debug.Log($"[ImpostorAI] ✅ ARRIVED at target group!");
-                Debug.Log($"[ImpostorAI]    Now switching to social behavior...");
+                Debug.Log($"[ImpostorAI] Now switching to social behavior...");
             }
 
             // Start wandering near the group center
@@ -243,7 +254,7 @@ public class ImpostorPlayerAI : NetworkBehaviour
         }
         else
         {
-            // Keep moving toward group
+            // Keep moving toward group (ignore all other players)
             agent.speed = walkSpeed;
             agent.SetDestination(targetGroupCenter);
         }
@@ -437,13 +448,22 @@ public class ImpostorPlayerAI : NetworkBehaviour
     void ChangeState(AIState newState)
     {
         if (currentState == newState) return;
+
         if (showDebugInfo)
             Debug.Log($"[ImpostorAI] State: {currentState} -> {newState}");
+
         currentState = newState;
     }
 
-    Transform FindNearestPlayer()
+    /// <summary>
+    /// NEW: Only find players in TARGET GROUP (ignore other players)
+    /// </summary>
+    Transform FindNearestTargetGroupPlayer()
     {
+        // While moving to group, don't detect ANY players
+        if (!hasReachedGroup)
+            return null;
+
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)
             return null;
 
@@ -456,8 +476,33 @@ public class ImpostorPlayerAI : NetworkBehaviour
             if (client.PlayerObject.gameObject == gameObject) continue;
 
             // Only track real player objects
-            if (client.PlayerObject.GetComponent<PlayerController>() == null)
+            if (client.PlayerObject.GetComponent<CharacterController>() == null)
                 continue;
+
+            // NEW: Check if player is in target group
+            string playerName = client.PlayerObject.name;
+            
+            // If we have target group info, only interact with those players
+            if (targetGroupPlayerNames.Count > 0)
+            {
+                bool isInTargetGroup = false;
+                foreach (string targetName in targetGroupPlayerNames)
+                {
+                    if (playerName.Contains(targetName))
+                    {
+                        isInTargetGroup = true;
+                        break;
+                    }
+                }
+
+                if (!isInTargetGroup)
+                {
+                    // This player is NOT in target group, ignore them
+                    if (showDebugInfo && Time.frameCount % 120 == 0)
+                        Debug.Log($"[ImpostorAI] Ignoring {playerName} (not in target group)");
+                    continue;
+                }
+            }
 
             float d = Vector3.Distance(transform.position, client.PlayerObject.transform.position);
             if (d < closestDist)
@@ -500,6 +545,7 @@ public class ImpostorPlayerAI : NetworkBehaviour
     {
         Vector3 direction = targetPos - transform.position;
         direction.y = 0f;
+
         if (direction.sqrMagnitude > 0.01f)
         {
             Quaternion targetRotation = Quaternion.LookRotation(direction);
@@ -513,10 +559,10 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
         Vector3 desired = agent.desiredVelocity;
         desired.y = 0f;
+
         if (desired.sqrMagnitude < 0.0001f) return;
 
         desired.Normalize();
-
         Vector3 rayOrigin = transform.position + Vector3.up * 0.5f;
         LayerMask maskToUse = obstacleMask.value == 0 ? groundMask : obstacleMask;
 
@@ -559,7 +605,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
         currentSpeed = Mathf.Lerp(currentSpeed, targetForward, Time.deltaTime * acceleration);
         currentDirection = Mathf.Lerp(currentDirection, targetRight, Time.deltaTime * acceleration);
-
         movementMagnitude = new Vector2(currentDirection, currentSpeed).magnitude;
 
         anim.SetFloat("Speed", currentSpeed);

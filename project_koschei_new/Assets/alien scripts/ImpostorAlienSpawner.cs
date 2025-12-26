@@ -64,7 +64,6 @@ public class ImpostorAlienSpawner : NetworkBehaviour
         {
             if (showDebugLogs)
                 Debug.LogWarning("[ImpostorSpawner] Impostor already exists! Despawning old one first.");
-
             DespawnCurrentImpostor();
         }
 
@@ -87,10 +86,10 @@ public class ImpostorAlienSpawner : NetworkBehaviour
         }
 
         // Spawn the impostor
-        SpawnImpostorAt(spawnPos, groupCenter, targetGroupId, disguiseAs);
+        SpawnImpostorAt(spawnPos, groupCenter, targetGroupId, disguiseAs, groupMembers);
     }
 
-    private void SpawnImpostorAt(Vector3 spawnPos, Vector3 targetGroupCenter, string targetGroupId, string disguiseAs)
+    private void SpawnImpostorAt(Vector3 spawnPos, Vector3 targetGroupCenter, string targetGroupId, string disguiseAs, string[] groupMembers)
     {
         lastAttemptedSpawnPos = spawnPos;
 
@@ -124,14 +123,15 @@ public class ImpostorAlienSpawner : NetworkBehaviour
         currentTargetGroupId = targetGroupId;
         currentDisguiseAs = disguiseAs;
 
-        // Tell the impostor AI where to go
+        // Tell the impostor AI where to go AND who to interact with
         ImpostorPlayerAI ai = impostor.GetComponent<ImpostorPlayerAI>();
         if (ai != null)
         {
-            ai.SetTargetGroup(targetGroupCenter);
+            // NEW: Pass group member names so AI can ignore other groups
+            ai.SetTargetGroup(targetGroupCenter, groupMembers);
 
             if (showDebugLogs)
-                Debug.Log($"[ImpostorSpawner] ✅ Impostor AI told to go to {targetGroupCenter}");
+                Debug.Log($"[ImpostorSpawner] ✅ Impostor AI told to go to {targetGroupCenter} (target members: {string.Join(", ", groupMembers)})");
         }
         else
         {
@@ -167,7 +167,6 @@ public class ImpostorAlienSpawner : NetworkBehaviour
         {
             if (showDebugLogs)
                 Debug.Log("[ImpostorSpawner] No impostor to despawn");
-
             currentImpostor = null;
             return;
         }
