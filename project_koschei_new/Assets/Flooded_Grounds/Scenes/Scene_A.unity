@@ -38444,14 +38444,14 @@ MonoBehaviour:
   m_GameObject: {fileID: 309538815}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 4014dc2fa205ec745a63c3f986e7e3e5, type: 3}
+  m_Script: {fileID: 11500000, guid: 11a906fd6a0002249aea72473e5b026c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   groupManager: {fileID: 309538816}
   backendUrlOverride: 
   backendPort: 8000
   syncInterval: 2
-  showDebugLogs: 0
+  showDebugLogs: 1
 --- !u!1001 &309612442
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -272554,14 +272554,12 @@ MonoBehaviour:
   groundMask:
     serializedVersion: 2
     m_Bits: 4294967295
-  autoSpawnEnabled: 1
-  spawnIntervalSeconds: 30
   center: {x: 0, y: 0, z: 0}
   searchRadius: 80
   spawnHeightOffset: 0.1
   maxRaycastHeight: 500
   showDebugGizmos: 1
-  groupManager: {fileID: 309538816}
+  showDebugLogs: 1
   backendConnector: {fileID: 2139008039}
 --- !u!4 &2139008038
 Transform:
@@ -272592,8 +272590,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   backendUrlOverride: 
   backendPort: 8000
+  pollInterval: 2
   groupManager: {fileID: 309538816}
   spawner: {fileID: 2139008037}
+  impostorAI: {fileID: 6210753124765139793, guid: cdc4485d93eaf2548acbda4729b587c0, type: 3}
+  showDebugLogs: 1
 --- !u!1001 &2139646692
 PrefabInstance:
   m_ObjectHideFlags: 0

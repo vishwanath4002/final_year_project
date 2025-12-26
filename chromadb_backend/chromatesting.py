@@ -8,6 +8,7 @@ from datetime import datetime
 from stylometric import summarize_player_style
 from langchain_ollama import OllamaEmbeddings, ChatOllama
 
+
 # --- Ollama base URL (set explicitly) ---
 OLLAMA_BASE = "http://127.0.0.1:11434"
 
@@ -22,9 +23,20 @@ class OllamaWrapper:
     def name(self):
         return "ollama"
 
-
-# 🔹 1️⃣ Start ChromaDB client (persistent store)
+# Create/connect to ChromaDB
 client = chromadb.PersistentClient(path="./chroma")
+
+# Get or create collections (auto-creates if missing)
+player_messages = client.get_or_create_collection(
+    name="player_messages",
+    metadata={"description": "Player chat messages with group info"}
+)
+
+npc_memory = client.get_or_create_collection(
+    name="npc_memory",
+    metadata={"description": "NPC/Impostor memory"}
+)
+
 
 # 🔹 2️⃣ Embedding function
 embed = OllamaWrapper("snowflake-arctic-embed")

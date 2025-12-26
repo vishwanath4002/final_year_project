@@ -3,6 +3,10 @@ using UnityEngine;
 using UnityEngine.AI;
 using System.Collections.Generic;
 
+/// <summary>
+/// UPDATED: Spawns impostor ONLY when backend commands it
+/// No more auto-spawn timer - backend controls spawning
+/// </summary>
 public class ImpostorAlienSpawner : NetworkBehaviour
 {
     [Header("Impostor Settings")]
@@ -12,10 +16,6 @@ public class ImpostorAlienSpawner : NetworkBehaviour
     public float navmeshSampleRadius = 3f;
     public LayerMask groundMask;
 
-    [Header("Auto Spawn")]
-    public bool autoSpawnEnabled = true;
-    public float spawnIntervalSeconds = 30f;
-
     [Header("Spawn Area")]
     public Vector3 center;
     public float searchRadius = 80f;
@@ -24,151 +24,79 @@ public class ImpostorAlienSpawner : NetworkBehaviour
 
     [Header("Debug")]
     public bool showDebugGizmos = true;
+    public bool showDebugLogs = true;
 
-    [Header("Group Integration")]
-    public PlayerGroupManager groupManager;
+    [Header("Backend Integration")]
     public ImpostorBackendConnector backendConnector;
 
-    // Track last target group to avoid repeats
-    private PlayerGroup lastTargetGroup = null;
-    private PlayerGroup currentTargetGroup = null; // NEW: Track current target
+    // Track current impostor
+    private NetworkObject currentImpostor;
+    private string currentTargetGroupId;
+    private string currentDisguiseAs;
+    private Vector3 lastAttemptedSpawnPos = Vector3.zero;
 
-    NetworkObject currentImpostor;
-    float nextSpawnTime = 0f;
-    Vector3 lastAttemptedSpawnPos = Vector3.zero;
-
-    public override void OnNetworkSpawn()
+    /// <summary>
+    /// Get current impostor (for backend connector)
+    /// </summary>
+    public NetworkObject GetCurrentImpostor()
     {
-        if (!IsServer) return;
-        nextSpawnTime = Time.time + spawnIntervalSeconds;
+        return currentImpostor;
     }
 
-    void Update()
+    /// <summary>
+    /// NEW: Spawn impostor for specific group (called by backend connector)
+    /// </summary>
+    public void SpawnImpostorForGroup(string targetGroupId, string[] groupMembers, Vector3 groupCenter, string disguiseAs)
     {
-        if (!IsServer) return;
-        if (!autoSpawnEnabled) return;
-        if (NetworkManager.Singleton == null) return;
-        if (!NetworkManager.Singleton.IsListening) return;
-
-        // Check if current impostor is still alive
-        if (currentImpostor == null || !currentImpostor.IsSpawned)
-        {
-            currentImpostor = null;
-            currentTargetGroup = null; // Clear target when impostor dies
-        }
-
-        // Don't spawn new impostor if one already exists
-        if (currentImpostor != null) return;
-
-        // Check if it's time to spawn
-        if (Time.time >= nextSpawnTime)
-        {
-            TrySpawnNearTargetGroup();
-            nextSpawnTime = Time.time + spawnIntervalSeconds;
-        }
-    }
-
-    [ContextMenu("Spawn Impostor Now (Server Only)")]
-    void SpawnImpostorContextMenu()
-    {
-        if (!Application.isPlaying)
-        {
-            Debug.LogWarning("Must be in Play mode.");
-            return;
-        }
-
         if (!IsServer)
         {
-            Debug.LogWarning("SpawnImpostorNow must be called on server/host.");
+            Debug.LogWarning("[ImpostorSpawner] SpawnImpostorForGroup should only be called on server");
             return;
         }
 
-        TrySpawnNearTargetGroup();
-    }
-
-    void TrySpawnNearTargetGroup()
-    {
         if (impostorAlienPrefab == null)
         {
-            Debug.LogError("[ImpostorSpawner] impostorAlienPrefab not assigned.");
+            Debug.LogError("[ImpostorSpawner] impostorAlienPrefab not assigned!");
             return;
         }
 
-        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)
-            return;
-
-        // CRITICAL: Use group system
-        if (groupManager == null)
+        if (currentImpostor != null)
         {
-            Debug.LogError("[ImpostorSpawner] PlayerGroupManager not assigned!");
-            return;
+            if (showDebugLogs)
+                Debug.LogWarning("[ImpostorSpawner] Impostor already exists! Despawning old one first.");
+
+            DespawnCurrentImpostor();
         }
 
-        // Get target group using existing logic
-        var targetGroup = groupManager.GetTargetGroupForImpostor(
-            transform.position,
-            lastTargetGroup
-        );
-
-        if (targetGroup == null)
+        if (showDebugLogs)
         {
-            Debug.Log("[ImpostorSpawner] No valid groups found for impostor spawn.");
-            return;
+            Debug.Log($"[ImpostorSpawner] ═══════════════════════════════════");
+            Debug.Log($"[ImpostorSpawner] 🎯 SPAWNING IMPOSTOR (Backend Command)");
+            Debug.Log($"[ImpostorSpawner] Target Group: {targetGroupId}");
+            Debug.Log($"[ImpostorSpawner] Group Members: {string.Join(", ", groupMembers)}");
+            Debug.Log($"[ImpostorSpawner] Group Center: {groupCenter}");
+            Debug.Log($"[ImpostorSpawner] Disguise: {disguiseAs}");
+            Debug.Log($"[ImpostorSpawner] ═══════════════════════════════════");
         }
-
-        Debug.Log($"[ImpostorSpawner] ═══════════════════════════════════");
-        Debug.Log($"[ImpostorSpawner] 🎯 TARGET GROUP SELECTED");
-        Debug.Log($"[ImpostorSpawner]    Group ID: {targetGroup.groupId}");
-        Debug.Log($"[ImpostorSpawner]    Members: {string.Join(", ", targetGroup.playerIds)}");
-        Debug.Log($"[ImpostorSpawner]    Size: {targetGroup.playerIds.Count}");
-        Debug.Log($"[ImpostorSpawner]    Location: {targetGroup.centerPosition}");
-        Debug.Log($"[ImpostorSpawner] ═══════════════════════════════════");
-
-        lastTargetGroup = targetGroup;
-        currentTargetGroup = targetGroup; // Store current target
 
         // Find spawn position near group
-        if (!TryFindSpawnPositionAroundPoint(targetGroup.centerPosition, out Vector3 spawnPos))
+        if (!TryFindSpawnPositionAroundPoint(groupCenter, out Vector3 spawnPos))
         {
             Debug.LogWarning("[ImpostorSpawner] Could not find spawn position near target group.");
             return;
         }
 
         // Spawn the impostor
-        SpawnImpostorAt(spawnPos, targetGroup);
-
-        // Notify backend about the impostor spawning
-        if (backendConnector != null)
-        {
-            backendConnector.NotifyImpostorSpawned(targetGroup);
-        }
-        else
-        {
-            Debug.LogWarning("[ImpostorSpawner] ⚠️ No ImpostorBackendConnector assigned! Backend won't know about impostor.");
-        }
+        SpawnImpostorAt(spawnPos, groupCenter, targetGroupId, disguiseAs);
     }
 
-    void SpawnImpostorAt(Vector3 spawnPos, PlayerGroup targetGroup)
+    private void SpawnImpostorAt(Vector3 spawnPos, Vector3 targetGroupCenter, string targetGroupId, string disguiseAs)
     {
-        // Despawn existing impostor if any
-        if (currentImpostor != null && currentImpostor.IsSpawned)
-        {
-            // Notify backend before despawning
-            if (backendConnector != null)
-            {
-                backendConnector.NotifyImpostorDespawned();
-            }
-
-            currentImpostor.Despawn(true);
-            currentImpostor = null;
-            currentTargetGroup = null;
-        }
-
         lastAttemptedSpawnPos = spawnPos;
 
         GameObject impostor = Instantiate(impostorAlienPrefab, spawnPos, Quaternion.identity);
-
         NetworkObject netObj = impostor.GetComponent<NetworkObject>();
+
         if (netObj == null)
         {
             Debug.LogError("[ImpostorSpawner] impostorAlienPrefab is missing NetworkObject component!");
@@ -185,25 +113,79 @@ public class ImpostorAlienSpawner : NetworkBehaviour
             impostor.transform.position = spawnPos + Vector3.up * heightOffset;
             cc.enabled = true;
             cc.Move(Vector3.zero);
-            Debug.Log($"[ImpostorSpawner] Spawned with CC offset: {heightOffset}");
+
+            if (showDebugLogs)
+                Debug.Log($"[ImpostorSpawner] Spawned with CC offset: {heightOffset}");
         }
 
+        // Spawn on network
         netObj.Spawn(true);
         currentImpostor = netObj;
+        currentTargetGroupId = targetGroupId;
+        currentDisguiseAs = disguiseAs;
 
-        // 🔥 NEW: Tell the impostor AI where to go!
+        // Tell the impostor AI where to go
         ImpostorPlayerAI ai = impostor.GetComponent<ImpostorPlayerAI>();
         if (ai != null)
         {
-            ai.SetTargetGroup(targetGroup.centerPosition);
-            Debug.Log($"[ImpostorSpawner] ✅ Told impostor to go to group at {targetGroup.centerPosition:F1}");
+            ai.SetTargetGroup(targetGroupCenter);
+
+            if (showDebugLogs)
+                Debug.Log($"[ImpostorSpawner] ✅ Impostor AI told to go to {targetGroupCenter}");
         }
         else
         {
             Debug.LogError("[ImpostorSpawner] ⚠️ ImpostorPlayerAI component not found on impostor prefab!");
         }
 
-        Debug.Log($"[ImpostorSpawner] ✅ Impostor spawned at {spawnPos}");
+        // Notify backend connector
+        if (backendConnector != null)
+        {
+            backendConnector.OnImpostorSpawned(netObj, targetGroupId, disguiseAs);
+        }
+        else
+        {
+            Debug.LogWarning("[ImpostorSpawner] ⚠️ No ImpostorBackendConnector assigned!");
+        }
+
+        if (showDebugLogs)
+            Debug.Log($"[ImpostorSpawner] ✅ Impostor spawned at {spawnPos}");
+    }
+
+    /// <summary>
+    /// Despawn current impostor (called by backend connector)
+    /// </summary>
+    public void DespawnCurrentImpostor()
+    {
+        if (!IsServer)
+        {
+            Debug.LogWarning("[ImpostorSpawner] DespawnCurrentImpostor should only be called on server");
+            return;
+        }
+
+        if (currentImpostor == null || !currentImpostor.IsSpawned)
+        {
+            if (showDebugLogs)
+                Debug.Log("[ImpostorSpawner] No impostor to despawn");
+
+            currentImpostor = null;
+            return;
+        }
+
+        if (showDebugLogs)
+            Debug.Log($"[ImpostorSpawner] 🗑️ Despawning impostor");
+
+        // Notify backend connector
+        if (backendConnector != null)
+        {
+            backendConnector.NotifyImpostorDespawned();
+        }
+
+        // Despawn from network
+        currentImpostor.Despawn(true);
+        currentImpostor = null;
+        currentTargetGroupId = null;
+        currentDisguiseAs = null;
     }
 
     bool TryFindSpawnPositionAroundPoint(Vector3 groupPos, out Vector3 result)
@@ -269,6 +251,7 @@ public class ImpostorAlienSpawner : NetworkBehaviour
 
         Gizmos.color = Color.cyan;
         Gizmos.DrawWireSphere(origin, minSpawnDistanceFromPlayers);
+
         Gizmos.color = Color.blue;
         Gizmos.DrawWireSphere(origin, maxSpawnDistanceFromPlayers);
 
@@ -283,34 +266,6 @@ public class ImpostorAlienSpawner : NetworkBehaviour
         {
             Gizmos.color = Color.red;
             Gizmos.DrawWireSphere(currentImpostor.transform.position, 1.5f);
-
-            // NEW: Draw line from impostor to target group
-            if (currentTargetGroup != null)
-            {
-                Gizmos.color = Color.magenta;
-                Gizmos.DrawLine(currentImpostor.transform.position, currentTargetGroup.centerPosition);
-                Gizmos.DrawWireSphere(currentTargetGroup.centerPosition, 2f);
-            }
         }
-    }
-
-    // Call this when impostor is manually despawned
-    public void OnImpostorDespawned()
-    {
-        if (backendConnector != null)
-        {
-            backendConnector.NotifyImpostorDespawned();
-        }
-        currentImpostor = null;
-        currentTargetGroup = null;
-        lastTargetGroup = null;
-    }
-
-    /// <summary>
-    /// Get current target group (for debugging/UI)
-    /// </summary>
-    public PlayerGroup GetCurrentTargetGroup()
-    {
-        return currentTargetGroup;
     }
 }
