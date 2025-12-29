@@ -18,6 +18,7 @@ public class ImpostorBackendConnector : NetworkBehaviour
     [Header("References")]
     public ImpostorAlienSpawner spawner;
     public GroupSyncManager groupSyncManager;
+    public PlayerGroupManager playerGroupManager; // NEW: Reference to PlayerGroupManager
 
     [Header("Debug")]
     public bool showDebugLogs = true;
@@ -33,6 +34,9 @@ public class ImpostorBackendConnector : NetworkBehaviour
 
         if (groupSyncManager == null)
             groupSyncManager = FindObjectOfType<GroupSyncManager>();
+
+        if (playerGroupManager == null)
+            playerGroupManager = FindObjectOfType<PlayerGroupManager>();
 
         if (spawner != null)
             spawner.backendConnector = this;
@@ -65,7 +69,7 @@ public class ImpostorBackendConnector : NetworkBehaviour
 
                 if (impostor != null && impostor.IsSpawned)
                 {
-                    // Get current group position from GroupSyncManager
+                    // Get current group position from PlayerGroupManager
                     Vector3 currentGroupCenter = GetCurrentGroupCenter(currentTargetGroupId);
 
                     if (currentGroupCenter != Vector3.zero)
@@ -87,57 +91,52 @@ public class ImpostorBackendConnector : NetworkBehaviour
     }
 
     /// <summary>
-    /// Get current center position of target group
+    /// Get current center position of target group using PlayerGroupManager
     /// </summary>
     Vector3 GetCurrentGroupCenter(string groupId)
     {
-        if (groupSyncManager == null)
+        if (playerGroupManager == null)
             return Vector3.zero;
 
-        // Find players in target group
-        List<Transform> groupPlayers = new List<Transform>();
+        // Get all active groups
+        var activeGroups = playerGroupManager.GetActiveGroups();
 
-        foreach (var client in NetworkManager.Singleton.ConnectedClientsList)
+        // Find the group with matching groupId
+        foreach (var group in activeGroups)
         {
-            if (client.PlayerObject == null) continue;
-
-            PlayerGroupManager pgm = client.PlayerObject.GetComponent<PlayerGroupManager>();
-            if (pgm != null && pgm.CurrentGroupId == groupId)
+            if (group.groupId == groupId)
             {
-                groupPlayers.Add(client.PlayerObject.transform);
+                return group.centerPosition;
             }
         }
 
-        if (groupPlayers.Count == 0)
-            return Vector3.zero;
+        if (showDebugLogs)
+            Debug.LogWarning($"[ImpostorBackend] Group '{groupId}' not found in active groups");
 
-        // Calculate center
-        Vector3 sum = Vector3.zero;
-        foreach (Transform t in groupPlayers)
-            sum += t.position;
-
-        return sum / groupPlayers.Count;
+        return Vector3.zero;
     }
 
     /// <summary>
-    /// Get current members of target group
+    /// Get current members of target group using PlayerGroupManager
     /// </summary>
     string[] GetCurrentGroupMembers(string groupId)
     {
-        List<string> members = new List<string>();
+        if (playerGroupManager == null)
+            return new string[0];
 
-        foreach (var client in NetworkManager.Singleton.ConnectedClientsList)
+        // Get all active groups
+        var activeGroups = playerGroupManager.GetActiveGroups();
+
+        // Find the group with matching groupId
+        foreach (var group in activeGroups)
         {
-            if (client.PlayerObject == null) continue;
-
-            PlayerGroupManager pgm = client.PlayerObject.GetComponent<PlayerGroupManager>();
-            if (pgm != null && pgm.CurrentGroupId == groupId)
+            if (group.groupId == groupId)
             {
-                members.Add(client.PlayerObject.name);
+                return group.playerIds.ToArray();
             }
         }
 
-        return members.ToArray();
+        return new string[0];
     }
 
     IEnumerator CheckSpawnRoutine()
