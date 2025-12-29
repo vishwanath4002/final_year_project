@@ -1,324 +1,326 @@
+using System.Collections;
+using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.Networking;
-using System.Collections;
-using System;
 
 /// <summary>
-/// UPDATED: Now polls backend for spawn/despawn commands
-/// Backend controls WHEN impostor spawns based on groups and timing
+/// Handles communication between Unity and FastAPI backend for impostor spawning/despawning
+/// NOW: Continuously updates impostor with current group position
 /// </summary>
 public class ImpostorBackendConnector : NetworkBehaviour
 {
     [Header("Backend Settings")]
-    [Tooltip("Backend URL - leave empty to auto-detect from NetworkManager")]
-    public string backendUrlOverride;
-    public int backendPort = 8000;
-
-    [Header("Polling Settings")]
-    public float pollInterval = 2f; // Check backend every 2 seconds
+    public string backendUrl = "http://127.0.0.1:8000";
+    public float checkSpawnInterval = 5f;
+    public float groupUpdateInterval = 2f; // NEW: Update impostor's target position
 
     [Header("References")]
-    public PlayerGroupManager groupManager;
     public ImpostorAlienSpawner spawner;
-    public ImpostorPlayerAI impostorAI; // Reference to impostor AI (set after spawn)
+    public GroupSyncManager groupSyncManager;
 
     [Header("Debug")]
     public bool showDebugLogs = true;
 
-    private float lastPollTime = 0f;
-    private bool isPolling = false;
+    private bool isCheckingSpawn = false;
+    private string currentTargetGroupId = null;
+    private string currentDisguiseAs = null;
 
-    private string ResolvedBackendUrl
+    void Start()
     {
-        get
-        {
-            if (!string.IsNullOrEmpty(backendUrlOverride))
-                return backendUrlOverride;
-            return NetworkHostAddressHelper.GetChatApiUrlFromNetworkManager(backendPort, "");
-        }
+        if (spawner == null)
+            spawner = FindObjectOfType<ImpostorAlienSpawner>();
+
+        if (groupSyncManager == null)
+            groupSyncManager = FindObjectOfType<GroupSyncManager>();
+
+        if (spawner != null)
+            spawner.backendConnector = this;
     }
 
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
+
         if (IsServer)
         {
-            isPolling = true;
-            if (showDebugLogs)
-                Debug.Log("[ImpostorConnector] 🔄 Started polling backend");
-        }
-    }
-
-    void Update()
-    {
-        if (!IsServer || !isPolling) return;
-
-        // Poll backend regularly
-        if (Time.time - lastPollTime >= pollInterval)
-        {
-            lastPollTime = Time.time;
-            StartCoroutine(PollBackendForSpawnCommand());
+            StartCoroutine(CheckSpawnRoutine());
+            StartCoroutine(UpdateImpostorTargetRoutine()); // NEW: Dynamic group tracking
         }
     }
 
     /// <summary>
-    /// Poll backend to check if impostor should spawn or despawn
+    /// NEW: Continuously update impostor with current group position
     /// </summary>
-    private IEnumerator PollBackendForSpawnCommand()
+    IEnumerator UpdateImpostorTargetRoutine()
     {
-        string url = ResolvedBackendUrl;
-        if (string.IsNullOrEmpty(url))
+        while (true)
         {
-            yield break;
-        }
+            yield return new WaitForSeconds(groupUpdateInterval);
 
-        // Ensure HTTP for local development
-        if (url.StartsWith("https://127.0.0.1") || url.StartsWith("https://localhost"))
-        {
-            url = url.Replace("https://", "http://");
-        }
-
-        string checkUrl = url.TrimEnd('/') + "/impostor/check_spawn";
-
-        using (UnityWebRequest req = UnityWebRequest.Get(checkUrl))
-        {
-            yield return req.SendWebRequest();
-
-            if (req.result == UnityWebRequest.Result.Success)
+            // Only update if impostor is active and we have a target group
+            if (currentTargetGroupId != null && spawner != null)
             {
-                try
+                NetworkObject impostor = spawner.GetCurrentImpostor();
+
+                if (impostor != null && impostor.IsSpawned)
                 {
-                    SpawnCheckResponse response = JsonUtility.FromJson<SpawnCheckResponse>(req.downloadHandler.text);
+                    // Get current group position from GroupSyncManager
+                    Vector3 currentGroupCenter = GetCurrentGroupCenter(currentTargetGroupId);
 
-                    // Check if backend wants us to DESPAWN
-                    if (response.should_despawn)
+                    if (currentGroupCenter != Vector3.zero)
                     {
-                        if (showDebugLogs)
-                            Debug.Log($"[ImpostorConnector] 🛑 Backend says: DESPAWN impostor (reason: {response.reason})");
-
-                        HandleDespawnCommand();
-                    }
-                    // Check if backend wants us to SPAWN
-                    else if (response.should_spawn)
-                    {
-                        if (showDebugLogs)
+                        // Update impostor AI with new target position
+                        ImpostorPlayerAI ai = impostor.GetComponent<ImpostorPlayerAI>();
+                        if (ai != null)
                         {
-                            Debug.Log($"[ImpostorConnector] 🎯 Backend says: SPAWN impostor");
-                            Debug.Log($"  Target group: {response.target_group_id}");
-                            Debug.Log($"  Disguise as: {response.disguise_as}");
-                        }
+                            string[] groupMembers = GetCurrentGroupMembers(currentTargetGroupId);
+                            ai.UpdateTargetGroupPosition(currentGroupCenter, groupMembers);
 
-                        HandleSpawnCommand(response);
+                            if (showDebugLogs)
+                                Debug.Log($"[ImpostorBackend] 📍 Updated impostor target: {currentGroupCenter:F1}");
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogError($"[ImpostorConnector] Failed to parse spawn check: {ex.Message}");
                 }
             }
         }
     }
 
     /// <summary>
-    /// Handle spawn command from backend
+    /// Get current center position of target group
     /// </summary>
-    private void HandleSpawnCommand(SpawnCheckResponse spawnData)
+    Vector3 GetCurrentGroupCenter(string groupId)
     {
-        if (spawner == null)
+        if (groupSyncManager == null)
+            return Vector3.zero;
+
+        // Find players in target group
+        List<Transform> groupPlayers = new List<Transform>();
+
+        foreach (var client in NetworkManager.Singleton.ConnectedClientsList)
         {
-            Debug.LogError("[ImpostorConnector] No spawner reference!");
-            return;
+            if (client.PlayerObject == null) continue;
+
+            PlayerGroupManager pgm = client.PlayerObject.GetComponent<PlayerGroupManager>();
+            if (pgm != null && pgm.CurrentGroupId == groupId)
+            {
+                groupPlayers.Add(client.PlayerObject.transform);
+            }
         }
 
-        // Parse target group position
-        Vector3 targetPosition = Vector3.zero;
-        if (spawnData.target_group_position != null && spawnData.target_group_position.Length >= 3)
-        {
-            targetPosition = new Vector3(
-                spawnData.target_group_position[0],
-                spawnData.target_group_position[1],
-                spawnData.target_group_position[2]
-            );
-        }
+        if (groupPlayers.Count == 0)
+            return Vector3.zero;
 
-        // Tell spawner to spawn at this target group
-        spawner.SpawnImpostorForGroup(
-            spawnData.target_group_id,
-            spawnData.target_group_members,
-            targetPosition,
-            spawnData.disguise_as
-        );
+        // Calculate center
+        Vector3 sum = Vector3.zero;
+        foreach (Transform t in groupPlayers)
+            sum += t.position;
 
-        // Backend will be notified via spawner's NotifyImpostorSpawned call
+        return sum / groupPlayers.Count;
     }
 
     /// <summary>
-    /// Handle despawn command from backend
+    /// Get current members of target group
     /// </summary>
-    private void HandleDespawnCommand()
+    string[] GetCurrentGroupMembers(string groupId)
     {
-        if (spawner == null)
+        List<string> members = new List<string>();
+
+        foreach (var client in NetworkManager.Singleton.ConnectedClientsList)
         {
-            Debug.LogWarning("[ImpostorConnector] No spawner reference for despawn");
-            return;
+            if (client.PlayerObject == null) continue;
+
+            PlayerGroupManager pgm = client.PlayerObject.GetComponent<PlayerGroupManager>();
+            if (pgm != null && pgm.CurrentGroupId == groupId)
+            {
+                members.Add(client.PlayerObject.name);
+            }
         }
 
-        // Get impostor AI reference if we don't have it
-        if (impostorAI == null && spawner.GetCurrentImpostor() != null)
-        {
-            impostorAI = spawner.GetCurrentImpostor().GetComponent<ImpostorPlayerAI>();
-        }
+        return members.ToArray();
+    }
 
-        // Tell impostor AI to leave area (walk away)
-        if (impostorAI != null)
+    IEnumerator CheckSpawnRoutine()
+    {
+        while (true)
         {
-            if (showDebugLogs)
-                Debug.Log("[ImpostorConnector] 👋 Telling impostor to walk away");
+            yield return new WaitForSeconds(checkSpawnInterval);
 
-            impostorAI.LeaveArea();
-
-            // Despawn after a delay to let it walk away
-            StartCoroutine(DespawnAfterDelay(5f));
-        }
-        else
-        {
-            // No AI found, just despawn immediately
-            spawner.DespawnCurrentImpostor();
+            if (!isCheckingSpawn && spawner != null)
+            {
+                StartCoroutine(CheckSpawnWithBackend());
+            }
         }
     }
 
-    private IEnumerator DespawnAfterDelay(float delay)
+    IEnumerator CheckSpawnWithBackend()
     {
-        yield return new WaitForSeconds(delay);
+        isCheckingSpawn = true;
 
-        if (spawner != null)
+        string url = $"{backendUrl}/impostor/check_spawn";
+
+        using (UnityWebRequest request = UnityWebRequest.Get(url))
         {
-            if (showDebugLogs)
-                Debug.Log("[ImpostorConnector] 🗑️ Despawning impostor after walk-away");
+            yield return request.SendWebRequest();
 
-            spawner.DespawnCurrentImpostor();
+            if (request.result == UnityWebRequest.Result.Success)
+            {
+                string json = request.downloadHandler.text;
+                SpawnCheckResponse response = JsonUtility.FromJson<SpawnCheckResponse>(json);
+
+                // Handle despawn signal
+                if (response.should_despawn)
+                {
+                    if (showDebugLogs)
+                        Debug.Log($"[ImpostorBackend] 🛑 Backend says: DESPAWN (reason: {response.reason})");
+
+                    spawner.DespawnCurrentImpostor();
+                    currentTargetGroupId = null;
+                    currentDisguiseAs = null;
+                }
+                // Handle spawn signal
+                else if (response.should_spawn && !string.IsNullOrEmpty(response.disguise_as))
+                {
+                    if (showDebugLogs)
+                    {
+                        Debug.Log($"[ImpostorBackend] ═══════════════════════════════════");
+                        Debug.Log($"[ImpostorBackend] 🎯 Backend says: SPAWN IMPOSTOR");
+                        Debug.Log($"[ImpostorBackend] Target Group: {response.target_group_id}");
+                        Debug.Log($"[ImpostorBackend] Disguise As: {response.disguise_as}");
+                        Debug.Log($"[ImpostorBackend] Position: {response.target_group_position[0]}, {response.target_group_position[1]}, {response.target_group_position[2]}");
+                        Debug.Log($"[ImpostorBackend] ═══════════════════════════════════");
+                    }
+
+                    Vector3 groupCenter = new Vector3(
+                        response.target_group_position[0],
+                        response.target_group_position[1],
+                        response.target_group_position[2]
+                    );
+
+                    spawner.SpawnImpostorForGroup(
+                        response.target_group_id,
+                        response.target_group_members,
+                        groupCenter,
+                        response.disguise_as
+                    );
+
+                    currentTargetGroupId = response.target_group_id;
+                    currentDisguiseAs = response.disguise_as;
+                }
+            }
+            else
+            {
+                Debug.LogWarning($"[ImpostorBackend] Failed to check spawn: {request.error}");
+            }
         }
+
+        isCheckingSpawn = false;
     }
 
     /// <summary>
     /// Called by spawner after impostor spawns successfully
     /// </summary>
-    public void OnImpostorSpawned(NetworkObject impostorObject, string targetGroupId, string disguiseAs)
+    public void OnImpostorSpawned(NetworkObject impostorNetObj, string targetGroupId, string disguiseAs)
     {
-        // Store AI reference
-        impostorAI = impostorObject.GetComponent<ImpostorPlayerAI>();
+        if (showDebugLogs)
+            Debug.Log($"[ImpostorBackend] ✅ Impostor spawned, activating backend...");
 
-        // Notify backend that impostor is now active
-        StartCoroutine(ActivateImpostorInBackend(targetGroupId, disguiseAs));
+        currentTargetGroupId = targetGroupId;
+        currentDisguiseAs = disguiseAs;
+
+        StartCoroutine(ActivateImpostorBackend(targetGroupId, disguiseAs));
     }
 
-    private IEnumerator ActivateImpostorInBackend(string targetGroupId, string disguiseAs)
+    IEnumerator ActivateImpostorBackend(string targetGroupId, string disguiseAs)
     {
-        string url = ResolvedBackendUrl;
-        if (string.IsNullOrEmpty(url))
-        {
-            yield break;
-        }
+        string url = $"{backendUrl}/impostor/activate";
 
-        if (url.StartsWith("https://127.0.0.1") || url.StartsWith("https://localhost"))
+        ActivateRequest data = new ActivateRequest
         {
-            url = url.Replace("https://", "http://");
-        }
-
-        string activateUrl = url.TrimEnd('/') + "/impostor/activate";
-
-        var payload = new ImpostorActivatePayload
-        {
-            target_group_id = targetGroupId,
             target_player_id = disguiseAs,
+            target_group_id = targetGroupId,
             engagement_rate = 0.4f
         };
 
-        string json = JsonUtility.ToJson(payload);
+        string json = JsonUtility.ToJson(data);
 
-        using (UnityWebRequest req = new UnityWebRequest(activateUrl, "POST"))
+        using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
         {
             byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(json);
-            req.uploadHandler = new UploadHandlerRaw(bodyRaw);
-            req.downloadHandler = new DownloadHandlerBuffer();
-            req.SetRequestHeader("Content-Type", "application/json");
+            request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "application/json");
 
-            yield return req.SendWebRequest();
+            yield return request.SendWebRequest();
 
-            if (req.result == UnityWebRequest.Result.Success)
+            if (request.result == UnityWebRequest.Result.Success)
             {
                 if (showDebugLogs)
-                    Debug.Log($"[ImpostorConnector] ✅ Backend confirmed impostor activation");
+                    Debug.Log($"[ImpostorBackend] ✅ Backend impostor activated as {disguiseAs}");
             }
             else
             {
-                Debug.LogError($"[ImpostorConnector] ❌ Backend activation failed: {req.error}");
+                Debug.LogError($"[ImpostorBackend] Failed to activate backend: {request.error}");
             }
         }
     }
 
     /// <summary>
-    /// Called when impostor is despawned
+    /// Notify backend when impostor despawns
     /// </summary>
     public void NotifyImpostorDespawned()
     {
-        if (!IsServer) return;
+        if (showDebugLogs)
+            Debug.Log($"[ImpostorBackend] 🗑️ Notifying backend of despawn...");
 
-        impostorAI = null;
-        StartCoroutine(DeactivateImpostorInBackend());
+        currentTargetGroupId = null;
+        currentDisguiseAs = null;
+
+        StartCoroutine(DeactivateImpostorBackend());
     }
 
-    private IEnumerator DeactivateImpostorInBackend()
+    IEnumerator DeactivateImpostorBackend()
     {
-        string url = ResolvedBackendUrl;
-        if (string.IsNullOrEmpty(url))
+        string url = $"{backendUrl}/impostor/deactivate";
+
+        using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
         {
-            yield break;
-        }
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "application/json");
 
-        if (url.StartsWith("https://127.0.0.1") || url.StartsWith("https://localhost"))
-        {
-            url = url.Replace("https://", "http://");
-        }
+            yield return request.SendWebRequest();
 
-        string deactivateUrl = url.TrimEnd('/') + "/impostor/deactivate";
-
-        using (UnityWebRequest req = new UnityWebRequest(deactivateUrl, "POST"))
-        {
-            req.downloadHandler = new DownloadHandlerBuffer();
-            req.SetRequestHeader("Content-Type", "application/json");
-
-            yield return req.SendWebRequest();
-
-            if (req.result == UnityWebRequest.Result.Success)
+            if (request.result == UnityWebRequest.Result.Success)
             {
                 if (showDebugLogs)
-                    Debug.Log($"[ImpostorConnector] ✅ Backend confirmed impostor deactivation");
+                    Debug.Log($"[ImpostorBackend] ✅ Backend impostor deactivated");
+            }
+            else
+            {
+                Debug.LogWarning($"[ImpostorBackend] Failed to deactivate backend: {request.error}");
             }
         }
     }
 
-    [Serializable]
+    [System.Serializable]
     public class SpawnCheckResponse
     {
         public bool should_spawn;
         public bool should_despawn;
+        public string reason;
         public string target_group_id;
         public float[] target_group_position;
         public string[] target_group_members;
         public string disguise_as;
         public float engagement_rate;
-        public string reason;
-        public bool impostor_active;
-        public float next_spawn_in;
+        public float conversation_duration;
     }
 
-    [Serializable]
-    public class ImpostorActivatePayload
+    [System.Serializable]
+    public class ActivateRequest
     {
-        public string target_group_id;
         public string target_player_id;
+        public string target_group_id;
         public float engagement_rate;
     }
 }
