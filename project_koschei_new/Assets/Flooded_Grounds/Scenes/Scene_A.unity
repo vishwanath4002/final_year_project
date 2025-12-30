@@ -272588,12 +272588,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 89d580493798195488994351cd3b01d1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  backendUrlOverride: 
-  backendPort: 8000
-  pollInterval: 2
-  groupManager: {fileID: 309538816}
+  backendUrl: http://127.0.0.1:8000
+  checkSpawnInterval: 5
+  groupUpdateInterval: 2
   spawner: {fileID: 2139008037}
-  impostorAI: {fileID: 6210753124765139793, guid: cdc4485d93eaf2548acbda4729b587c0, type: 3}
+  groupSyncManager: {fileID: 0}
+  playerGroupManager: {fileID: 0}
   showDebugLogs: 1
 --- !u!1001 &2139646692
 PrefabInstance:

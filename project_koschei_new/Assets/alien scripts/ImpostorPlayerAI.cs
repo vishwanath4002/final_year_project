@@ -31,11 +31,14 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
     [Header("Target Group Settings")]
     public float groupArrivalDistance = 10f;
-    public float groupFollowUpdateInterval = 1f; // NEW: How often to update group following
+    public float groupFollowUpdateInterval = 1f;
 
     [Header("Look At Settings")]
-    public float lookAtSpeed = 3f; // NEW: How fast to rotate toward players
-    public float lookAtDistance = 5f; // NEW: Distance at which to look at players
+    public float lookAtSpeed = 3f;
+    public float lookAtDistance = 5f;
+
+    [Header("Leave Settings")]
+    public float leaveDistance = 90f; // NEW: How far to walk when leaving
 
     [Header("Ground Check")]
     public Transform groundCheck;
@@ -57,7 +60,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
     private float currentDirection = 0f;
     private float movementMagnitude = 0f;
 
-    // STATE MACHINE
     private enum AIState
     {
         MovingToGroup,
@@ -76,11 +78,10 @@ public class ImpostorPlayerAI : NetworkBehaviour
     private bool hasApproachedPlayer = false;
     private bool isInitialized = false;
 
-    // TARGET GROUP TRACKING
     private Vector3 targetGroupCenter = Vector3.zero;
     private bool hasTargetGroup = false;
     private bool hasReachedGroup = false;
-    private float lastGroupUpdateTime = 0f; // NEW: Track when group position was last updated
+    private float lastGroupUpdateTime = 0f;
 
     private HashSet<string> targetGroupPlayerNames = new HashSet<string>();
 
@@ -110,9 +111,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
         lastPosition = transform.position;
     }
 
-    /// <summary>
-    /// Initial target group setup
-    /// </summary>
     public void SetTargetGroup(Vector3 groupCenter, string[] groupMemberNames = null)
     {
         targetGroupCenter = groupCenter;
@@ -145,9 +143,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
         }
     }
 
-    /// <summary>
-    /// NEW: Update target group position dynamically (called by backend connector)
-    /// </summary>
     public void UpdateTargetGroupPosition(Vector3 newGroupCenter, string[] groupMemberNames = null)
     {
         if (!hasTargetGroup)
@@ -155,7 +150,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
         float distanceFromOldCenter = Vector3.Distance(targetGroupCenter, newGroupCenter);
 
-        // Only update if group has moved significantly (more than 2 meters)
         if (distanceFromOldCenter > 2f)
         {
             targetGroupCenter = newGroupCenter;
@@ -164,7 +158,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
             if (showDebugInfo)
                 Debug.Log($"[ImpostorAI] 📍 Target group moved to {newGroupCenter:F1} (moved {distanceFromOldCenter:F1}m)");
 
-            // Update group member names if provided
             if (groupMemberNames != null)
             {
                 targetGroupPlayerNames.Clear();
@@ -175,7 +168,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
                 }
             }
 
-            // If we're wandering/socializing and group moved far, go back to moving state
             if (hasReachedGroup && distanceFromOldCenter > groupArrivalDistance)
             {
                 hasReachedGroup = false;
@@ -186,7 +178,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
                 if (showDebugInfo)
                     Debug.Log($"[ImpostorAI] 🏃 Group moved too far, chasing again!");
             }
-            // If we're already following, just update the destination
             else if (!hasReachedGroup)
             {
                 agent.SetDestination(targetGroupCenter);
@@ -229,7 +220,7 @@ public class ImpostorPlayerAI : NetworkBehaviour
         CheckGrounded();
         UpdateAIBehavior();
         ApplyRaycastSensor();
-        UpdateLookAt(); // NEW: Look at nearby players
+        UpdateLookAt();
         UpdateAnimations();
 
         if (showDebugInfo && Time.frameCount % 120 == 0)
@@ -248,7 +239,14 @@ public class ImpostorPlayerAI : NetworkBehaviour
 
     void UpdateAIBehavior()
     {
-        if (hasTargetGroup && !hasReachedGroup && currentState != AIState.Leaving)
+        // When leaving, don't do anything else
+        if (currentState == AIState.Leaving)
+        {
+            HandleLeaving();
+            return;
+        }
+
+        if (hasTargetGroup && !hasReachedGroup)
         {
             HandleMovingToGroup();
             return;
@@ -301,10 +299,8 @@ public class ImpostorPlayerAI : NetworkBehaviour
         }
         else
         {
-            // Keep moving toward group (destination already set, but update if needed)
             agent.speed = walkSpeed;
 
-            // Check if we need to update destination (group might have moved)
             if ((Time.time - lastGroupUpdateTime) < groupFollowUpdateInterval)
             {
                 agent.SetDestination(targetGroupCenter);
@@ -317,7 +313,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
         if (currentState == AIState.Leaving)
             return;
 
-        // PERSONAL SPACE
         if (distToPlayer < personalSpaceDistance)
         {
             if (currentState != AIState.Stopping)
@@ -329,7 +324,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
             return;
         }
 
-        // CONVERSATION
         if (distToPlayer < conversationDistance)
         {
             socialTimer += Time.deltaTime;
@@ -380,7 +374,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
             return;
         }
 
-        // APPROACH
         if (distToPlayer < approachDistance)
         {
             if (currentState != AIState.Approaching && currentState != AIState.Socializing)
@@ -398,7 +391,6 @@ public class ImpostorPlayerAI : NetworkBehaviour
             return;
         }
 
-        // DETECTION RANGE
         if (distToPlayer < detectionRadius)
         {
             if (currentState == AIState.Wandering && !hasApproachedPlayer)
@@ -476,11 +468,29 @@ public class ImpostorPlayerAI : NetworkBehaviour
     }
 
     /// <summary>
-    /// NEW: Make impostor look at nearby players
+    /// NEW: Handle leaving behavior - just keep walking away
     /// </summary>
+    void HandleLeaving()
+    {
+        // Just keep moving to the leave destination
+        // Backend will despawn us after walkAwayDuration
+
+        if (showDebugInfo && Time.frameCount % 60 == 0)
+        {
+            float distToLeavePoint = Vector3.Distance(transform.position, wanderTarget);
+            Debug.Log($"[ImpostorAI] 🚶‍♂️ Walking away... Distance to leave point: {distToLeavePoint:F1}m");
+        }
+
+        // Keep walking
+        agent.speed = walkSpeed;
+    }
+
     void UpdateLookAt()
     {
-        // Only look at players when stopped/socializing
+        // Don't look at players when leaving
+        if (currentState == AIState.Leaving)
+            return;
+
         if (currentState != AIState.Stopping && currentState != AIState.Socializing && currentState != AIState.Wandering)
             return;
 
@@ -490,11 +500,10 @@ public class ImpostorPlayerAI : NetworkBehaviour
         {
             float dist = Vector3.Distance(transform.position, closestPlayer.position);
 
-            // Look at player if they're close enough
             if (dist < lookAtDistance)
             {
                 Vector3 direction = closestPlayer.position - transform.position;
-                direction.y = 0f; // Keep rotation on horizontal plane
+                direction.y = 0f;
 
                 if (direction.sqrMagnitude > 0.01f)
                 {
@@ -505,6 +514,9 @@ public class ImpostorPlayerAI : NetworkBehaviour
         }
     }
 
+    /// <summary>
+    /// UPDATED: Pick a far destination away from players
+    /// </summary>
     public void LeaveArea()
     {
         if (showDebugInfo)
@@ -514,9 +526,34 @@ public class ImpostorPlayerAI : NetworkBehaviour
         hasTargetGroup = false;
         hasReachedGroup = false;
 
-        PickWanderPoint(transform.position, farWanderRadius * 2f);
-        agent.speed = walkSpeed;
+        // Pick a point far away from current position
+        Vector3 directionAway = (transform.position - targetGroupCenter).normalized;
+
+        // If no target group, just pick random direction
+        if (directionAway == Vector3.zero)
+        {
+            directionAway = new Vector3(Random.Range(-1f, 1f), 0f, Random.Range(-1f, 1f)).normalized;
+        }
+
+        Vector3 farPoint = transform.position + (directionAway * leaveDistance);
+
+        // Try to find valid NavMesh position
+        NavMeshHit hit;
+        if (NavMesh.SamplePosition(farPoint, out hit, 10f, NavMesh.AllAreas))
+        {
+            wanderTarget = hit.position;
+        }
+        else
+        {
+            // Fallback: just use far point
+            wanderTarget = farPoint;
+        }
+
+        agent.speed = walkSpeed * 1.2f; // Walk slightly faster when leaving
         agent.SetDestination(wanderTarget);
+
+        if (showDebugInfo)
+            Debug.Log($"[ImpostorAI] 🏃 Walking to {wanderTarget:F1} ({leaveDistance}m away)");
     }
 
     void ChangeState(AIState newState)

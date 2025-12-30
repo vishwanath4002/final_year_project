@@ -7,23 +7,29 @@ using UnityEngine.Networking;
 /// <summary>
 /// Handles communication between Unity and FastAPI backend for impostor spawning/despawning
 /// NOW: Continuously updates impostor with current group position
+/// UPDATED: Impostor walks away before despawning
 /// </summary>
 public class ImpostorBackendConnector : NetworkBehaviour
 {
     [Header("Backend Settings")]
     public string backendUrl = "http://127.0.0.1:8000";
     public float checkSpawnInterval = 5f;
-    public float groupUpdateInterval = 2f; // NEW: Update impostor's target position
+    public float groupUpdateInterval = 2f;
+
+    [Header("Despawn Settings")]
+    public float walkAwayDistance = 30f; // How far impostor walks before despawning
+    public float walkAwayDuration = 8f; // How long to wait before despawning
 
     [Header("References")]
     public ImpostorAlienSpawner spawner;
     public GroupSyncManager groupSyncManager;
-    public PlayerGroupManager playerGroupManager; // NEW: Reference to PlayerGroupManager
+    public PlayerGroupManager playerGroupManager;
 
     [Header("Debug")]
     public bool showDebugLogs = true;
 
     private bool isCheckingSpawn = false;
+    private bool isWalkingAway = false; // NEW: Track if impostor is walking away
     private string currentTargetGroupId = null;
     private string currentDisguiseAs = null;
 
@@ -49,12 +55,12 @@ public class ImpostorBackendConnector : NetworkBehaviour
         if (IsServer)
         {
             StartCoroutine(CheckSpawnRoutine());
-            StartCoroutine(UpdateImpostorTargetRoutine()); // NEW: Dynamic group tracking
+            StartCoroutine(UpdateImpostorTargetRoutine());
         }
     }
 
     /// <summary>
-    /// NEW: Continuously update impostor with current group position
+    /// Continuously update impostor with current group position
     /// </summary>
     IEnumerator UpdateImpostorTargetRoutine()
     {
@@ -62,19 +68,20 @@ public class ImpostorBackendConnector : NetworkBehaviour
         {
             yield return new WaitForSeconds(groupUpdateInterval);
 
-            // Only update if impostor is active and we have a target group
+            // Don't update if impostor is walking away
+            if (isWalkingAway)
+                continue;
+
             if (currentTargetGroupId != null && spawner != null)
             {
                 NetworkObject impostor = spawner.GetCurrentImpostor();
 
                 if (impostor != null && impostor.IsSpawned)
                 {
-                    // Get current group position from PlayerGroupManager
                     Vector3 currentGroupCenter = GetCurrentGroupCenter(currentTargetGroupId);
 
                     if (currentGroupCenter != Vector3.zero)
                     {
-                        // Update impostor AI with new target position
                         ImpostorPlayerAI ai = impostor.GetComponent<ImpostorPlayerAI>();
                         if (ai != null)
                         {
@@ -90,18 +97,13 @@ public class ImpostorBackendConnector : NetworkBehaviour
         }
     }
 
-    /// <summary>
-    /// Get current center position of target group using PlayerGroupManager
-    /// </summary>
     Vector3 GetCurrentGroupCenter(string groupId)
     {
         if (playerGroupManager == null)
             return Vector3.zero;
 
-        // Get all active groups
         var activeGroups = playerGroupManager.GetActiveGroups();
 
-        // Find the group with matching groupId
         foreach (var group in activeGroups)
         {
             if (group.groupId == groupId)
@@ -116,18 +118,13 @@ public class ImpostorBackendConnector : NetworkBehaviour
         return Vector3.zero;
     }
 
-    /// <summary>
-    /// Get current members of target group using PlayerGroupManager
-    /// </summary>
     string[] GetCurrentGroupMembers(string groupId)
     {
         if (playerGroupManager == null)
             return new string[0];
 
-        // Get all active groups
         var activeGroups = playerGroupManager.GetActiveGroups();
 
-        // Find the group with matching groupId
         foreach (var group in activeGroups)
         {
             if (group.groupId == groupId)
@@ -167,15 +164,14 @@ public class ImpostorBackendConnector : NetworkBehaviour
                 string json = request.downloadHandler.text;
                 SpawnCheckResponse response = JsonUtility.FromJson<SpawnCheckResponse>(json);
 
-                // Handle despawn signal
-                if (response.should_despawn)
+                // Handle despawn signal - NOW with walk away animation
+                if (response.should_despawn && !isWalkingAway)
                 {
                     if (showDebugLogs)
-                        Debug.Log($"[ImpostorBackend] 🛑 Backend says: DESPAWN (reason: {response.reason})");
+                        Debug.Log($"[ImpostorBackend] 👋 Backend says: DESPAWN (reason: {response.reason})");
 
-                    spawner.DespawnCurrentImpostor();
-                    currentTargetGroupId = null;
-                    currentDisguiseAs = null;
+                    // Start walk away sequence instead of immediate despawn
+                    StartCoroutine(WalkAwayAndDespawn());
                 }
                 // Handle spawn signal
                 else if (response.should_spawn && !string.IsNullOrEmpty(response.disguise_as))
@@ -217,8 +213,41 @@ public class ImpostorBackendConnector : NetworkBehaviour
     }
 
     /// <summary>
-    /// Called by spawner after impostor spawns successfully
+    /// NEW: Make impostor walk away before despawning
     /// </summary>
+    IEnumerator WalkAwayAndDespawn()
+    {
+        isWalkingAway = true;
+
+        NetworkObject impostor = spawner.GetCurrentImpostor();
+
+        if (impostor != null && impostor.IsSpawned)
+        {
+            ImpostorPlayerAI ai = impostor.GetComponent<ImpostorPlayerAI>();
+
+            if (ai != null)
+            {
+                if (showDebugLogs)
+                    Debug.Log($"[ImpostorBackend] 🚶 Impostor walking away...");
+
+                // Tell AI to leave area
+                ai.LeaveArea();
+
+                // Wait for impostor to walk away
+                yield return new WaitForSeconds(walkAwayDuration);
+            }
+        }
+
+        // Now despawn
+        if (showDebugLogs)
+            Debug.Log($"[ImpostorBackend] 💨 Impostor far enough, despawning now");
+
+        spawner.DespawnCurrentImpostor();
+        currentTargetGroupId = null;
+        currentDisguiseAs = null;
+        isWalkingAway = false;
+    }
+
     public void OnImpostorSpawned(NetworkObject impostorNetObj, string targetGroupId, string disguiseAs)
     {
         if (showDebugLogs)
@@ -226,6 +255,7 @@ public class ImpostorBackendConnector : NetworkBehaviour
 
         currentTargetGroupId = targetGroupId;
         currentDisguiseAs = disguiseAs;
+        isWalkingAway = false; // Reset walk away flag
 
         StartCoroutine(ActivateImpostorBackend(targetGroupId, disguiseAs));
     }
@@ -264,9 +294,6 @@ public class ImpostorBackendConnector : NetworkBehaviour
         }
     }
 
-    /// <summary>
-    /// Notify backend when impostor despawns
-    /// </summary>
     public void NotifyImpostorDespawned()
     {
         if (showDebugLogs)
@@ -274,6 +301,7 @@ public class ImpostorBackendConnector : NetworkBehaviour
 
         currentTargetGroupId = null;
         currentDisguiseAs = null;
+        isWalkingAway = false;
 
         StartCoroutine(DeactivateImpostorBackend());
     }
