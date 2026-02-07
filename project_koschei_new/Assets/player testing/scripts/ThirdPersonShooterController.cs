@@ -35,11 +35,20 @@ public class ThirdPersonShooterController : NetworkBehaviour
     private PlayerInventory playerInventory;
     private Animator animator;
 
-    // Network variables to sync state
-    private NetworkVariable<bool> isAiming = new NetworkVariable<bool>(false);
-    private NetworkVariable<float> networkAimRigWeight = new NetworkVariable<float>(0f);
+    // Network variables - WRITABLE ONLY BY SERVER
+    private NetworkVariable<bool> isAiming = new NetworkVariable<bool>(
+        false,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
 
-    private float aimRigWeight = 0f;
+    private NetworkVariable<float> networkAimRigWeight = new NetworkVariable<float>(
+        0f,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    private float localAimRigWeight = 0f;
     private float nextTimeToFire = 0f;
     private int bulletsFired = 0;
 
@@ -90,17 +99,17 @@ public class ThirdPersonShooterController : NetworkBehaviour
 
     private void Update()
     {
-        // Apply networked aim rig weight for ALL players (including remote)
+        // Apply networked aim rig weight for ALL players
         if (aimRig != null)
         {
-            float targetWeight = IsOwner ? aimRigWeight : networkAimRigWeight.Value;
+            float targetWeight = IsOwner ? localAimRigWeight : networkAimRigWeight.Value;
             aimRig.weight = Mathf.Lerp(aimRig.weight, targetWeight, Time.deltaTime * 20f);
         }
 
         // Apply networked animator layers for ALL players
         if (animator != null)
         {
-            bool shouldAim = IsOwner ? starterAssetsInputs?.aim ?? false : isAiming.Value;
+            bool shouldAim = IsOwner ? (starterAssetsInputs?.aim ?? false) : isAiming.Value;
 
             if (shouldAim)
             {
@@ -117,7 +126,7 @@ public class ThirdPersonShooterController : NetworkBehaviour
         // CRITICAL: Only owner runs input/shooting logic
         if (!IsOwner) return;
 
-        // RAYCAST for shooting and interaction (only for owner)
+        // RAYCAST for shooting and interaction
         Vector3 mouseWorldPosition = Vector3.zero;
         Vector2 screenCenterPoint = new Vector2(Screen.width / 2f, Screen.height / 2f);
         Ray ray = Camera.main.ScreenPointToRay(screenCenterPoint);
@@ -170,17 +179,10 @@ public class ThirdPersonShooterController : NetworkBehaviour
                 transform.forward = Vector3.Lerp(transform.forward, aimDirection, Time.deltaTime * 20f);
             }
 
-            aimRigWeight = 1f;
+            localAimRigWeight = 1f;
 
-            // Update network variable so others see you aiming
-            if (isAiming.Value != true)
-            {
-                isAiming.Value = true;
-            }
-            if (Mathf.Abs(networkAimRigWeight.Value - 1f) > 0.01f)
-            {
-                networkAimRigWeight.Value = 1f;
-            }
+            // Update network variables via ServerRpc
+            UpdateAimStateServerRpc(true, 1f);
         }
         else if (starterAssetsInputs != null)
         {
@@ -193,18 +195,11 @@ public class ThirdPersonShooterController : NetworkBehaviour
                 thirdPersonController.SetRotateOnMove(true);
             }
 
-            aimRigWeight = 0f;
+            localAimRigWeight = 0f;
             starterAssetsInputs.shoot = false;
 
-            // Update network variables
-            if (isAiming.Value != false)
-            {
-                isAiming.Value = false;
-            }
-            if (Mathf.Abs(networkAimRigWeight.Value) > 0.01f)
-            {
-                networkAimRigWeight.Value = 0f;
-            }
+            // Update network variables via ServerRpc
+            UpdateAimStateServerRpc(false, 0f);
         }
 
         // Shooting
@@ -219,6 +214,13 @@ public class ThirdPersonShooterController : NetworkBehaviour
                 }
             }
         }
+    }
+
+    [ServerRpc]
+    private void UpdateAimStateServerRpc(bool aiming, float rigWeight)
+    {
+        isAiming.Value = aiming;
+        networkAimRigWeight.Value = rigWeight;
     }
 
     private void HandlePickup()
@@ -298,10 +300,7 @@ public class ThirdPersonShooterController : NetworkBehaviour
         }
 
         // Stop shooting animation after short delay
-        if (animator != null)
-        {
-            StartCoroutine(StopShootingAnimation());
-        }
+        StartCoroutine(StopShootingAnimation());
     }
 
     private IEnumerator StopShootingAnimation()
