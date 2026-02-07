@@ -79,22 +79,33 @@ namespace StarterAssets
             get
             {
 #if ENABLE_INPUT_SYSTEM
-                return _playerInput.currentControlScheme == "KeyboardMouse";
+                return _playerInput != null && _playerInput.currentControlScheme == "KeyboardMouse";
 #else
                 return false;
 #endif
             }
         }
 
-        // CRITICAL: Use OnNetworkSpawn like the working script
         public override void OnNetworkSpawn()
         {
             base.OnNetworkSpawn();
 
-            // Only enable input for owner (like the working script does with camera)
+            Debug.Log($"[ThirdPersonController] OnNetworkSpawn - IsOwner={IsOwner}, IsServer={IsServer}, IsClient={IsClient}, ClientId={OwnerClientId}");
+
+            // CRITICAL: Only enable input for the owner
+#if ENABLE_INPUT_SYSTEM
             if (_playerInput != null)
             {
                 _playerInput.enabled = IsOwner;
+                Debug.Log($"[ThirdPersonController] PlayerInput.enabled = {IsOwner}");
+            }
+#endif
+
+            // Disable CharacterController for non-owners (they just see the networked position)
+            if (_controller != null)
+            {
+                _controller.enabled = IsOwner;
+                Debug.Log($"[ThirdPersonController] CharacterController.enabled = {IsOwner}");
             }
         }
 
@@ -108,19 +119,19 @@ namespace StarterAssets
 
         private void Start()
         {
-            _cinemachineTargetYaw = CinemachineCameraTarget.transform.rotation.eulerAngles.y;
-            _hasAnimator = TryGetComponent(out _animator);
             _controller = GetComponent<CharacterController>();
             _input = GetComponent<StarterAssetsInputs>();
 
 #if ENABLE_INPUT_SYSTEM
             _playerInput = GetComponent<PlayerInput>();
-            // Disable input initially, OnNetworkSpawn will enable it for owner
-            if (_playerInput != null)
-            {
-                _playerInput.enabled = IsOwner;
-            }
 #endif
+
+            _hasAnimator = TryGetComponent(out _animator);
+
+            if (CinemachineCameraTarget != null)
+            {
+                _cinemachineTargetYaw = CinemachineCameraTarget.transform.rotation.eulerAngles.y;
+            }
 
             AssignAnimationIDs();
             _jumpTimeoutDelta = JumpTimeout;
@@ -129,8 +140,11 @@ namespace StarterAssets
 
         private void Update()
         {
-            // CRITICAL: Same pattern as working script - early return for non-owners
-            if (!IsOwner) return;
+            // CRITICAL: Only process for owner
+            if (!IsOwner)
+            {
+                return;
+            }
 
             _hasAnimator = TryGetComponent(out _animator);
             JumpAndGravity();
@@ -140,7 +154,7 @@ namespace StarterAssets
 
         private void LateUpdate()
         {
-            // CRITICAL: Same pattern - early return
+            // CRITICAL: Only control camera for owner
             if (!IsOwner) return;
 
             CameraRotation();
@@ -178,7 +192,10 @@ namespace StarterAssets
             _cinemachineTargetYaw = ClampAngle(_cinemachineTargetYaw, float.MinValue, float.MaxValue);
             _cinemachineTargetPitch = ClampAngle(_cinemachineTargetPitch, BottomClamp, TopClamp);
 
-            CinemachineCameraTarget.transform.rotation = Quaternion.Euler(_cinemachineTargetPitch + CameraAngleOverride, _cinemachineTargetYaw, 0.0f);
+            if (CinemachineCameraTarget != null)
+            {
+                CinemachineCameraTarget.transform.rotation = Quaternion.Euler(_cinemachineTargetPitch + CameraAngleOverride, _cinemachineTargetYaw, 0.0f);
+            }
         }
 
         private void Move()
@@ -222,7 +239,12 @@ namespace StarterAssets
             }
 
             Vector3 targetDirection = Quaternion.Euler(0.0f, _targetRotation, 0.0f) * Vector3.forward;
-            _controller.Move(targetDirection.normalized * (_speed * Time.deltaTime) + new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime);
+
+            // CharacterController.Move only runs on owner - Client Network Transform syncs the result
+            if (_controller != null && _controller.enabled)
+            {
+                _controller.Move(targetDirection.normalized * (_speed * Time.deltaTime) + new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime);
+            }
 
             if (_hasAnimator)
             {
