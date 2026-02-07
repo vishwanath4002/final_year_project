@@ -49,11 +49,6 @@ public class ThirdPersonShooterController : NetworkBehaviour
         playerInventory = GetComponent<PlayerInventory>();
     }
 
-    private void Start()
-    {
-        currentAmmo = magazineSize;
-    }
-
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
@@ -69,14 +64,23 @@ public class ThirdPersonShooterController : NetworkBehaviour
         }
     }
 
+    private void Start()
+    {
+        currentAmmo = magazineSize;
+    }
 
     private void Update()
     {
-        // CRITICAL: Only run for the local player who owns this object
+        // CRITICAL: Only run for the local player
         if (!IsOwner) return;
 
-        aimRig.weight = Mathf.Lerp(aimRig.weight, aimRigWeight, Time.deltaTime * 20f);
+        // Rig weight lerp
+        if (aimRig != null)
+        {
+            aimRig.weight = Mathf.Lerp(aimRig.weight, aimRigWeight, Time.deltaTime * 20f);
+        }
 
+        // SHARED RAYCAST for shooting and interaction
         Vector3 mouseWorldPosition = Vector3.zero;
         Vector2 screenCenterPoint = new Vector2(Screen.width / 2f, Screen.height / 2f);
         Ray ray = Camera.main.ScreenPointToRay(screenCenterPoint);
@@ -90,62 +94,76 @@ public class ThirdPersonShooterController : NetworkBehaviour
             currentHitTransform = currentRaycastHit.transform;
         }
 
+        // Pickup/Drop
         if (playerInventory != null)
         {
             HandlePickup();
             HandleDrop();
         }
 
+        // Reload
         if (starterAssetsInputs != null && starterAssetsInputs.reload && currentAmmo < magazineSize && !isReloading)
         {
             StartCoroutine(Reload());
         }
 
+        // Aiming
         if (starterAssetsInputs != null && starterAssetsInputs.aim)
         {
             starterAssetsInputs.sprint = false;
+
             if (aimVirtualCamera != null)
                 aimVirtualCamera.gameObject.SetActive(true);
+
             if (thirdPersonController != null)
             {
                 thirdPersonController.SetSensitivity(aimSensitivity);
                 thirdPersonController.SetRotateOnMove(false);
             }
+
             if (animator != null)
             {
                 animator.SetLayerWeight(1, Mathf.Lerp(animator.GetLayerWeight(1), 1f, Time.deltaTime * 10f));
                 animator.SetLayerWeight(2, Mathf.Lerp(animator.GetLayerWeight(2), 0f, Time.deltaTime * 10f));
             }
 
+            // Rotate player to aim direction
             Vector3 worldAimTarget = mouseWorldPosition;
             worldAimTarget.y = transform.position.y;
             Vector3 aimDirection = (worldAimTarget - transform.position).normalized;
 
-            transform.forward = Vector3.Lerp(transform.forward, aimDirection, Time.deltaTime * 20f);
+            if (aimDirection != Vector3.zero)
+            {
+                transform.forward = Vector3.Lerp(transform.forward, aimDirection, Time.deltaTime * 20f);
+            }
+
             aimRigWeight = 1f;
         }
         else if (starterAssetsInputs != null)
         {
             if (aimVirtualCamera != null)
                 aimVirtualCamera.gameObject.SetActive(false);
+
             if (thirdPersonController != null)
             {
                 thirdPersonController.SetSensitivity(normalSensitivity);
                 thirdPersonController.SetRotateOnMove(true);
             }
+
             if (animator != null)
             {
                 animator.SetLayerWeight(1, Mathf.Lerp(animator.GetLayerWeight(1), 0f, Time.deltaTime * 10f));
                 animator.SetLayerWeight(2, Mathf.Lerp(animator.GetLayerWeight(2), 1f, Time.deltaTime * 10f));
                 animator.SetBool("shooting", false);
             }
+
             aimRigWeight = 0f;
             starterAssetsInputs.shoot = false;
         }
 
+        // Shooting
         if (starterAssetsInputs != null && starterAssetsInputs.aim && !isReloading)
         {
-            starterAssetsInputs.sprint = false;
             if (starterAssetsInputs.shoot && Time.time >= nextTimeToFire)
             {
                 if (currentAmmo > 0)
@@ -157,7 +175,6 @@ public class ThirdPersonShooterController : NetworkBehaviour
                 {
                     if (animator != null)
                         animator.SetBool("shooting", false);
-                    Debug.Log("Out of ammo! Reload needed.");
                 }
             }
             else if (!starterAssetsInputs.shoot)
@@ -192,7 +209,6 @@ public class ThirdPersonShooterController : NetworkBehaviour
                     if (pickup != null)
                     {
                         pickup.TryPickup(gameObject);
-                        Debug.Log($"Picked up: {currentHitTransform.name}");
                     }
                 }
             }
@@ -213,7 +229,6 @@ public class ThirdPersonShooterController : NetworkBehaviour
             {
                 Vector3 dropPos = transform.position + Vector3.up * 1f + transform.forward * 2f;
                 playerInventory.DropItemServerRpc(dropPos);
-                Debug.Log("Dropped item");
             }
         }
     }
@@ -227,8 +242,6 @@ public class ThirdPersonShooterController : NetworkBehaviour
 
         currentAmmo--;
         bulletsFired++;
-
-        Debug.Log($"Bullet #{bulletsFired} fired! Ammo remaining: {currentAmmo}/{magazineSize}");
 
         if (hitTransform != null)
         {
@@ -253,8 +266,6 @@ public class ThirdPersonShooterController : NetworkBehaviour
             animator.SetBool("shooting", false);
         }
 
-        Debug.Log("Reloading...");
-
         if (starterAssetsInputs != null)
             starterAssetsInputs.shoot = false;
 
@@ -262,8 +273,6 @@ public class ThirdPersonShooterController : NetworkBehaviour
 
         currentAmmo = magazineSize;
         isReloading = false;
-
-        Debug.Log("Reload complete!");
 
         if (animator != null)
             animator.ResetTrigger("reload");
