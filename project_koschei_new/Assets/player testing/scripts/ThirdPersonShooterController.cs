@@ -14,7 +14,7 @@ public class ThirdPersonShooterController : NetworkBehaviour
     [SerializeField] private float normalSensitivity = 1f;
     [SerializeField] private float aimSensitivity = 0.5f;
     [SerializeField] private LayerMask aimColliderLayerMask;
-    [SerializeField] private Transform debugTransform;
+    [SerializeField] private Transform debugTransform; // Only for local player!
     [SerializeField] private GameObject vfxHitGreen;
     [SerializeField] private GameObject vfxHitRed;
 
@@ -61,6 +61,20 @@ public class ThirdPersonShooterController : NetworkBehaviour
                 aimVirtualCamera.Priority = 0;
                 aimVirtualCamera.gameObject.SetActive(false);
             }
+
+            // CRITICAL: Disable debug sphere for non-owners!
+            if (debugTransform != null)
+            {
+                debugTransform.gameObject.SetActive(false);
+            }
+        }
+        else
+        {
+            // Enable debug sphere only for owner
+            if (debugTransform != null)
+            {
+                debugTransform.gameObject.SetActive(true);
+            }
         }
     }
 
@@ -74,13 +88,13 @@ public class ThirdPersonShooterController : NetworkBehaviour
         // CRITICAL: Only run for the local player
         if (!IsOwner) return;
 
-        // Rig weight lerp
+        // Rig weight lerp (only for owner)
         if (aimRig != null)
         {
             aimRig.weight = Mathf.Lerp(aimRig.weight, aimRigWeight, Time.deltaTime * 20f);
         }
 
-        // SHARED RAYCAST for shooting and interaction
+        // SHARED RAYCAST for shooting and interaction (only for owner)
         Vector3 mouseWorldPosition = Vector3.zero;
         Vector2 screenCenterPoint = new Vector2(Screen.width / 2f, Screen.height / 2f);
         Ray ray = Camera.main.ScreenPointToRay(screenCenterPoint);
@@ -88,8 +102,11 @@ public class ThirdPersonShooterController : NetworkBehaviour
 
         if (Physics.Raycast(ray, out currentRaycastHit, 999f, aimColliderLayerMask))
         {
-            if (debugTransform != null)
+            // Only update debug transform for owner
+            if (debugTransform != null && debugTransform.gameObject.activeSelf)
+            {
                 debugTransform.position = currentRaycastHit.point;
+            }
             mouseWorldPosition = currentRaycastHit.point;
             currentHitTransform = currentRaycastHit.transform;
         }
