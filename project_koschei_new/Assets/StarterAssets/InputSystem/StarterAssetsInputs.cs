@@ -15,8 +15,8 @@ namespace StarterAssets
         public bool aim;
         public bool shoot;
         public bool reload;
-        public bool interact;  // E key for pickup
-        public bool drop;      // Q key for drop
+        public bool interact;
+        public bool drop;
 
         [Header("Movement Settings")]
         public bool analogMovement;
@@ -26,15 +26,9 @@ namespace StarterAssets
         public bool cursorInputForLook = true;
 
 #if ENABLE_INPUT_SYSTEM
-        private PlayerInput playerInput;
-
-        private void Awake()
-        {
-            playerInput = GetComponent<PlayerInput>();
-        }
-
         private void Update()
         {
+            // DON'T check IsOwner here - let PlayerInput component handle it
             // Manual check for shoot button release
             if (shoot && Mouse.current != null && !Mouse.current.leftButton.isPressed)
             {
@@ -72,7 +66,6 @@ namespace StarterAssets
 
         public void OnShoot(InputValue value)
         {
-            Debug.Log($"OnShoot called: isPressed = {value.isPressed}");
             ShootInput(value.isPressed);
         }
 

@@ -14,16 +14,11 @@ namespace StarterAssets
     public class ThirdPersonController : NetworkBehaviour
     {
         [Header("Player")]
-        [Tooltip("Move speed of the character in m/s")]
         public float MoveSpeed = 2.0f;
-        [Tooltip("Sprint speed of the character in m/s")]
         public float SprintSpeed = 5.335f;
-        [Tooltip("How fast the character turns to face movement direction")]
         [Range(0.0f, 0.3f)]
         public float RotationSmoothTime = 0.12f;
-        [Tooltip("Acceleration and deceleration")]
         public float SpeedChangeRate = 10.0f;
-        [Tooltip("Aim Sensitivity")]
         public float Sensitivity = 1f;
 
         public AudioClip LandingAudioClip;
@@ -31,37 +26,24 @@ namespace StarterAssets
         [Range(0, 1)] public float FootstepAudioVolume = 0.5f;
 
         [Space(10)]
-        [Tooltip("The height the player can jump")]
         public float JumpHeight = 1.2f;
-        [Tooltip("The character uses its own gravity value. The engine default is -9.81f")]
         public float Gravity = -15.0f;
 
         [Space(10)]
-        [Tooltip("Time required to pass before being able to jump again. Set to 0f to instantly jump again")]
         public float JumpTimeout = 0.50f;
-        [Tooltip("Time required to pass before entering the fall state. Useful for walking down stairs")]
         public float FallTimeout = 0.15f;
 
         [Header("Player Grounded")]
-        [Tooltip("If the character is grounded or not. Not part of the CharacterController built in grounded check")]
         public bool Grounded = true;
-        [Tooltip("Useful for rough ground")]
         public float GroundedOffset = -0.14f;
-        [Tooltip("The radius of the grounded check. Should match the radius of the CharacterController")]
         public float GroundedRadius = 0.28f;
-        [Tooltip("What layers the character uses as ground")]
         public LayerMask GroundLayers;
 
         [Header("Cinemachine")]
-        [Tooltip("The follow target set in the Cinemachine Virtual Camera that the camera will follow")]
         public GameObject CinemachineCameraTarget;
-        [Tooltip("How far in degrees can you move the camera up")]
         public float TopClamp = 70.0f;
-        [Tooltip("How far in degrees can you move the camera down")]
         public float BottomClamp = -30.0f;
-        [Tooltip("Additional degress to override the camera. Useful for fine tuning camera position when locked")]
         public float CameraAngleOverride = 0.0f;
-        [Tooltip("For locking the camera position on all axis")]
         public bool LockCameraPosition = false;
 
         private float _cinemachineTargetYaw;
@@ -104,6 +86,18 @@ namespace StarterAssets
             }
         }
 
+        // CRITICAL: Use OnNetworkSpawn like the working script
+        public override void OnNetworkSpawn()
+        {
+            base.OnNetworkSpawn();
+
+            // Only enable input for owner (like the working script does with camera)
+            if (_playerInput != null)
+            {
+                _playerInput.enabled = IsOwner;
+            }
+        }
+
         private void Awake()
         {
             if (_mainCamera == null)
@@ -118,11 +112,16 @@ namespace StarterAssets
             _hasAnimator = TryGetComponent(out _animator);
             _controller = GetComponent<CharacterController>();
             _input = GetComponent<StarterAssetsInputs>();
+
 #if ENABLE_INPUT_SYSTEM
             _playerInput = GetComponent<PlayerInput>();
-#else
-            Debug.LogError("Starter Assets package is missing dependencies. Please use Tools/Starter Assets/Reinstall Dependencies to fix it");
+            // Disable input initially, OnNetworkSpawn will enable it for owner
+            if (_playerInput != null)
+            {
+                _playerInput.enabled = IsOwner;
+            }
 #endif
+
             AssignAnimationIDs();
             _jumpTimeoutDelta = JumpTimeout;
             _fallTimeoutDelta = FallTimeout;
@@ -130,7 +129,7 @@ namespace StarterAssets
 
         private void Update()
         {
-            // CRITICAL: Only process input for local player
+            // CRITICAL: Same pattern as working script - early return for non-owners
             if (!IsOwner) return;
 
             _hasAnimator = TryGetComponent(out _animator);
@@ -141,7 +140,7 @@ namespace StarterAssets
 
         private void LateUpdate()
         {
-            // CRITICAL: Only control camera for local player
+            // CRITICAL: Same pattern - early return
             if (!IsOwner) return;
 
             CameraRotation();
