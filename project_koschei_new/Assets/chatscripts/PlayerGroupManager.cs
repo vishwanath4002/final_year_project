@@ -6,6 +6,7 @@ using System.Linq;
 /// <summary>
 /// Manages player groups based on proximity.
 /// Groups are clusters of players within a certain radius.
+/// FIXED: Now properly excludes impostor objects from group tracking
 /// </summary>
 public class PlayerGroupManager : NetworkBehaviour
 {
@@ -153,7 +154,7 @@ public class PlayerGroupManager : NetworkBehaviour
     }
 
     /// <summary>
-    /// Gets all current player objects from NetworkManager
+    /// FIXED: Gets all current player objects from NetworkManager, excluding impostors
     /// </summary>
     List<PlayerInfo> GetAllPlayers()
     {
@@ -163,20 +164,45 @@ public class PlayerGroupManager : NetworkBehaviour
         {
             if (client.PlayerObject == null) continue;
 
-            // Only track real players (not impostors)
-            if (client.PlayerObject.GetComponent<PlayerController>() == null)
+            // ✅ FIX #1: Skip impostor objects (they have ImpostorPlayerAI component)
+            if (client.PlayerObject.GetComponent<ImpostorPlayerAI>() != null)
+            {
+                if (logGroupChanges)
+                    Debug.Log($"[PlayerGroupManager] Skipping impostor: {client.PlayerObject.name}");
                 continue;
+            }
 
+            // Only track real players with PlayerIdentity
             var identity = client.PlayerObject.GetComponent<PlayerIdentity>();
-            if (identity == null) continue;
+            if (identity == null)
+            {
+                if (logGroupChanges)
+                    Debug.Log($"[PlayerGroupManager] Skipping object without PlayerIdentity: {client.PlayerObject.name}");
+                continue;
+            }
+
+            string displayName = identity.GetDisplayName();
+
+            // ✅ FIX #2: Validate display name
+            if (string.IsNullOrEmpty(displayName) || displayName == "Player" || displayName == "0")
+            {
+                if (logGroupChanges)
+                    Debug.LogWarning($"[PlayerGroupManager] Invalid display name: '{displayName}' for client {client.ClientId}");
+                continue;
+            }
 
             players.Add(new PlayerInfo
             {
-                playerId = identity.GetDisplayName(),
+                playerId = displayName,
                 clientId = client.ClientId,
                 position = client.PlayerObject.transform.position,
                 playerObject = client.PlayerObject
             });
+        }
+
+        if (logGroupChanges && players.Count > 0)
+        {
+            Debug.Log($"[PlayerGroupManager] ✅ Found {players.Count} valid players: {string.Join(", ", players.Select(p => p.playerId))}");
         }
 
         return players;

@@ -1,6 +1,7 @@
-# chromatesting.py - CORRECTED VERSION v2
+# chromatesting.py
 import chromadb
 import time
+from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 from datetime import datetime
 
@@ -10,14 +11,13 @@ from langchain_ollama import OllamaEmbeddings, ChatOllama
 # --- Ollama base URL (set explicitly) ---
 OLLAMA_BASE = "http://127.0.0.1:11434"
 
-# 🔹 FIXED: Wrapper to make Ollama embeddings Chroma-compatible
+# 🔹 Wrapper to make Ollama embeddings Chroma-compatible
 class OllamaWrapper:
     def __init__(self, model_name: str):
         self.embedder = OllamaEmbeddings(model=model_name, base_url=OLLAMA_BASE)
 
     def __call__(self, input: list[str]):
-        # CRITICAL FIX: Use embed_documents() instead of embed()
-        return self.embedder.embed_documents(input)
+        return self.embedder.embed(input)
 
     def name(self):
         return "ollama"
@@ -31,19 +31,13 @@ embed = OllamaWrapper("snowflake-arctic-embed")
 
 # 🔹 3️⃣ Collections (create or get)
 def safe_get_collection(name, embedding_function):
-    """
-    Get collection if it exists, create with embedding function if it doesn't.
-    Handles embedding function conflicts by using existing collections without re-specifying.
-    """
     names = [c.name for c in client.list_collections()]
-    
     if name in names:
-        # Collection exists - get it WITHOUT specifying embedding function
-        # This avoids conflicts with existing embedding configurations
-        return client.get_collection(name=name)
+        return client.get_or_create_collection(name=name)
     else:
-        # Collection doesn't exist - create it WITH embedding function
-        return client.create_collection(name=name, embedding_function=embedding_function)
+        return client.get_or_create_collection(
+            name=name, embedding_function=embedding_function
+        )
 
 
 player_messages = safe_get_collection("player_messages", embed)
@@ -83,7 +77,7 @@ def add_player_message_with_group(text, player_id, round_id, group_id, location=
             {
                 "player_id": player_id,
                 "round_id": round_id,
-                "group_id": group_id,
+                "group_id": group_id,  # NEW: Track which group message is from
                 "location": location,
                 "timestamp": timestamp,
             }
@@ -97,7 +91,7 @@ def query_messages_by_group(group_id, k=10):
     Retrieve recent messages from a specific group conversation
     """
     return player_messages.query(
-        query_texts=["conversation"],
+        query_texts=["conversation"],  # Generic query
         n_results=k,
         where={"group_id": group_id}
     )
@@ -134,9 +128,9 @@ def format_results(results):
 # --- Reply generator (LLM) ---
 llm = ChatOllama(
     model="llama3.2:3b",
-    temperature=0.7,
+    temperature=0.7,  # Slightly higher for more natural variation
     base_url=OLLAMA_BASE,
-    num_ctx=2048,
+    num_ctx=512,  # Increased context window for better coherence
 )
 
 # 🔹 Valid map locations
@@ -151,104 +145,61 @@ def filter_memory(snippets, valid_locations):
     return [s for s in snippets if any(loc in s for loc in valid_locations)]
 
 
-def generate_npc_reply(
-    conversation_buffer: list[dict],
-    disguise_player_id: str,
-    group_id: str,
-    style_summary: str,
-    global_summary: str = "",
-    current_speaker: str = "",
-    last_message: str = "",
-    round_id: str = "r1"
-):
+def generate_npc_reply(player_text, round_id="r1", imitate_player_id=None, recent_msgs=None):
     """
-    CORRECTED: Generates impostor reply using proper memory retrieval and context.
+    Generates an NPC reply using memory + optional style imitation.
+    
+    IMPORTANT: player_text now includes pre-built context from fastapi_chat.py
+    including GAME_CONTEXT, recent conversation, and memory context.
+    We just need to add style imitation if requested.
     """
+
     t0 = time.time()
-    
-    # 1️⃣ Build conversation context from buffer
-    convo_text = "\n".join([
-        f"{m['player_id']}: {m['message']}" 
-        for m in conversation_buffer[-15:]
-    ])
-    
-    # 2️⃣ Retrieve relevant memories ONLY if last_message references past events
-    memory_context = ""
-    past_keywords = ["earlier", "last time", "remember", "before", "previous", "you said"]
-    
-    if any(keyword in last_message.lower() for keyword in past_keywords):
+
+    # 1️⃣ Generate player style summary if imitation requested
+    style_instructions = ""
+    if imitate_player_id and recent_msgs:
         try:
-            mem_results = query_collection(
-                player_messages,
-                last_message,
-                k=3,
-                filters={"player_id": disguise_player_id, "round_id": round_id}
-            )
-            
-            if mem_results and mem_results.get("documents"):
-                docs = mem_results["documents"][0]
-                memory_context = "What you might remember:\n" + "\n".join(f"- {doc}" for doc in docs)
-                print(f"📚 Retrieved {len(docs)} relevant memories")
+            style_summary = summarize_player_style(imitate_player_id, recent_msgs)
+            style_instructions = f"""
+IMPORTANT: You are imitating the chat style of {imitate_player_id}.
+Their style: {style_summary}
+
+Match their:
+- Message length and structure
+- Grammar/typo patterns
+- Tone and attitude
+- Any unique phrases or quirks
+"""
         except Exception as e:
-            print(f"⚠️ Memory retrieval failed: {e}")
-    
-    # 3️⃣ Query impostor's own past statements for consistency
-    impostor_past = ""
-    try:
-        impostor_id = f"impostor_{disguise_player_id}"
-        past_results = query_collection(
-            npc_memory,
-            last_message,
-            k=3,
-            filters={"memory_type": "impostor_said", "round_id": round_id}
-        )
-        
-        if past_results and past_results.get("documents"):
-            docs = past_results["documents"][0]
-            impostor_past = "What you've said before (stay consistent):\n" + "\n".join(f"- {doc}" for doc in docs)
-            print(f"🎭 Retrieved {len(docs)} past impostor statements")
-    except Exception as e:
-        print(f"⚠️ Past statements retrieval failed: {e}")
-    
-    # 4️⃣ Build the complete prompt
-    prompt = f"""You are an impostor AI disguised as {disguise_player_id} in a multiplayer survival game.
+            print(f"⚠️ Style summarization failed: {e}")
+            style_instructions = f"\nYou are chatting as {imitate_player_id}. Keep it natural.\n"
 
-STYLE PROFILE (match this closely):
-{style_summary}
+    # 2️⃣ Build the complete prompt
+    # player_text already contains GAME_CONTEXT + conversation + memory from fastapi_chat.py
+    prompt = f"""{player_text}
 
-GLOBAL GAME CONTEXT:
-{global_summary if global_summary else "No major events yet."}
-
-CURRENT CONVERSATION (last 15 messages):
-{convo_text}
-
-{memory_context}
-
-{impostor_past}
+{style_instructions}
 
 CRITICAL RULES:
-1. You are chatting AS {disguise_player_id} - sound exactly like them
-2. Response must be 1-2 sentences maximum (SHORT and natural!)
-3. Only mention these locations: {', '.join(VALID_LOCATIONS)}
-4. Only reference these tasks: {', '.join(VALID_TASKS)}
-5. Stay consistent with anything you've said before
-6. Sound like a real player chatting, not an AI
-7. No emojis unless the player uses them
-8. No roleplay actions or descriptions
-9. If unsure, say you don't remember clearly
-10. Match the style profile closely (length, grammar, tone)
+1. Response must be 1-2 sentences maximum (SHORT!)
+2. Only mention these locations: {', '.join(VALID_LOCATIONS)}
+3. Only reference these tasks: {', '.join(VALID_TASKS)}
+4. Sound like a real player chatting, not an AI
+5. No emojis unless the player uses them
+6. No roleplay actions or descriptions
+7. Stay consistent with any past statements in memory
+8. If unsure about something, say you don't remember clearly
 
-{current_speaker} just said: "{last_message}"
+Now respond naturally:"""
 
-Respond naturally as {disguise_player_id} (1-2 sentences only):"""
-
-    # 5️⃣ Call LLM
+    # 3️⃣ Call LLM
     try:
         response = llm.invoke(prompt)
         t1 = time.time()
         reply = (response.content or "").strip()
         
-        # Post-processing to ensure brevity
+        # Quick post-processing to ensure brevity
         sentences = reply.split('. ')
         if len(sentences) > 2:
             reply = '. '.join(sentences[:2]) + '.'
@@ -260,68 +211,10 @@ Respond naturally as {disguise_player_id} (1-2 sentences only):"""
         print(f"❌ LLM call failed: {e}")
         reply = "Not sure, was busy with mushrooms."
 
-    # 6️⃣ Save reply into memory for future consistency
+    # 4️⃣ Save reply into memory for future context
     try:
-        add_npc_memory(reply, "impostor_said", round_id)
+        add_npc_memory(reply, "said", round_id)
     except Exception as e:
         print(f"⚠️ Failed to save to memory: {e}")
 
     return reply
-
-
-# --- Global Summary Management ---
-class GlobalSummaryManager:
-    """Maintains a rolling summary of game events"""
-    
-    def __init__(self, update_interval=5):
-        self.global_summary = "Game just started. No major events yet."
-        self.message_buffer = []
-        self.update_interval = update_interval
-        self.message_count = 0
-        
-    def add_message(self, player_id: str, message: str):
-        """Add a message to the buffer"""
-        self.message_buffer.append(f"{player_id}: {message}")
-        self.message_count += 1
-        
-        if len(self.message_buffer) > 40:
-            self.message_buffer = self.message_buffer[-40:]
-        
-        if self.message_count % self.update_interval == 0:
-            self.update_summary()
-    
-    def update_summary(self):
-        """Use LLM to update the global summary"""
-        if len(self.message_buffer) < 3:
-            return
-        
-        recent_msgs = "\n".join(self.message_buffer[-20:])
-        
-        prompt = f"""Current game summary: {self.global_summary}
-
-Recent messages:
-{recent_msgs}
-
-Update the summary in 2-3 sentences covering:
-- Key player actions/locations
-- Important events (fights, discoveries, deaths)
-- Current situation
-
-Keep it concise and factual:"""
-        
-        try:
-            response = llm.invoke(prompt)
-            new_summary = response.content.strip()
-            
-            if len(new_summary) < 500:
-                self.global_summary = new_summary
-                print(f"🌍 Global summary updated: {new_summary}")
-        except Exception as e:
-            print(f"⚠️ Summary update failed: {e}")
-    
-    def get_summary(self) -> str:
-        return self.global_summary
-
-
-# Global instance
-global_summary_manager = GlobalSummaryManager()
