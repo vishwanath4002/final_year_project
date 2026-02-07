@@ -5,8 +5,9 @@ using Cinemachine;
 using StarterAssets;
 using UnityEngine.InputSystem;
 using UnityEngine.Animations.Rigging;
+using Unity.Netcode;
 
-public class ThirdPersonShooterController : MonoBehaviour
+public class ThirdPersonShooterController : NetworkBehaviour
 {
     [SerializeField] private Rig aimRig;
     [SerializeField] private CinemachineVirtualCamera aimVirtualCamera;
@@ -37,7 +38,6 @@ public class ThirdPersonShooterController : MonoBehaviour
     private float nextTimeToFire = 0f;
     private int bulletsFired = 0;
 
-    // Raycast info shared between shooting and interaction
     private Transform currentHitTransform = null;
     private RaycastHit currentRaycastHit;
 
@@ -46,15 +46,7 @@ public class ThirdPersonShooterController : MonoBehaviour
         thirdPersonController = GetComponent<ThirdPersonController>();
         starterAssetsInputs = GetComponent<StarterAssetsInputs>();
         animator = GetComponent<Animator>();
-
-        // Try to get PlayerInventory
         playerInventory = GetComponent<PlayerInventory>();
-
-        // Debug what we found
-        Debug.Log($"ThirdPersonController: {(thirdPersonController != null ? "Found" : "NULL")}");
-        Debug.Log($"StarterAssetsInputs: {(starterAssetsInputs != null ? "Found" : "NULL")}");
-        Debug.Log($"PlayerInventory: {(playerInventory != null ? "Found" : "NULL")}");
-        Debug.Log($"Animator: {(animator != null ? "Found" : "NULL")}");
     }
 
     private void Start()
@@ -64,9 +56,11 @@ public class ThirdPersonShooterController : MonoBehaviour
 
     private void Update()
     {
+        // CRITICAL: Only run for the local player who owns this object
+        if (!IsOwner) return;
+
         aimRig.weight = Mathf.Lerp(aimRig.weight, aimRigWeight, Time.deltaTime * 20f);
 
-        // SHARED RAYCAST for both shooting and interaction
         Vector3 mouseWorldPosition = Vector3.zero;
         Vector2 screenCenterPoint = new Vector2(Screen.width / 2f, Screen.height / 2f);
         Ray ray = Camera.main.ScreenPointToRay(screenCenterPoint);
@@ -74,43 +68,33 @@ public class ThirdPersonShooterController : MonoBehaviour
 
         if (Physics.Raycast(ray, out currentRaycastHit, 999f, aimColliderLayerMask))
         {
-            debugTransform.position = currentRaycastHit.point;
+            if (debugTransform != null)
+                debugTransform.position = currentRaycastHit.point;
             mouseWorldPosition = currentRaycastHit.point;
             currentHitTransform = currentRaycastHit.transform;
         }
 
-        // PICKUP SYSTEM (E key) - only if inventory exists
         if (playerInventory != null)
         {
             HandlePickup();
-        }
-
-        // DROP SYSTEM (Q key) - only if inventory exists
-        if (playerInventory != null)
-        {
             HandleDrop();
         }
 
-        // RELOAD INPUT
         if (starterAssetsInputs != null && starterAssetsInputs.reload && currentAmmo < magazineSize && !isReloading)
         {
             StartCoroutine(Reload());
         }
 
-        // AIMING / NOT AIMING
         if (starterAssetsInputs != null && starterAssetsInputs.aim)
         {
             starterAssetsInputs.sprint = false;
-
             if (aimVirtualCamera != null)
                 aimVirtualCamera.gameObject.SetActive(true);
-
             if (thirdPersonController != null)
             {
                 thirdPersonController.SetSensitivity(aimSensitivity);
                 thirdPersonController.SetRotateOnMove(false);
             }
-
             if (animator != null)
             {
                 animator.SetLayerWeight(1, Mathf.Lerp(animator.GetLayerWeight(1), 1f, Time.deltaTime * 10f));
@@ -128,25 +112,21 @@ public class ThirdPersonShooterController : MonoBehaviour
         {
             if (aimVirtualCamera != null)
                 aimVirtualCamera.gameObject.SetActive(false);
-
             if (thirdPersonController != null)
             {
                 thirdPersonController.SetSensitivity(normalSensitivity);
                 thirdPersonController.SetRotateOnMove(true);
             }
-
             if (animator != null)
             {
                 animator.SetLayerWeight(1, Mathf.Lerp(animator.GetLayerWeight(1), 0f, Time.deltaTime * 10f));
                 animator.SetLayerWeight(2, Mathf.Lerp(animator.GetLayerWeight(2), 1f, Time.deltaTime * 10f));
                 animator.SetBool("shooting", false);
             }
-
             aimRigWeight = 0f;
             starterAssetsInputs.shoot = false;
         }
 
-        // SHOOTING (full auto while button held)
         if (starterAssetsInputs != null && starterAssetsInputs.aim && !isReloading)
         {
             starterAssetsInputs.sprint = false;
@@ -180,98 +160,47 @@ public class ThirdPersonShooterController : MonoBehaviour
 
     private void HandlePickup()
     {
-        // Safety check
-        if (starterAssetsInputs == null)
-        {
-            Debug.LogError("starterAssetsInputs is NULL in HandlePickup!");
-            return;
-        }
+        if (starterAssetsInputs == null) return;
 
-        // Press E to pickup
         if (starterAssetsInputs.interact)
         {
-            Debug.Log("Interact button pressed!");
-            starterAssetsInputs.interact = false; // Consume input
+            starterAssetsInputs.interact = false;
 
-            // Check if inventory exists
-            if (playerInventory == null)
-            {
-                Debug.LogError("PlayerInventory component missing! Add it to " + gameObject.name);
-                return;
-            }
-
-            Debug.Log($"PlayerInventory.IsHoldingItem: {playerInventory.IsHoldingItem()}");
+            if (playerInventory == null) return;
 
             if (!playerInventory.IsHoldingItem())
             {
-                Debug.Log($"currentHitTransform: {(currentHitTransform != null ? currentHitTransform.name : "NULL")}");
-                Debug.Log($"Distance: {(currentHitTransform != null ? Vector3.Distance(transform.position, currentRaycastHit.point).ToString() : "N/A")}");
-
-                // Try to pickup
                 if (currentHitTransform != null && Vector3.Distance(transform.position, currentRaycastHit.point) <= interactRange)
                 {
                     PickupObject pickup = currentHitTransform.GetComponent<PickupObject>();
-                    Debug.Log($"PickupObject component: {(pickup != null ? "Found" : "NULL")}");
-
                     if (pickup != null)
                     {
                         pickup.TryPickup(gameObject);
                         Debug.Log($"Picked up: {currentHitTransform.name}");
                     }
-                    else
-                    {
-                        Debug.Log("Object is not pickupable");
-                    }
                 }
-                else
-                {
-                    Debug.Log("No item in range to pickup");
-                }
-            }
-            else
-            {
-                Debug.Log("Already holding an item! Press Q to drop.");
             }
         }
     }
 
     private void HandleDrop()
     {
-        // Safety check
-        if (starterAssetsInputs == null)
-        {
-            Debug.LogError("starterAssetsInputs is NULL in HandleDrop!");
-            return;
-        }
+        if (starterAssetsInputs == null) return;
 
-        // Press Q to drop
         if (starterAssetsInputs.drop)
         {
-            starterAssetsInputs.drop = false; // Consume input
+            starterAssetsInputs.drop = false;
 
-            // Check if inventory exists
-            if (playerInventory == null)
-            {
-                Debug.LogError("PlayerInventory component missing! Add it to " + gameObject.name);
-                return;
-            }
-
-            Debug.Log($"Drop pressed. Holding item: {playerInventory.IsHoldingItem()}");
+            if (playerInventory == null) return;
 
             if (playerInventory.IsHoldingItem())
             {
-                // Drop item in front of player
                 Vector3 dropPos = transform.position + Vector3.up * 1f + transform.forward * 2f;
-                Debug.Log($"Calling DropItemServerRpc at position: {dropPos}");
                 playerInventory.DropItemServerRpc(dropPos);
-            }
-            else
-            {
-                Debug.Log("Not holding any item to drop");
+                Debug.Log("Dropped item");
             }
         }
     }
-
 
     private void Shoot(Transform hitTransform, RaycastHit raycastHit)
     {

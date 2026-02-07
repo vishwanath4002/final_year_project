@@ -31,13 +31,19 @@ embed = OllamaWrapper("snowflake-arctic-embed")
 
 # 🔹 3️⃣ Collections (create or get)
 def safe_get_collection(name, embedding_function):
+    """
+    Get collection if it exists, create with embedding function if it doesn't.
+    Handles embedding function conflicts by using existing collections without re-specifying.
+    """
     names = [c.name for c in client.list_collections()]
+    
     if name in names:
-        return client.get_or_create_collection(name=name, embedding_function=embedding_function)
+        # Collection exists - get it WITHOUT specifying embedding function
+        # This avoids conflicts with existing embedding configurations
+        return client.get_collection(name=name)
     else:
-        return client.get_or_create_collection(
-            name=name, embedding_function=embedding_function
-        )
+        # Collection doesn't exist - create it WITH embedding function
+        return client.create_collection(name=name, embedding_function=embedding_function)
 
 
 player_messages = safe_get_collection("player_messages", embed)

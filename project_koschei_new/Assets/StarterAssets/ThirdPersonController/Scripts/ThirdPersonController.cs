@@ -1,6 +1,7 @@
 ﻿ using UnityEngine;
 #if ENABLE_INPUT_SYSTEM 
 using UnityEngine.InputSystem;
+using Unity.Netcode;
 #endif
 
 /* Note: animations are called via the controller for both the character and capsule using animator null checks
@@ -157,6 +158,10 @@ namespace StarterAssets
 
         private void Update()
         {
+            // CRITICAL: Only run for the local player who owns this object
+            var netBehaviour = GetComponent<NetworkBehaviour>();
+            if (netBehaviour != null && !netBehaviour.IsOwner) return;
+
             _hasAnimator = TryGetComponent(out _animator);
 
             JumpAndGravity();
