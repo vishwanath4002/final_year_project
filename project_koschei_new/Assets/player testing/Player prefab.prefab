@@ -2261,8 +2261,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 04fd9af1407d53b4db8b2a87636a471b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  aimCamera: {fileID: 1491686515642005592}
+  mainCamera: {fileID: 235972811381233642}
   playerFollowCamera: {fileID: 8452669966144971710}
+  aimCamera: {fileID: 1491686515642005926}
   audioListener: {fileID: 235972811381233641}
 --- !u!1 &2812862538212974950
 GameObject:

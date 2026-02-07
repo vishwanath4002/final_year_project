@@ -4,8 +4,10 @@ using Cinemachine;
 
 public class NetworkCameraSetup : NetworkBehaviour
 {
-    [SerializeField] private CinemachineVirtualCamera aimCamera;
-    [SerializeField] private GameObject playerFollowCamera; // Main cinemachine camera
+    [Header("Camera References")]
+    [SerializeField] private GameObject mainCamera; // The Main Camera child object
+    [SerializeField] private GameObject playerFollowCamera; // PlayerFollow virtual camera
+    [SerializeField] private GameObject aimCamera; // Aim virtual camera
     [SerializeField] private AudioListener audioListener;
 
     public override void OnNetworkSpawn()
@@ -14,58 +16,69 @@ public class NetworkCameraSetup : NetworkBehaviour
 
         if (IsOwner)
         {
-            // This is the local player - enable cameras
-            Debug.Log($"[{OwnerClientId}] Setting up LOCAL player camera");
+            // LOCAL PLAYER - Enable everything
+            Debug.Log($"[NetworkCameraSetup] LOCAL player {OwnerClientId} - enabling cameras");
 
-            if (aimCamera != null)
-            {
-                aimCamera.Priority = 11; // High priority for local player
-                aimCamera.gameObject.SetActive(true);
-            }
+            // Enable Main Camera
+            if (mainCamera != null)
+                mainCamera.SetActive(true);
 
+            // Enable PlayerFollow Camera
             if (playerFollowCamera != null)
             {
-                // Set priority on the main virtual camera
-                CinemachineVirtualCamera mainVCam = playerFollowCamera.GetComponent<CinemachineVirtualCamera>();
-                if (mainVCam != null)
-                {
-                    mainVCam.Priority = 10;
-                }
                 playerFollowCamera.SetActive(true);
+                CinemachineVirtualCamera vCam = playerFollowCamera.GetComponent<CinemachineVirtualCamera>();
+                if (vCam != null)
+                    vCam.Priority = 10;
             }
 
-            // Enable audio listener for local player only
-            if (audioListener != null)
+            // Aim camera starts disabled, will be enabled when aiming
+            if (aimCamera != null)
             {
-                audioListener.enabled = true;
+                aimCamera.SetActive(false);
+                CinemachineVirtualCamera vCam = aimCamera.GetComponent<CinemachineVirtualCamera>();
+                if (vCam != null)
+                    vCam.Priority = 11;
             }
+
+            // Enable audio listener
+            if (audioListener != null)
+                audioListener.enabled = true;
+
+            // Lock cursor for local player
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
         }
         else
         {
-            // This is a remote player - disable cameras
-            Debug.Log($"[{OwnerClientId}] Setting up REMOTE player camera (disabled)");
+            // REMOTE PLAYER - Disable everything
+            Debug.Log($"[NetworkCameraSetup] REMOTE player {OwnerClientId} - disabling cameras");
 
-            if (aimCamera != null)
-            {
-                aimCamera.Priority = 0;
-                aimCamera.gameObject.SetActive(false);
-            }
+            // Disable Main Camera
+            if (mainCamera != null)
+                mainCamera.SetActive(false);
 
+            // Disable PlayerFollow Camera
             if (playerFollowCamera != null)
             {
-                CinemachineVirtualCamera mainVCam = playerFollowCamera.GetComponent<CinemachineVirtualCamera>();
-                if (mainVCam != null)
-                {
-                    mainVCam.Priority = 0;
-                }
                 playerFollowCamera.SetActive(false);
+                CinemachineVirtualCamera vCam = playerFollowCamera.GetComponent<CinemachineVirtualCamera>();
+                if (vCam != null)
+                    vCam.Priority = 0;
             }
 
-            // Disable audio listener for remote players
-            if (audioListener != null)
+            // Disable Aim Camera
+            if (aimCamera != null)
             {
-                audioListener.enabled = false;
+                aimCamera.SetActive(false);
+                CinemachineVirtualCamera vCam = aimCamera.GetComponent<CinemachineVirtualCamera>();
+                if (vCam != null)
+                    vCam.Priority = 0;
             }
+
+            // Disable audio listener
+            if (audioListener != null)
+                audioListener.enabled = false;
         }
     }
 }
