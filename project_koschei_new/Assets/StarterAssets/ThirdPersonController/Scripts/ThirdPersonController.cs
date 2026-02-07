@@ -171,8 +171,13 @@ namespace StarterAssets
 
         private void LateUpdate()
         {
+            // CRITICAL: Only rotate camera for local player
+            var netBehaviour = GetComponent<NetworkBehaviour>();
+            if (netBehaviour != null && !netBehaviour.IsOwner) return;
+
             CameraRotation();
         }
+
 
         private void AssignAnimationIDs()
         {

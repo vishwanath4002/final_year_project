@@ -54,6 +54,22 @@ public class ThirdPersonShooterController : NetworkBehaviour
         currentAmmo = magazineSize;
     }
 
+    public override void OnNetworkSpawn()
+    {
+        base.OnNetworkSpawn();
+
+        if (!IsOwner)
+        {
+            // Disable aim camera for non-owners
+            if (aimVirtualCamera != null)
+            {
+                aimVirtualCamera.Priority = 0;
+                aimVirtualCamera.gameObject.SetActive(false);
+            }
+        }
+    }
+
+
     private void Update()
     {
         // CRITICAL: Only run for the local player who owns this object
