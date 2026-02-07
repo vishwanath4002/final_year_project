@@ -14,7 +14,7 @@ public class ThirdPersonShooterController : NetworkBehaviour
     [SerializeField] private float normalSensitivity = 1f;
     [SerializeField] private float aimSensitivity = 0.5f;
     [SerializeField] private LayerMask aimColliderLayerMask;
-    [SerializeField] private Transform debugTransform; // Only for local player!
+    [SerializeField] private Transform debugTransform;
     [SerializeField] private GameObject vfxHitGreen;
     [SerializeField] private GameObject vfxHitRed;
 
@@ -34,6 +34,11 @@ public class ThirdPersonShooterController : NetworkBehaviour
     private StarterAssetsInputs starterAssetsInputs;
     private PlayerInventory playerInventory;
     private Animator animator;
+
+    // Network variables to sync state
+    private NetworkVariable<bool> isAiming = new NetworkVariable<bool>(false);
+    private NetworkVariable<float> networkAimRigWeight = new NetworkVariable<float>(0f);
+
     private float aimRigWeight = 0f;
     private float nextTimeToFire = 0f;
     private int bulletsFired = 0;
@@ -62,7 +67,7 @@ public class ThirdPersonShooterController : NetworkBehaviour
                 aimVirtualCamera.gameObject.SetActive(false);
             }
 
-            // CRITICAL: Disable debug sphere for non-owners!
+            // Disable debug sphere for non-owners
             if (debugTransform != null)
             {
                 debugTransform.gameObject.SetActive(false);
@@ -85,16 +90,34 @@ public class ThirdPersonShooterController : NetworkBehaviour
 
     private void Update()
     {
-        // CRITICAL: Only run for the local player
-        if (!IsOwner) return;
-
-        // Rig weight lerp (only for owner)
+        // Apply networked aim rig weight for ALL players (including remote)
         if (aimRig != null)
         {
-            aimRig.weight = Mathf.Lerp(aimRig.weight, aimRigWeight, Time.deltaTime * 20f);
+            float targetWeight = IsOwner ? aimRigWeight : networkAimRigWeight.Value;
+            aimRig.weight = Mathf.Lerp(aimRig.weight, targetWeight, Time.deltaTime * 20f);
         }
 
-        // SHARED RAYCAST for shooting and interaction (only for owner)
+        // Apply networked animator layers for ALL players
+        if (animator != null)
+        {
+            bool shouldAim = IsOwner ? starterAssetsInputs?.aim ?? false : isAiming.Value;
+
+            if (shouldAim)
+            {
+                animator.SetLayerWeight(1, Mathf.Lerp(animator.GetLayerWeight(1), 1f, Time.deltaTime * 10f));
+                animator.SetLayerWeight(2, Mathf.Lerp(animator.GetLayerWeight(2), 0f, Time.deltaTime * 10f));
+            }
+            else
+            {
+                animator.SetLayerWeight(1, Mathf.Lerp(animator.GetLayerWeight(1), 0f, Time.deltaTime * 10f));
+                animator.SetLayerWeight(2, Mathf.Lerp(animator.GetLayerWeight(2), 1f, Time.deltaTime * 10f));
+            }
+        }
+
+        // CRITICAL: Only owner runs input/shooting logic
+        if (!IsOwner) return;
+
+        // RAYCAST for shooting and interaction (only for owner)
         Vector3 mouseWorldPosition = Vector3.zero;
         Vector2 screenCenterPoint = new Vector2(Screen.width / 2f, Screen.height / 2f);
         Ray ray = Camera.main.ScreenPointToRay(screenCenterPoint);
@@ -102,7 +125,6 @@ public class ThirdPersonShooterController : NetworkBehaviour
 
         if (Physics.Raycast(ray, out currentRaycastHit, 999f, aimColliderLayerMask))
         {
-            // Only update debug transform for owner
             if (debugTransform != null && debugTransform.gameObject.activeSelf)
             {
                 debugTransform.position = currentRaycastHit.point;
@@ -124,7 +146,7 @@ public class ThirdPersonShooterController : NetworkBehaviour
             StartCoroutine(Reload());
         }
 
-        // Aiming
+        // Aiming logic
         if (starterAssetsInputs != null && starterAssetsInputs.aim)
         {
             starterAssetsInputs.sprint = false;
@@ -138,12 +160,6 @@ public class ThirdPersonShooterController : NetworkBehaviour
                 thirdPersonController.SetRotateOnMove(false);
             }
 
-            if (animator != null)
-            {
-                animator.SetLayerWeight(1, Mathf.Lerp(animator.GetLayerWeight(1), 1f, Time.deltaTime * 10f));
-                animator.SetLayerWeight(2, Mathf.Lerp(animator.GetLayerWeight(2), 0f, Time.deltaTime * 10f));
-            }
-
             // Rotate player to aim direction
             Vector3 worldAimTarget = mouseWorldPosition;
             worldAimTarget.y = transform.position.y;
@@ -155,6 +171,16 @@ public class ThirdPersonShooterController : NetworkBehaviour
             }
 
             aimRigWeight = 1f;
+
+            // Update network variable so others see you aiming
+            if (isAiming.Value != true)
+            {
+                isAiming.Value = true;
+            }
+            if (Mathf.Abs(networkAimRigWeight.Value - 1f) > 0.01f)
+            {
+                networkAimRigWeight.Value = 1f;
+            }
         }
         else if (starterAssetsInputs != null)
         {
@@ -167,15 +193,18 @@ public class ThirdPersonShooterController : NetworkBehaviour
                 thirdPersonController.SetRotateOnMove(true);
             }
 
-            if (animator != null)
-            {
-                animator.SetLayerWeight(1, Mathf.Lerp(animator.GetLayerWeight(1), 0f, Time.deltaTime * 10f));
-                animator.SetLayerWeight(2, Mathf.Lerp(animator.GetLayerWeight(2), 1f, Time.deltaTime * 10f));
-                animator.SetBool("shooting", false);
-            }
-
             aimRigWeight = 0f;
             starterAssetsInputs.shoot = false;
+
+            // Update network variables
+            if (isAiming.Value != false)
+            {
+                isAiming.Value = false;
+            }
+            if (Mathf.Abs(networkAimRigWeight.Value) > 0.01f)
+            {
+                networkAimRigWeight.Value = 0f;
+            }
         }
 
         // Shooting
@@ -188,23 +217,7 @@ public class ThirdPersonShooterController : NetworkBehaviour
                     Shoot(currentHitTransform, currentRaycastHit);
                     nextTimeToFire = Time.time + fireRate;
                 }
-                else
-                {
-                    if (animator != null)
-                        animator.SetBool("shooting", false);
-                }
             }
-            else if (!starterAssetsInputs.shoot)
-            {
-                if (animator != null)
-                    animator.SetBool("shooting", false);
-            }
-        }
-        else if (starterAssetsInputs != null)
-        {
-            starterAssetsInputs.shoot = false;
-            if (animator != null)
-                animator.SetBool("shooting", false);
         }
     }
 
@@ -254,22 +267,49 @@ public class ThirdPersonShooterController : NetworkBehaviour
     {
         if (isReloading) return;
 
-        if (animator != null)
-            animator.SetBool("shooting", true);
-
         currentAmmo--;
         bulletsFired++;
 
-        if (hitTransform != null)
+        // Tell server to show shooting for everyone
+        bool isTarget = hitTransform != null && hitTransform.GetComponent<BulletTarget>() != null;
+        ShootServerRpc(raycastHit.point, isTarget);
+    }
+
+    [ServerRpc]
+    private void ShootServerRpc(Vector3 hitPoint, bool isTarget)
+    {
+        // Server tells all clients to show shooting
+        ShootClientRpc(hitPoint, isTarget);
+    }
+
+    [ClientRpc]
+    private void ShootClientRpc(Vector3 hitPoint, bool isTarget)
+    {
+        // All clients play animation and spawn VFX
+        if (animator != null)
         {
-            if (hitTransform.GetComponent<BulletTarget>() != null)
-            {
-                Instantiate(vfxHitGreen, raycastHit.point, Quaternion.identity);
-            }
-            else
-            {
-                Instantiate(vfxHitRed, raycastHit.point, Quaternion.identity);
-            }
+            animator.SetBool("shooting", true);
+        }
+
+        GameObject vfx = isTarget ? vfxHitGreen : vfxHitRed;
+        if (vfx != null)
+        {
+            Instantiate(vfx, hitPoint, Quaternion.identity);
+        }
+
+        // Stop shooting animation after short delay
+        if (animator != null)
+        {
+            StartCoroutine(StopShootingAnimation());
+        }
+    }
+
+    private IEnumerator StopShootingAnimation()
+    {
+        yield return new WaitForSeconds(0.1f);
+        if (animator != null)
+        {
+            animator.SetBool("shooting", false);
         }
     }
 
