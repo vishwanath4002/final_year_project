@@ -1,22 +1,18 @@
 using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using Cinemachine;
 using StarterAssets;
-using UnityEngine.InputSystem;
 using UnityEngine.Animations.Rigging;
 using Unity.Netcode;
 
 public class ThirdPersonShooterController : NetworkBehaviour
 {
     [SerializeField] private Rig aimRig;
-    [SerializeField] private CinemachineVirtualCamera aimVirtualCamera;
+    [SerializeField] private CinemachineVirtualCamera aimVirtualCamera; // Reference to YOUR aim camera
     [SerializeField] private float normalSensitivity = 1f;
     [SerializeField] private float aimSensitivity = 0.5f;
-    [SerializeField] private LayerMask aimColliderLayerMask;
-    [SerializeField] private Transform debugTransform;
-    [SerializeField] private GameObject vfxHitGreen;
-    [SerializeField] private GameObject vfxHitRed;
+    [SerializeField] private LayerMask aimColliderLayerMask = ~0; // What can be aimed at
+    [SerializeField] private Transform debugTransform; // Optional: visual debug sphere
 
     [Header("Weapon Settings")]
     [SerializeField] private float fireRate = 0.1f;
@@ -24,59 +20,44 @@ public class ThirdPersonShooterController : NetworkBehaviour
     [SerializeField] private int currentAmmo;
     [SerializeField] private float reloadTime = 2f;
 
-    [Header("Interaction Settings")]
-    [SerializeField] private float interactRange = 5f;
-    [SerializeField] private LayerMask interactLayerMask;
-
-    private bool isReloading = false;
+    [Header("VFX")]
+    [SerializeField] private GameObject vfxHitGreen;
+    [SerializeField] private GameObject vfxHitRed;
 
     private ThirdPersonController thirdPersonController;
     private StarterAssetsInputs starterAssetsInputs;
-    private PlayerInventory playerInventory;
     private Animator animator;
 
-    // Network variables - WRITABLE ONLY BY SERVER
-    private NetworkVariable<bool> isAiming = new NetworkVariable<bool>(
-        false,
-        NetworkVariableReadPermission.Everyone,
-        NetworkVariableWritePermission.Server
-    );
+    // Synced state - only changes when value actually changes
+    private bool _aiming = false;
+    private bool _lastAiming = false;
+    private Vector3 _aimTarget = Vector3.zero;
+    private Vector3 _lastAimTarget = Vector3.zero;
 
-    private NetworkVariable<float> networkAimRigWeight = new NetworkVariable<float>(
-        0f,
-        NetworkVariableReadPermission.Everyone,
-        NetworkVariableWritePermission.Server
-    );
-
-    private float localAimRigWeight = 0f;
+    private float aimRigWeight = 0f;
     private float nextTimeToFire = 0f;
-    private int bulletsFired = 0;
-
-    private Transform currentHitTransform = null;
-    private RaycastHit currentRaycastHit;
+    private bool isReloading = false;
 
     private void Awake()
     {
         thirdPersonController = GetComponent<ThirdPersonController>();
         starterAssetsInputs = GetComponent<StarterAssetsInputs>();
         animator = GetComponent<Animator>();
-        playerInventory = GetComponent<PlayerInventory>();
     }
 
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
 
+        // Disable aim camera and debug sphere for non-owners
         if (!IsOwner)
         {
-            // Disable aim camera for non-owners
             if (aimVirtualCamera != null)
             {
-                aimVirtualCamera.Priority = 0;
                 aimVirtualCamera.gameObject.SetActive(false);
+                aimVirtualCamera.Priority = 0;
             }
 
-            // Disable debug sphere for non-owners
             if (debugTransform != null)
             {
                 debugTransform.gameObject.SetActive(false);
@@ -84,7 +65,12 @@ public class ThirdPersonShooterController : NetworkBehaviour
         }
         else
         {
-            // Enable debug sphere only for owner
+            // Owner: aim camera starts disabled, enabled when aiming
+            if (aimVirtualCamera != null)
+            {
+                aimVirtualCamera.gameObject.SetActive(false);
+            }
+
             if (debugTransform != null)
             {
                 debugTransform.gameObject.SetActive(true);
@@ -99,19 +85,17 @@ public class ThirdPersonShooterController : NetworkBehaviour
 
     private void Update()
     {
-        // Apply networked aim rig weight for ALL players
+        // Apply aim rig for ALL players (uses synced _aiming value)
         if (aimRig != null)
         {
-            float targetWeight = IsOwner ? localAimRigWeight : networkAimRigWeight.Value;
-            aimRig.weight = Mathf.Lerp(aimRig.weight, targetWeight, Time.deltaTime * 20f);
+            aimRigWeight = Mathf.Lerp(aimRigWeight, _aiming ? 1f : 0f, 10f * Time.deltaTime);
+            aimRig.weight = aimRigWeight;
         }
 
-        // Apply networked animator layers for ALL players
+        // Apply animator layers for ALL players
         if (animator != null)
         {
-            bool shouldAim = IsOwner ? (starterAssetsInputs?.aim ?? false) : isAiming.Value;
-
-            if (shouldAim)
+            if (_aiming)
             {
                 animator.SetLayerWeight(1, Mathf.Lerp(animator.GetLayerWeight(1), 1f, Time.deltaTime * 10f));
                 animator.SetLayerWeight(2, Mathf.Lerp(animator.GetLayerWeight(2), 0f, Time.deltaTime * 10f));
@@ -123,34 +107,51 @@ public class ThirdPersonShooterController : NetworkBehaviour
             }
         }
 
-        // CRITICAL: Only owner runs input/shooting logic
+        // Remote players: use synced aim target for rotation
+        if (!IsOwner && _aiming)
+        {
+            Vector3 worldAimTarget = _aimTarget;
+            worldAimTarget.y = transform.position.y;
+            Vector3 aimDirection = (worldAimTarget - transform.position).normalized;
+
+            if (aimDirection != Vector3.zero)
+            {
+                transform.forward = Vector3.Lerp(transform.forward, aimDirection, Time.deltaTime * 20f);
+            }
+        }
+
+        // Only owner processes input below this point
         if (!IsOwner) return;
 
-        // RAYCAST for shooting and interaction
-        Vector3 mouseWorldPosition = Vector3.zero;
+        // Calculate aim target from screen center raycast
         Vector2 screenCenterPoint = new Vector2(Screen.width / 2f, Screen.height / 2f);
         Ray ray = Camera.main.ScreenPointToRay(screenCenterPoint);
-        currentHitTransform = null;
 
-        if (Physics.Raycast(ray, out currentRaycastHit, 999f, aimColliderLayerMask))
+        if (Physics.Raycast(ray, out RaycastHit hit, 999f, aimColliderLayerMask))
         {
+            _aimTarget = hit.point;
+
+            // Update debug sphere position
             if (debugTransform != null && debugTransform.gameObject.activeSelf)
             {
-                debugTransform.position = currentRaycastHit.point;
+                debugTransform.position = hit.point;
             }
-            mouseWorldPosition = currentRaycastHit.point;
-            currentHitTransform = currentRaycastHit.transform;
         }
-
-        // Pickup/Drop
-        if (playerInventory != null)
+        else
         {
-            HandlePickup();
-            HandleDrop();
+            // No hit, aim far away
+            _aimTarget = ray.GetPoint(100f);
         }
 
-        // Reload
-        if (starterAssetsInputs != null && starterAssetsInputs.reload && currentAmmo < magazineSize && !isReloading)
+        // Sync aim target ONLY when it changes significantly (optimization)
+        if (Vector3.Distance(_aimTarget, _lastAimTarget) > 0.01f)
+        {
+            OnAimTargetChangedServerRpc(_aimTarget);
+            _lastAimTarget = _aimTarget;
+        }
+
+        // Handle reload input
+        if (starterAssetsInputs != null && starterAssetsInputs.reload && !isReloading && currentAmmo < magazineSize)
         {
             StartCoroutine(Reload());
         }
@@ -160,17 +161,21 @@ public class ThirdPersonShooterController : NetworkBehaviour
         {
             starterAssetsInputs.sprint = false;
 
+            // Enable aim camera
             if (aimVirtualCamera != null)
+            {
                 aimVirtualCamera.gameObject.SetActive(true);
+            }
 
+            // Change sensitivity
             if (thirdPersonController != null)
             {
                 thirdPersonController.SetSensitivity(aimSensitivity);
                 thirdPersonController.SetRotateOnMove(false);
             }
 
-            // Rotate player to aim direction
-            Vector3 worldAimTarget = mouseWorldPosition;
+            // Rotate player to face aim target
+            Vector3 worldAimTarget = _aimTarget;
             worldAimTarget.y = transform.position.y;
             Vector3 aimDirection = (worldAimTarget - transform.position).normalized;
 
@@ -179,15 +184,15 @@ public class ThirdPersonShooterController : NetworkBehaviour
                 transform.forward = Vector3.Lerp(transform.forward, aimDirection, Time.deltaTime * 20f);
             }
 
-            localAimRigWeight = 1f;
-
-            // Update network variables via ServerRpc
-            UpdateAimStateServerRpc(true, 1f);
+            _aiming = true;
         }
         else if (starterAssetsInputs != null)
         {
+            // Stop aiming
             if (aimVirtualCamera != null)
+            {
                 aimVirtualCamera.gameObject.SetActive(false);
+            }
 
             if (thirdPersonController != null)
             {
@@ -195,99 +200,91 @@ public class ThirdPersonShooterController : NetworkBehaviour
                 thirdPersonController.SetRotateOnMove(true);
             }
 
-            localAimRigWeight = 0f;
+            _aiming = false;
             starterAssetsInputs.shoot = false;
+        }
 
-            // Update network variables via ServerRpc
-            UpdateAimStateServerRpc(false, 0f);
+        // Sync aiming state ONLY when it changes
+        if (_aiming != _lastAiming)
+        {
+            OnAimingChangedServerRpc(_aiming);
+            _lastAiming = _aiming;
         }
 
         // Shooting
-        if (starterAssetsInputs != null && starterAssetsInputs.aim && !isReloading)
+        if (starterAssetsInputs != null && _aiming && !isReloading)
         {
             if (starterAssetsInputs.shoot && Time.time >= nextTimeToFire)
             {
                 if (currentAmmo > 0)
                 {
-                    Shoot(currentHitTransform, currentRaycastHit);
+                    Shoot();
                     nextTimeToFire = Time.time + fireRate;
                 }
             }
         }
     }
 
+    // Sync aim target
     [ServerRpc]
-    private void UpdateAimStateServerRpc(bool aiming, float rigWeight)
+    private void OnAimTargetChangedServerRpc(Vector3 value)
     {
-        isAiming.Value = aiming;
-        networkAimRigWeight.Value = rigWeight;
+        _aimTarget = value;
+        OnAimTargetChangedClientRpc(value);
     }
 
-    private void HandlePickup()
+    [ClientRpc]
+    private void OnAimTargetChangedClientRpc(Vector3 value)
     {
-        if (starterAssetsInputs == null) return;
-
-        if (starterAssetsInputs.interact)
+        if (!IsOwner)
         {
-            starterAssetsInputs.interact = false;
-
-            if (playerInventory == null) return;
-
-            if (!playerInventory.IsHoldingItem())
-            {
-                if (currentHitTransform != null && Vector3.Distance(transform.position, currentRaycastHit.point) <= interactRange)
-                {
-                    PickupObject pickup = currentHitTransform.GetComponent<PickupObject>();
-                    if (pickup != null)
-                    {
-                        pickup.TryPickup(gameObject);
-                    }
-                }
-            }
+            _aimTarget = value;
         }
     }
 
-    private void HandleDrop()
+    // Sync aiming state
+    [ServerRpc]
+    private void OnAimingChangedServerRpc(bool value)
     {
-        if (starterAssetsInputs == null) return;
+        _aiming = value;
+        OnAimingChangedClientRpc(value);
+    }
 
-        if (starterAssetsInputs.drop)
+    [ClientRpc]
+    private void OnAimingChangedClientRpc(bool value)
+    {
+        if (!IsOwner)
         {
-            starterAssetsInputs.drop = false;
-
-            if (playerInventory == null) return;
-
-            if (playerInventory.IsHoldingItem())
-            {
-                Vector3 dropPos = transform.position + Vector3.up * 1f + transform.forward * 2f;
-                playerInventory.DropItemServerRpc(dropPos);
-            }
+            _aiming = value;
         }
     }
 
-    private void Shoot(Transform hitTransform, RaycastHit raycastHit)
+    private void Shoot()
     {
         if (isReloading) return;
 
         currentAmmo--;
-        bulletsFired++;
 
-        // Tell server to show shooting for everyone
-        bool isTarget = hitTransform != null && hitTransform.GetComponent<BulletTarget>() != null;
-        ShootServerRpc(raycastHit.point, isTarget);
+        // Use the aim target we already calculated
+        Vector2 screenCenterPoint = new Vector2(Screen.width / 2f, Screen.height / 2f);
+        Ray ray = Camera.main.ScreenPointToRay(screenCenterPoint);
+
+        if (Physics.Raycast(ray, out RaycastHit hit, 999f, aimColliderLayerMask))
+        {
+            bool isTarget = hit.transform.GetComponent<BulletTarget>() != null;
+            ShootServerRpc(hit.point, isTarget);
+        }
     }
 
     [ServerRpc]
     private void ShootServerRpc(Vector3 hitPoint, bool isTarget)
     {
-        // Server tells all clients to show shooting
         ShootClientRpc(hitPoint, isTarget);
     }
 
     [ClientRpc]
     private void ShootClientRpc(Vector3 hitPoint, bool isTarget)
     {
-        // All clients play animation and spawn VFX
         if (animator != null)
         {
             animator.SetBool("shooting", true);
@@ -299,7 +296,6 @@ public class ThirdPersonShooterController : NetworkBehaviour
             Instantiate(vfx, hitPoint, Quaternion.identity);
         }
 
-        // Stop shooting animation after short delay
         StartCoroutine(StopShootingAnimation());
     }
 
@@ -323,7 +319,9 @@ public class ThirdPersonShooterController : NetworkBehaviour
         }
 
         if (starterAssetsInputs != null)
+        {
             starterAssetsInputs.shoot = false;
+        }
 
         yield return new WaitForSeconds(reloadTime);
 
@@ -331,9 +329,13 @@ public class ThirdPersonShooterController : NetworkBehaviour
         isReloading = false;
 
         if (animator != null)
+        {
             animator.ResetTrigger("reload");
+        }
 
         if (starterAssetsInputs != null)
+        {
             starterAssetsInputs.reload = false;
+        }
     }
 }
