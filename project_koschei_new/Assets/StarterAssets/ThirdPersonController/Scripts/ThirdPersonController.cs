@@ -21,6 +21,10 @@ namespace StarterAssets
         public float SpeedChangeRate = 10.0f;
         public float Sensitivity = 1f;
 
+        public AudioClip LandingAudioClip;
+        public AudioClip[] FootstepAudioClips;
+        [Range(0, 1)] public float FootstepAudioVolume = 0.5f;
+
         [Space(10)]
         public float JumpHeight = 1.2f;
         public float Gravity = -15.0f;
@@ -39,6 +43,8 @@ namespace StarterAssets
         public GameObject CinemachineCameraTarget;
         public float TopClamp = 70.0f;
         public float BottomClamp = -30.0f;
+        public float CameraAngleOverride = 0.0f;
+        public bool LockCameraPosition = false;
 
         private float _cinemachineTargetYaw;
         private float _cinemachineTargetPitch;
@@ -68,10 +74,6 @@ namespace StarterAssets
         private const float _threshold = 0.01f;
         private bool _hasAnimator;
 
-        // Synced variables like Character.cs
-        private float _moveSpeed = 0;
-        private float _lastMoveSpeed = 0;
-
         private bool IsCurrentDeviceMouse
         {
             get
@@ -88,16 +90,22 @@ namespace StarterAssets
         {
             base.OnNetworkSpawn();
 
+            Debug.Log($"[ThirdPersonController] OnNetworkSpawn - IsOwner={IsOwner}, IsServer={IsServer}, IsClient={IsClient}, ClientId={OwnerClientId}");
+
+            // CRITICAL: Only enable input for the owner
 #if ENABLE_INPUT_SYSTEM
             if (_playerInput != null)
             {
                 _playerInput.enabled = IsOwner;
+                Debug.Log($"[ThirdPersonController] PlayerInput.enabled = {IsOwner}");
             }
 #endif
 
+            // Disable CharacterController for non-owners (they just see the networked position)
             if (_controller != null)
             {
                 _controller.enabled = IsOwner;
+                Debug.Log($"[ThirdPersonController] CharacterController.enabled = {IsOwner}");
             }
         }
 
@@ -132,14 +140,9 @@ namespace StarterAssets
 
         private void Update()
         {
+            // CRITICAL: Only process for owner
             if (!IsOwner)
             {
-                // Remote players: update animations from synced moveSpeed
-                if (_hasAnimator)
-                {
-                    _animator.SetFloat(_animIDSpeed, _moveSpeed);
-                    _animator.SetFloat(_animIDMotionSpeed, _moveSpeed > 0.1f ? 1f : 0f);
-                }
                 return;
             }
 
@@ -147,36 +150,14 @@ namespace StarterAssets
             JumpAndGravity();
             GroundedCheck();
             Move();
-
-            // Sync movement speed when it changes
-            if (_speed != _lastMoveSpeed)
-            {
-                OnMoveSpeedChangedServerRpc(_speed);
-                _lastMoveSpeed = _speed;
-            }
         }
 
         private void LateUpdate()
         {
+            // CRITICAL: Only control camera for owner
             if (!IsOwner) return;
 
             CameraRotation();
-        }
-
-        [ServerRpc]
-        private void OnMoveSpeedChangedServerRpc(float value)
-        {
-            _moveSpeed = value;
-            OnMoveSpeedChangedClientRpc(value);
-        }
-
-        [ClientRpc]
-        private void OnMoveSpeedChangedClientRpc(float value)
-        {
-            if (!IsOwner)
-            {
-                _moveSpeed = value;
-            }
         }
 
         private void AssignAnimationIDs()
@@ -201,7 +182,7 @@ namespace StarterAssets
 
         private void CameraRotation()
         {
-            if (_input.look.sqrMagnitude >= _threshold)
+            if (_input.look.sqrMagnitude >= _threshold && !LockCameraPosition)
             {
                 float deltaTimeMultiplier = IsCurrentDeviceMouse ? 1.0f : Time.deltaTime;
                 _cinemachineTargetYaw += _input.look.x * deltaTimeMultiplier * Sensitivity;
@@ -213,7 +194,7 @@ namespace StarterAssets
 
             if (CinemachineCameraTarget != null)
             {
-                CinemachineCameraTarget.transform.rotation = Quaternion.Euler(_cinemachineTargetPitch, _cinemachineTargetYaw, 0.0f);
+                CinemachineCameraTarget.transform.rotation = Quaternion.Euler(_cinemachineTargetPitch + CameraAngleOverride, _cinemachineTargetYaw, 0.0f);
             }
         }
 
@@ -224,6 +205,7 @@ namespace StarterAssets
             if (_input.move == Vector2.zero)
             {
                 targetSpeed = 0.0f;
+                _input.sprint = false;
             }
 
             float currentHorizontalSpeed = new Vector3(_controller.velocity.x, 0.0f, _controller.velocity.z).magnitude;
@@ -258,6 +240,7 @@ namespace StarterAssets
 
             Vector3 targetDirection = Quaternion.Euler(0.0f, _targetRotation, 0.0f) * Vector3.forward;
 
+            // CharacterController.Move only runs on owner - Client Network Transform syncs the result
             if (_controller != null && _controller.enabled)
             {
                 _controller.Move(targetDirection.normalized * (_speed * Time.deltaTime) + new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime);
@@ -332,6 +315,37 @@ namespace StarterAssets
             if (lfAngle < -360f) lfAngle += 360f;
             if (lfAngle > 360f) lfAngle -= 360f;
             return Mathf.Clamp(lfAngle, lfMin, lfMax);
+        }
+
+        private void OnDrawGizmosSelected()
+        {
+            Color transparentGreen = new Color(0.0f, 1.0f, 0.0f, 0.35f);
+            Color transparentRed = new Color(1.0f, 0.0f, 0.0f, 0.35f);
+
+            if (Grounded) Gizmos.color = transparentGreen;
+            else Gizmos.color = transparentRed;
+
+            Gizmos.DrawSphere(new Vector3(transform.position.x, transform.position.y - GroundedOffset, transform.position.z), GroundedRadius);
+        }
+
+        private void OnFootstep(AnimationEvent animationEvent)
+        {
+            if (animationEvent.animatorClipInfo.weight > 0.5f)
+            {
+                if (FootstepAudioClips.Length > 0)
+                {
+                    var index = Random.Range(0, FootstepAudioClips.Length);
+                    AudioSource.PlayClipAtPoint(FootstepAudioClips[index], transform.TransformPoint(_controller.center), FootstepAudioVolume);
+                }
+            }
+        }
+
+        private void OnLand(AnimationEvent animationEvent)
+        {
+            if (animationEvent.animatorClipInfo.weight > 0.5f)
+            {
+                AudioSource.PlayClipAtPoint(LandingAudioClip, transform.TransformPoint(_controller.center), FootstepAudioVolume);
+            }
         }
 
         public void SetSensitivity(float newSensitivity)

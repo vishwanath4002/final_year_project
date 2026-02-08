@@ -8,10 +8,11 @@ using Unity.Netcode;
 public class ThirdPersonShooterController : NetworkBehaviour
 {
     [SerializeField] private Rig aimRig;
-    [SerializeField] private CinemachineVirtualCamera aimVirtualCamera;
+    [SerializeField] private CinemachineVirtualCamera aimVirtualCamera; // Reference to YOUR aim camera
     [SerializeField] private float normalSensitivity = 1f;
     [SerializeField] private float aimSensitivity = 0.5f;
-    [SerializeField] private LayerMask aimColliderLayerMask = ~0;
+    [SerializeField] private LayerMask aimColliderLayerMask = ~0; // What can be aimed at
+    [SerializeField] private Transform debugTransform; // Optional: visual debug sphere
 
     [Header("Weapon Settings")]
     [SerializeField] private float fireRate = 0.1f;
@@ -27,7 +28,7 @@ public class ThirdPersonShooterController : NetworkBehaviour
     private StarterAssetsInputs starterAssetsInputs;
     private Animator animator;
 
-    // Synced state - matches Character.cs pattern
+    // Synced state - only changes when value actually changes
     private bool _aiming = false;
     private bool _lastAiming = false;
     private Vector3 _aimTarget = Vector3.zero;
@@ -48,12 +49,31 @@ public class ThirdPersonShooterController : NetworkBehaviour
     {
         base.OnNetworkSpawn();
 
+        // Disable aim camera and debug sphere for non-owners
         if (!IsOwner)
         {
             if (aimVirtualCamera != null)
             {
                 aimVirtualCamera.gameObject.SetActive(false);
                 aimVirtualCamera.Priority = 0;
+            }
+
+            if (debugTransform != null)
+            {
+                debugTransform.gameObject.SetActive(false);
+            }
+        }
+        else
+        {
+            // Owner: aim camera starts disabled, enabled when aiming
+            if (aimVirtualCamera != null)
+            {
+                aimVirtualCamera.gameObject.SetActive(false);
+            }
+
+            if (debugTransform != null)
+            {
+                debugTransform.gameObject.SetActive(true);
             }
         }
     }
@@ -65,7 +85,7 @@ public class ThirdPersonShooterController : NetworkBehaviour
 
     private void Update()
     {
-        // Apply aim rig for ALL players
+        // Apply aim rig for ALL players (uses synced _aiming value)
         if (aimRig != null)
         {
             aimRigWeight = Mathf.Lerp(aimRigWeight, _aiming ? 1f : 0f, 10f * Time.deltaTime);
@@ -78,14 +98,16 @@ public class ThirdPersonShooterController : NetworkBehaviour
             if (_aiming)
             {
                 animator.SetLayerWeight(1, Mathf.Lerp(animator.GetLayerWeight(1), 1f, Time.deltaTime * 10f));
+                animator.SetLayerWeight(2, Mathf.Lerp(animator.GetLayerWeight(2), 0f, Time.deltaTime * 10f));
             }
             else
             {
                 animator.SetLayerWeight(1, Mathf.Lerp(animator.GetLayerWeight(1), 0f, Time.deltaTime * 10f));
+                animator.SetLayerWeight(2, Mathf.Lerp(animator.GetLayerWeight(2), 1f, Time.deltaTime * 10f));
             }
         }
 
-        // Remote players: rotate to synced aim target
+        // Remote players: use synced aim target for rotation
         if (!IsOwner && _aiming)
         {
             Vector3 worldAimTarget = _aimTarget;
@@ -96,33 +118,39 @@ public class ThirdPersonShooterController : NetworkBehaviour
             {
                 transform.forward = Vector3.Lerp(transform.forward, aimDirection, Time.deltaTime * 20f);
             }
-            return;
         }
 
-        // Only owner processes input
+        // Only owner processes input below this point
         if (!IsOwner) return;
 
-        // Calculate aim target
+        // Calculate aim target from screen center raycast
         Vector2 screenCenterPoint = new Vector2(Screen.width / 2f, Screen.height / 2f);
         Ray ray = Camera.main.ScreenPointToRay(screenCenterPoint);
 
         if (Physics.Raycast(ray, out RaycastHit hit, 999f, aimColliderLayerMask))
         {
             _aimTarget = hit.point;
+
+            // Update debug sphere position
+            if (debugTransform != null && debugTransform.gameObject.activeSelf)
+            {
+                debugTransform.position = hit.point;
+            }
         }
         else
         {
+            // No hit, aim far away
             _aimTarget = ray.GetPoint(100f);
         }
 
-        // Sync aim target when it changes
-        if (Vector3.Distance(_aimTarget, _lastAimTarget) > 0.1f)
+        // Sync aim target ONLY when it changes significantly (optimization)
+        if (Vector3.Distance(_aimTarget, _lastAimTarget) > 0.01f)
         {
             OnAimTargetChangedServerRpc(_aimTarget);
             _lastAimTarget = _aimTarget;
         }
 
-        // Handle reload
+        // Handle reload input
         if (starterAssetsInputs != null && starterAssetsInputs.reload && !isReloading && currentAmmo < magazineSize)
         {
             StartCoroutine(Reload());
@@ -133,18 +161,20 @@ public class ThirdPersonShooterController : NetworkBehaviour
         {
             starterAssetsInputs.sprint = false;
 
+            // Enable aim camera
             if (aimVirtualCamera != null)
             {
                 aimVirtualCamera.gameObject.SetActive(true);
             }
 
+            // Change sensitivity
             if (thirdPersonController != null)
             {
                 thirdPersonController.SetSensitivity(aimSensitivity);
                 thirdPersonController.SetRotateOnMove(false);
             }
 
-            // Rotate player to aim target
+            // Rotate player to face aim target
             Vector3 worldAimTarget = _aimTarget;
             worldAimTarget.y = transform.position.y;
             Vector3 aimDirection = (worldAimTarget - transform.position).normalized;
@@ -158,6 +188,7 @@ public class ThirdPersonShooterController : NetworkBehaviour
         }
         else if (starterAssetsInputs != null)
         {
+            // Stop aiming
             if (aimVirtualCamera != null)
             {
                 aimVirtualCamera.gameObject.SetActive(false);
@@ -173,7 +204,7 @@ public class ThirdPersonShooterController : NetworkBehaviour
             starterAssetsInputs.shoot = false;
         }
 
-        // Sync aiming state when it changes
+        // Sync aiming state ONLY when it changes
         if (_aiming != _lastAiming)
         {
             OnAimingChangedServerRpc(_aiming);
@@ -194,6 +225,7 @@ public class ThirdPersonShooterController : NetworkBehaviour
         }
     }
 
+    // Sync aim target
     [ServerRpc]
     private void OnAimTargetChangedServerRpc(Vector3 value)
     {
@@ -210,6 +242,7 @@ public class ThirdPersonShooterController : NetworkBehaviour
         }
     }
 
+    // Sync aiming state
     [ServerRpc]
     private void OnAimingChangedServerRpc(bool value)
     {
@@ -232,6 +265,7 @@ public class ThirdPersonShooterController : NetworkBehaviour
 
         currentAmmo--;
 
+        // Use the aim target we already calculated
         Vector2 screenCenterPoint = new Vector2(Screen.width / 2f, Screen.height / 2f);
         Ray ray = Camera.main.ScreenPointToRay(screenCenterPoint);
 
@@ -281,12 +315,23 @@ public class ThirdPersonShooterController : NetworkBehaviour
         if (animator != null)
         {
             animator.SetTrigger("reload");
+            animator.SetBool("shooting", false);
+        }
+
+        if (starterAssetsInputs != null)
+        {
+            starterAssetsInputs.shoot = false;
         }
 
         yield return new WaitForSeconds(reloadTime);
 
         currentAmmo = magazineSize;
         isReloading = false;
+
+        if (animator != null)
+        {
+            animator.ResetTrigger("reload");
+        }
 
         if (starterAssetsInputs != null)
         {
