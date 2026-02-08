@@ -5,8 +5,9 @@ using Cinemachine;
 using StarterAssets;
 using UnityEngine.InputSystem;
 using UnityEngine.Animations.Rigging;
+using Unity.Netcode;
 
-public class ThirdPersonShooterController : MonoBehaviour
+public class ThirdPersonShooterController : NetworkBehaviour
 {
     [SerializeField] private Rig aimRig;
     [SerializeField] private CinemachineVirtualCamera aimVirtualCamera;
@@ -20,14 +21,15 @@ public class ThirdPersonShooterController : MonoBehaviour
     [Header("Weapon Settings")]
     [SerializeField] private float fireRate = 0.1f;
     [SerializeField] private int magazineSize = 30;
-    [SerializeField] private int currentAmmo;
     [SerializeField] private float reloadTime = 2f;
 
     [Header("Interaction Settings")]
     [SerializeField] private float interactRange = 5f;
     [SerializeField] private LayerMask interactLayerMask;
 
-    private bool isReloading = false;
+    // Network synced variables
+    private NetworkVariable<int> currentAmmo = new NetworkVariable<int>(30, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+    private NetworkVariable<bool> isReloading = new NetworkVariable<bool>(false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
 
     private ThirdPersonController thirdPersonController;
     private StarterAssetsInputs starterAssetsInputs;
@@ -46,24 +48,47 @@ public class ThirdPersonShooterController : MonoBehaviour
         thirdPersonController = GetComponent<ThirdPersonController>();
         starterAssetsInputs = GetComponent<StarterAssetsInputs>();
         animator = GetComponent<Animator>();
-
-        // Try to get PlayerInventory
         playerInventory = GetComponent<PlayerInventory>();
 
-        // Debug what we found
         Debug.Log($"ThirdPersonController: {(thirdPersonController != null ? "Found" : "NULL")}");
         Debug.Log($"StarterAssetsInputs: {(starterAssetsInputs != null ? "Found" : "NULL")}");
         Debug.Log($"PlayerInventory: {(playerInventory != null ? "Found" : "NULL")}");
         Debug.Log($"Animator: {(animator != null ? "Found" : "NULL")}");
     }
 
+    public override void OnNetworkSpawn()
+    {
+        base.OnNetworkSpawn();
+
+        // Disable input for non-owned players
+        if (!IsOwner)
+        {
+            if (aimVirtualCamera != null)
+                aimVirtualCamera.gameObject.SetActive(false);
+
+            if (debugTransform != null)
+                debugTransform.gameObject.SetActive(false);
+
+            enabled = false; // Disable this script for non-owned players
+            return;
+        }
+
+        // Initialize ammo for owner
+        if (IsOwner)
+        {
+            currentAmmo.Value = magazineSize;
+        }
+    }
+
     private void Start()
     {
-        currentAmmo = magazineSize;
+        if (!IsOwner) return;
     }
 
     private void Update()
     {
+        if (!IsOwner) return;
+
         aimRig.weight = Mathf.Lerp(aimRig.weight, aimRigWeight, Time.deltaTime * 20f);
 
         // SHARED RAYCAST for both shooting and interaction
@@ -92,7 +117,7 @@ public class ThirdPersonShooterController : MonoBehaviour
         }
 
         // RELOAD INPUT
-        if (starterAssetsInputs != null && starterAssetsInputs.reload && currentAmmo < magazineSize && !isReloading)
+        if (starterAssetsInputs != null && starterAssetsInputs.reload && currentAmmo.Value < magazineSize && !isReloading.Value)
         {
             StartCoroutine(Reload());
         }
@@ -139,7 +164,7 @@ public class ThirdPersonShooterController : MonoBehaviour
             {
                 animator.SetLayerWeight(1, Mathf.Lerp(animator.GetLayerWeight(1), 0f, Time.deltaTime * 10f));
                 animator.SetLayerWeight(2, Mathf.Lerp(animator.GetLayerWeight(2), 1f, Time.deltaTime * 10f));
-                animator.SetBool("shooting", false);
+                SetAnimationBoolServerRpc("shooting", false);
             }
 
             aimRigWeight = 0f;
@@ -147,53 +172,47 @@ public class ThirdPersonShooterController : MonoBehaviour
         }
 
         // SHOOTING (full auto while button held)
-        if (starterAssetsInputs != null && starterAssetsInputs.aim && !isReloading)
+        if (starterAssetsInputs != null && starterAssetsInputs.aim && !isReloading.Value)
         {
             starterAssetsInputs.sprint = false;
             if (starterAssetsInputs.shoot && Time.time >= nextTimeToFire)
             {
-                if (currentAmmo > 0)
+                if (currentAmmo.Value > 0)
                 {
                     Shoot(currentHitTransform, currentRaycastHit);
                     nextTimeToFire = Time.time + fireRate;
                 }
                 else
                 {
-                    if (animator != null)
-                        animator.SetBool("shooting", false);
+                    SetAnimationBoolServerRpc("shooting", false);
                     Debug.Log("Out of ammo! Reload needed.");
                 }
             }
             else if (!starterAssetsInputs.shoot)
             {
-                if (animator != null)
-                    animator.SetBool("shooting", false);
+                SetAnimationBoolServerRpc("shooting", false);
             }
         }
         else if (starterAssetsInputs != null)
         {
             starterAssetsInputs.shoot = false;
-            if (animator != null)
-                animator.SetBool("shooting", false);
+            SetAnimationBoolServerRpc("shooting", false);
         }
     }
 
     private void HandlePickup()
     {
-        // Safety check
         if (starterAssetsInputs == null)
         {
             Debug.LogError("starterAssetsInputs is NULL in HandlePickup!");
             return;
         }
 
-        // Press E to pickup
         if (starterAssetsInputs.interact)
         {
             Debug.Log("Interact button pressed!");
-            starterAssetsInputs.interact = false; // Consume input
+            starterAssetsInputs.interact = false;
 
-            // Check if inventory exists
             if (playerInventory == null)
             {
                 Debug.LogError("PlayerInventory component missing! Add it to " + gameObject.name);
@@ -207,7 +226,6 @@ public class ThirdPersonShooterController : MonoBehaviour
                 Debug.Log($"currentHitTransform: {(currentHitTransform != null ? currentHitTransform.name : "NULL")}");
                 Debug.Log($"Distance: {(currentHitTransform != null ? Vector3.Distance(transform.position, currentRaycastHit.point).ToString() : "N/A")}");
 
-                // Try to pickup
                 if (currentHitTransform != null && Vector3.Distance(transform.position, currentRaycastHit.point) <= interactRange)
                 {
                     PickupObject pickup = currentHitTransform.GetComponent<PickupObject>();
@@ -237,19 +255,16 @@ public class ThirdPersonShooterController : MonoBehaviour
 
     private void HandleDrop()
     {
-        // Safety check
         if (starterAssetsInputs == null)
         {
             Debug.LogError("starterAssetsInputs is NULL in HandleDrop!");
             return;
         }
 
-        // Press Q to drop
         if (starterAssetsInputs.drop)
         {
-            starterAssetsInputs.drop = false; // Consume input
+            starterAssetsInputs.drop = false;
 
-            // Check if inventory exists
             if (playerInventory == null)
             {
                 Debug.LogError("PlayerInventory component missing! Add it to " + gameObject.name);
@@ -260,7 +275,6 @@ public class ThirdPersonShooterController : MonoBehaviour
 
             if (playerInventory.IsHoldingItem())
             {
-                // Drop item in front of player
                 Vector3 dropPos = transform.position + Vector3.up * 1f + transform.forward * 2f;
                 Debug.Log($"Calling DropItemServerRpc at position: {dropPos}");
                 playerInventory.DropItemServerRpc(dropPos);
@@ -272,41 +286,54 @@ public class ThirdPersonShooterController : MonoBehaviour
         }
     }
 
-
     private void Shoot(Transform hitTransform, RaycastHit raycastHit)
     {
-        if (isReloading) return;
+        if (isReloading.Value) return;
 
-        if (animator != null)
-            animator.SetBool("shooting", true);
+        SetAnimationBoolServerRpc("shooting", true);
 
-        currentAmmo--;
+        currentAmmo.Value--;
         bulletsFired++;
 
-        Debug.Log($"Bullet #{bulletsFired} fired! Ammo remaining: {currentAmmo}/{magazineSize}");
+        Debug.Log($"Bullet #{bulletsFired} fired! Ammo remaining: {currentAmmo.Value}/{magazineSize}");
 
+        // Call server RPC to handle shooting effects
         if (hitTransform != null)
         {
-            if (hitTransform.GetComponent<BulletTarget>() != null)
-            {
-                Instantiate(vfxHitGreen, raycastHit.point, Quaternion.identity);
-            }
-            else
-            {
-                Instantiate(vfxHitRed, raycastHit.point, Quaternion.identity);
-            }
+            ShootServerRpc(raycastHit.point, hitTransform.GetComponent<BulletTarget>() != null);
+        }
+        else
+        {
+            ShootServerRpc(raycastHit.point, false);
+        }
+    }
+
+    [ServerRpc]
+    private void ShootServerRpc(Vector3 hitPoint, bool isTarget)
+    {
+        // Spawn VFX for all clients
+        ShootClientRpc(hitPoint, isTarget);
+    }
+
+    [ClientRpc]
+    private void ShootClientRpc(Vector3 hitPoint, bool isTarget)
+    {
+        if (isTarget && vfxHitGreen != null)
+        {
+            Instantiate(vfxHitGreen, hitPoint, Quaternion.identity);
+        }
+        else if (!isTarget && vfxHitRed != null)
+        {
+            Instantiate(vfxHitRed, hitPoint, Quaternion.identity);
         }
     }
 
     private IEnumerator Reload()
     {
-        isReloading = true;
+        isReloading.Value = true;
 
-        if (animator != null)
-        {
-            animator.SetTrigger("reload");
-            animator.SetBool("shooting", false);
-        }
+        SetAnimationTriggerServerRpc("reload");
+        SetAnimationBoolServerRpc("shooting", false);
 
         Debug.Log("Reloading...");
 
@@ -315,15 +342,54 @@ public class ThirdPersonShooterController : MonoBehaviour
 
         yield return new WaitForSeconds(reloadTime);
 
-        currentAmmo = magazineSize;
-        isReloading = false;
+        currentAmmo.Value = magazineSize;
+        isReloading.Value = false;
 
         Debug.Log("Reload complete!");
 
-        if (animator != null)
-            animator.ResetTrigger("reload");
+        ResetAnimationTriggerServerRpc("reload");
 
         if (starterAssetsInputs != null)
             starterAssetsInputs.reload = false;
+    }
+
+    // Network RPCs for animation synchronization
+    [ServerRpc]
+    private void SetAnimationBoolServerRpc(string paramName, bool value)
+    {
+        SetAnimationBoolClientRpc(paramName, value);
+    }
+
+    [ClientRpc]
+    private void SetAnimationBoolClientRpc(string paramName, bool value)
+    {
+        if (animator != null)
+            animator.SetBool(paramName, value);
+    }
+
+    [ServerRpc]
+    private void SetAnimationTriggerServerRpc(string paramName)
+    {
+        SetAnimationTriggerClientRpc(paramName);
+    }
+
+    [ClientRpc]
+    private void SetAnimationTriggerClientRpc(string paramName)
+    {
+        if (animator != null)
+            animator.SetTrigger(paramName);
+    }
+
+    [ServerRpc]
+    private void ResetAnimationTriggerServerRpc(string paramName)
+    {
+        ResetAnimationTriggerClientRpc(paramName);
+    }
+
+    [ClientRpc]
+    private void ResetAnimationTriggerClientRpc(string paramName)
+    {
+        if (animator != null)
+            animator.ResetTrigger(paramName);
     }
 }
