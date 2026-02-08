@@ -1,10 +1,9 @@
-# chromatesting.py - OPTIMIZED FOR SPEED
+# chromatesting.py - ULTRA-OPTIMIZED FOR SPEED
 import chromadb
 import time
 from uuid import uuid4
 from datetime import datetime
 
-from stylometric import summarize_player_style
 from langchain_ollama import OllamaEmbeddings, ChatOllama
 
 # --- Ollama base URL (set explicitly) ---
@@ -73,72 +72,81 @@ def query_collection(collection, query, k=3, filters=None):
         return collection.query(query_texts=[query], n_results=k)
 
 
-# --- Reply generator (LLM) - OPTIMIZED FOR SPEED ---
+# --- ULTRA-FAST LLM with maximum optimization ---
 llm = ChatOllama(
     model="llama3.2:3b",
-    temperature=0.7,
+    temperature=0.8,  # Higher for more natural variation
     base_url=OLLAMA_BASE,
-    num_ctx=512,
-    num_predict=50,  # ✅ SPEED: Limit to ~50 tokens (1-2 sentences)
-    top_p=0.9,  # ✅ SPEED: Nucleus sampling for faster, focused generation
+    num_ctx=256,  # ⚡ REDUCED from 512 to 256 for speed
+    num_predict=30,  # ⚡ STRICT LIMIT: Only 30 tokens (~1-2 sentences)
+    top_p=0.9,
+    top_k=20,  # ⚡ Limit sampling for speed
 )
 
-# 🔹 Valid map locations
 VALID_LOCATIONS = ["Pavillion", "Church", "Mansion", "Greenhouse", "Sheds"]
-
-# 🔹 Valid tasks in your game
 VALID_TASKS = ["collecting mushrooms", "collecting wood", "fighting aliens", "burning mushrooms"]
 
 
-def generate_npc_reply(player_text, round_id="r1", imitate_player_id=None, recent_msgs=None):
+def generate_npc_reply_fast(
+    disguise_name: str,
+    style_summary: str,
+    global_context: str,
+    conversation: str,
+    recent_msgs: list
+) -> str:
     """
-    Generates an NPC reply using memory + optional style imitation.
-    OPTIMIZED FOR SPEED.
+    ⚡ ULTRA-FAST generation with minimal prompt
+    
+    NO STYLOMETRIC ANALYSIS - too slow!
+    Uses simple rules-based approach instead.
     """
+    
+    # Quick style analysis from recent messages
+    style_hint = ""
+    if recent_msgs:
+        avg_len = sum(len(m.split()) for m in recent_msgs) / len(recent_msgs)
+        if avg_len < 5:
+            style_hint = "Very brief."
+        elif avg_len < 10:
+            style_hint = "Short casual."
+        else:
+            style_hint = "Conversational."
+    
+    # MINIMAL PROMPT for maximum speed
+    prompt = f"""You are {disguise_name}. {style_summary} {style_hint}
 
-    t0 = time.time()
+Recent: {global_context}
 
-    # Generate player style summary if imitation requested
-    style_instructions = ""
-    if imitate_player_id and recent_msgs and len(recent_msgs) >= 3:
-        try:
-            style_summary = summarize_player_style(imitate_player_id, recent_msgs)
-            style_instructions = f"\nYou are {imitate_player_id}. Style: {style_summary}\n"
-        except Exception as e:
-            print(f"   ⚠️ Style failed: {e}")
-            style_instructions = f"\nYou are {imitate_player_id}.\n"
-    elif imitate_player_id:
-        style_instructions = f"\nYou are {imitate_player_id}. Chat casually.\n"
+{conversation}
 
-    # Build the prompt - SHORTER FOR SPEED
-    prompt = f"""{player_text}
-
-{style_instructions}
-
-RULES:
-1. 1-2 sentences max (SHORT!)
-2. Locations: {', '.join(VALID_LOCATIONS)}
-3. Tasks: {', '.join(VALID_TASKS)}
-4. Sound natural, like a real player
-5. No emojis, no roleplay
-
-Reply:"""
-
-    # Call LLM
+Reply in 1 short sentence as {disguise_name}:"""
+    
     try:
         response = llm.invoke(prompt)
-        t1 = time.time()
         reply = (response.content or "").strip()
         
-        # Ensure brevity
-        sentences = reply.split('. ')
-        if len(sentences) > 2:
-            reply = '. '.join(sentences[:2]) + '.'
+        # Force brevity
+        if '. ' in reply:
+            reply = reply.split('. ')[0] + '.'
         
-        print(f"   ⏱️ LLM: {t1 - t0:.2f}s")
+        # Remove any preamble
+        if ':' in reply and reply.index(':') < 20:
+            reply = reply.split(':', 1)[1].strip()
+        
+        return reply
         
     except Exception as e:
-        print(f"   ❌ LLM failed: {e}")
-        reply = "Yeah, been busy collecting stuff."
+        print(f"   ❌ LLM error: {e}")
+        return "Yeah."
 
-    return reply
+
+# Fallback for old code
+def generate_npc_reply(player_text, round_id="r1", imitate_player_id=None, recent_msgs=None):
+    """Backward compatibility wrapper"""
+    return generate_npc_reply_fast(
+        disguise_name=imitate_player_id or "Player",
+        style_summary="Casual gamer",
+        global_context="Game in progress",
+        conversation=player_text,
+        recent_msgs=recent_msgs or []
+    )
