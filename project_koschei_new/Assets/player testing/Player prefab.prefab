@@ -2148,6 +2148,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   aimRig: {fileID: 5348233370928030200}
+  aimTargetTransform: {fileID: 2078892657010081025}
   aimVirtualCamera: {fileID: 1491686515642005592}
   normalSensitivity: 1
   aimSensitivity: 0.5
