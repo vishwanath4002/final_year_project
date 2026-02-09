@@ -18,6 +18,7 @@ public class ThirdPersonShooterController : MonoBehaviour
     [SerializeField] private GameObject vfxHitRed;
 
     [Header("Weapon Settings")]
+    [SerializeField] private float damagePerShot = 35f;
     [SerializeField] private float fireRate = 0.1f;
     [SerializeField] private int magazineSize = 30;
     [SerializeField] private int currentAmmo;
@@ -290,6 +291,17 @@ public class ThirdPersonShooterController : MonoBehaviour
             if (hitTransform.GetComponent<BulletTarget>() != null)
             {
                 Instantiate(vfxHitGreen, raycastHit.point, Quaternion.identity);
+
+                // Try to apply damage
+                Health health = hitTransform.GetComponent<Health>();
+                if (health != null)
+                {
+                    health.TakeDamage(damagePerShot);
+                }
+                else
+                {
+                    Debug.LogWarning($"{hitTransform.name} has BulletTarget but no Health component!");
+                }
             }
             else
             {
