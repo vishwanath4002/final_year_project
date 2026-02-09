@@ -302,7 +302,7 @@
       "url": "https://packages.unity.com"
     },
     "com.veriorpies.parrelsync": {
-      "version": "file:G:/github repos/final_year_project/ParrelSync-1.5.2/ParrelSync-1.5.2/ParrelSync",
+      "version": "file:F:/github repos/final_year_project/ParrelSync-1.5.2/ParrelSync-1.5.2/ParrelSync",
       "depth": 0,
       "source": "local",
       "dependencies": {}
