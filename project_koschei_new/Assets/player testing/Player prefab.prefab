@@ -1727,6 +1727,8 @@ GameObject:
   - component: {fileID: 4124281389854557173}
   - component: {fileID: 528250697844906625}
   - component: {fileID: 473880616874062379}
+  - component: {fileID: 620814545897576245}
+  - component: {fileID: 6445354656533786437}
   m_Layer: 0
   m_Name: Player prefab
   m_TagString: Player
@@ -2078,6 +2080,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   aimRig: {fileID: 5348233370928030200}
+  aimTargetTransform: {fileID: 2078892657010081025}
   aimVirtualCamera: {fileID: 1491686515642005592}
   normalSensitivity: 1
   aimSensitivity: 0.5
@@ -2089,7 +2092,6 @@ MonoBehaviour:
   vfxHitRed: {fileID: 238988826293623110, guid: 82eacf9159853a24898b277da512e7c7, type: 3}
   fireRate: 0.1
   magazineSize: 30
-  currentAmmo: 0
   reloadTime: 2
   interactRange: 5
   interactLayerMask:
@@ -2199,6 +2201,36 @@ MonoBehaviour:
   - {fileID: 129827339632370332}
   - {fileID: 2433546419286200904}
   - {fileID: 7356740194518315754}
+--- !u!114 &620814545897576245
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2686844498852408971}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 64b9bf1c2de445e449e53243c2363cbc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  thirdPersonCamera: {fileID: 8452669966144971328}
+  aimCamera: {fileID: 1491686515642005592}
+  cinemachineCameraTarget: {fileID: 5481655300081522598}
+  audioListener: {fileID: 235972811381233641}
+--- !u!114 &6445354656533786437
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2686844498852408971}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 257c0555071737e4388096a976111a0f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  gunPoint: {fileID: 5993927097259494677}
+  gunObject: {fileID: 2283014843931169179}
 --- !u!1 &2812862538212974950
 GameObject:
   m_ObjectHideFlags: 0
@@ -2734,7 +2766,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &2078892657010081025
 Transform:
   m_ObjectHideFlags: 0

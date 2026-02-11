@@ -1,7 +1,7 @@
-﻿ using UnityEngine;
+﻿using UnityEngine;
+using Unity.Netcode;
 #if ENABLE_INPUT_SYSTEM 
 using UnityEngine.InputSystem;
-using Unity.Netcode;
 #endif
 
 /* Note: animations are called via the controller for both the character and capsule using animator null checks
@@ -10,10 +10,11 @@ using Unity.Netcode;
 namespace StarterAssets
 {
     [RequireComponent(typeof(CharacterController))]
+    [RequireComponent(typeof(NetworkObject))]
 #if ENABLE_INPUT_SYSTEM 
     [RequireComponent(typeof(PlayerInput))]
 #endif
-    public class ThirdPersonController : MonoBehaviour
+    public class ThirdPersonController : NetworkBehaviour
     {
         [Header("Player")]
         [Tooltip("Move speed of the character in m/s")]
@@ -119,7 +120,7 @@ namespace StarterAssets
             get
             {
 #if ENABLE_INPUT_SYSTEM
-                return _playerInput.currentControlScheme == "KeyboardMouse";
+                return _playerInput != null && _playerInput.currentControlScheme == "KeyboardMouse";
 #else
 				return false;
 #endif
@@ -136,10 +137,41 @@ namespace StarterAssets
             }
         }
 
+        public override void OnNetworkSpawn()
+        {
+            base.OnNetworkSpawn();
+
+            // Disable input and camera control for non-owned players
+            if (!IsOwner)
+            {
+                var playerInput = GetComponent<PlayerInput>();
+                if (playerInput != null)
+                    playerInput.enabled = false;
+
+                var starterInput = GetComponent<StarterAssetsInputs>();
+                if (starterInput != null)
+                    starterInput.enabled = false;
+
+                // Disable camera target for non-owned players
+                if (CinemachineCameraTarget != null)
+                    CinemachineCameraTarget.SetActive(false);
+
+                enabled = false; // Disable this script for non-owned players
+                return;
+            }
+
+            // For owned player, find and assign the main camera
+            _mainCamera = GameObject.FindGameObjectWithTag("MainCamera");
+
+            Debug.Log($"[ThirdPersonController] Local player spawned - Controller enabled");
+        }
+
         private void Start()
         {
+            if (!IsOwner) return;
+
             _cinemachineTargetYaw = CinemachineCameraTarget.transform.rotation.eulerAngles.y;
-            
+
             _hasAnimator = TryGetComponent(out _animator);
             _controller = GetComponent<CharacterController>();
             _input = GetComponent<StarterAssetsInputs>();
@@ -158,9 +190,7 @@ namespace StarterAssets
 
         private void Update()
         {
-            // CRITICAL: Only run for the local player who owns this object
-            var netBehaviour = GetComponent<NetworkBehaviour>();
-            if (netBehaviour != null && !netBehaviour.IsOwner) return;
+            if (!IsOwner) return;
 
             _hasAnimator = TryGetComponent(out _animator);
 
@@ -171,6 +201,7 @@ namespace StarterAssets
 
         private void LateUpdate()
         {
+            if (!IsOwner) return;
             CameraRotation();
         }
 
@@ -186,8 +217,10 @@ namespace StarterAssets
         private void GroundedCheck()
         {
             // set sphere position, with offset
-            Vector3 spherePosition = new Vector3(transform.position.x, transform.position.y - GroundedOffset, transform.position.z);
-            Grounded = Physics.CheckSphere(spherePosition, GroundedRadius, GroundLayers, QueryTriggerInteraction.Ignore);
+            Vector3 spherePosition = new Vector3(transform.position.x, transform.position.y - GroundedOffset,
+                transform.position.z);
+            Grounded = Physics.CheckSphere(spherePosition, GroundedRadius, GroundLayers,
+                QueryTriggerInteraction.Ignore);
 
             // update animator if using character
             if (_hasAnimator)
@@ -263,13 +296,17 @@ namespace StarterAssets
             // if there is a move input rotate player when the player is moving
             if (_input.move != Vector2.zero)
             {
-                _targetRotation = Mathf.Atan2(inputDirection.x, inputDirection.z) * Mathf.Rad2Deg + _mainCamera.transform.eulerAngles.y;
-                float rotation = Mathf.SmoothDampAngle(transform.eulerAngles.y, _targetRotation, ref _rotationVelocity, RotationSmoothTime);
+                // Null check for camera
+                if (_mainCamera != null)
+                {
+                    _targetRotation = Mathf.Atan2(inputDirection.x, inputDirection.z) * Mathf.Rad2Deg + _mainCamera.transform.eulerAngles.y;
+                    float rotation = Mathf.SmoothDampAngle(transform.eulerAngles.y, _targetRotation, ref _rotationVelocity, RotationSmoothTime);
 
-                if (_rotateOnMove)
-                { 
-                    // rotate to face input direction relative to camera position
-                    transform.rotation = Quaternion.Euler(0.0f, rotation, 0.0f);
+                    if (_rotateOnMove)
+                    {
+                        // rotate to face input direction relative to camera position
+                        transform.rotation = Quaternion.Euler(0.0f, rotation, 0.0f);
+                    }
                 }
             }
 
@@ -377,6 +414,9 @@ namespace StarterAssets
 
         private void OnFootstep(AnimationEvent animationEvent)
         {
+            // Only play audio for the local player
+            if (!IsOwner || _controller == null) return;
+
             if (animationEvent.animatorClipInfo.weight > 0.5f)
             {
                 if (FootstepAudioClips.Length > 0)
@@ -389,6 +429,9 @@ namespace StarterAssets
 
         private void OnLand(AnimationEvent animationEvent)
         {
+            // Only play audio for the local player
+            if (!IsOwner || _controller == null || LandingAudioClip == null) return;
+
             if (animationEvent.animatorClipInfo.weight > 0.5f)
             {
                 AudioSource.PlayClipAtPoint(LandingAudioClip, transform.TransformPoint(_controller.center), FootstepAudioVolume);
