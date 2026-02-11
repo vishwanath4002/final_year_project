@@ -1768,7 +1768,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  GlobalObjectIdHash: 3581177888
+  GlobalObjectIdHash: 3327675277
   InScenePlacedSourceGlobalObjectIdHash: 0
   AlwaysReplicateAsRoot: 0
   SynchronizeTransform: 1
@@ -2090,9 +2090,10 @@ MonoBehaviour:
   debugTransform: {fileID: 2078892657010081025}
   vfxHitGreen: {fileID: 5750949564298601908, guid: e3765759529011a45aa7e3bce0d7ae48, type: 3}
   vfxHitRed: {fileID: 238988826293623110, guid: 82eacf9159853a24898b277da512e7c7, type: 3}
+  damagePerShot: 35
   fireRate: 0.1
   magazineSize: 30
-  reloadTime: 2
+  reloadTime: 1
   interactRange: 5
   interactLayerMask:
     serializedVersion: 2
