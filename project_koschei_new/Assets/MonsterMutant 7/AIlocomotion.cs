@@ -1,16 +1,17 @@
 using UnityEngine;
 using UnityEngine.AI;
+using System.Collections;
 
 public class AILocomotion : MonoBehaviour
 {
     enum AIState { Patrol, Chase, Search }
     [SerializeField] AIState state = AIState.Patrol;
 
-    [Header("Sensor")]
+    [Header("Detection")]
     public float viewDistance = 15f;
     [Range(0, 180)] public float viewAngle = 90f;
     public float proximityRange = 3f;
-    public LayerMask sightMask;   // Player + Environment
+    public LayerMask sightMask;
     public string playerTag = "Player";
 
     [Header("Movement")]
@@ -19,9 +20,13 @@ public class AILocomotion : MonoBehaviour
     public float patrolRadius = 10f;
     public float attackRange = 2f;
 
+    [Header("Combat")]
+    public float attackCooldown = 2f;
+    public float attackDamage = 25f;
+    public float attackDuration = 1.2f;
+
     [Header("Animation")]
     public string speedParam = "Speed";
-    public string attackTrigger = "Attack1Trigger";
 
     NavMeshAgent agent;
     Animator animator;
@@ -30,7 +35,9 @@ public class AILocomotion : MonoBehaviour
     Vector3 lastSeenPlayerPos;
     float searchTimer;
 
-    Transform currentTarget; // 🔥 dynamic target
+    Transform currentTarget;
+    float lastAttackTime;
+    bool isAttacking;
 
     void Start()
     {
@@ -43,12 +50,15 @@ public class AILocomotion : MonoBehaviour
 
     void Update()
     {
-        Transform detectedPlayer = DetectPlayer();
+        if (agent == null || animator == null)
+            return;
 
-        if (detectedPlayer != null)
+        Transform detected = DetectPlayer();
+
+        if (detected != null)
         {
-            currentTarget = detectedPlayer;
-            lastSeenPlayerPos = detectedPlayer.position;
+            currentTarget = detected;
+            lastSeenPlayerPos = detected.position;
             state = AIState.Chase;
         }
 
@@ -59,7 +69,7 @@ public class AILocomotion : MonoBehaviour
                 break;
 
             case AIState.Chase:
-                UpdateChase(detectedPlayer != null);
+                UpdateChase(detected != null);
                 break;
 
             case AIState.Search:
@@ -70,19 +80,19 @@ public class AILocomotion : MonoBehaviour
         animator.SetFloat(speedParam, agent.velocity.magnitude);
     }
 
-    // ===================== SENSOR =====================
+    // ===================== DETECTION =====================
     Transform DetectPlayer()
     {
-        Collider[] nearby = Physics.OverlapSphere(transform.position, viewDistance, sightMask);
+        Collider[] hits = Physics.OverlapSphere(transform.position, viewDistance);
 
-        foreach (var col in nearby)
+        foreach (Collider col in hits)
         {
-            if (!col.CompareTag(playerTag)) continue;
+            if (!col.CompareTag(playerTag))
+                continue;
 
             Vector3 dir = col.transform.position - transform.position;
             float distance = dir.magnitude;
 
-            // Proximity
             if (distance <= proximityRange)
                 return col.transform;
 
@@ -90,12 +100,11 @@ public class AILocomotion : MonoBehaviour
             if (angle > viewAngle * 0.5f)
                 continue;
 
-            if (Physics.Raycast(
-                transform.position + Vector3.up,
-                dir.normalized,
-                out RaycastHit hit,
-                viewDistance,
-                sightMask))
+            if (Physics.Raycast(transform.position + Vector3.up,
+                                dir.normalized,
+                                out RaycastHit hit,
+                                viewDistance,
+                                sightMask))
             {
                 if (hit.collider.CompareTag(playerTag))
                     return hit.transform;
@@ -110,34 +119,91 @@ public class AILocomotion : MonoBehaviour
     {
         if (currentTarget == null)
         {
-            state = AIState.Search;
-            searchTimer = 5f;
+            EnterSearch();
             return;
         }
 
-        agent.speed = chaseSpeed;
-
         float dist = Vector3.Distance(transform.position, currentTarget.position);
+
+        agent.speed = chaseSpeed;
 
         if (dist <= attackRange)
         {
-            agent.isStopped = true;
-            agent.ResetPath();
-            FaceTarget(currentTarget.position);
-
-            if (Time.frameCount % 60 == 0)
-                animator.SetTrigger(attackTrigger);
+            if (!isAttacking && Time.time >= lastAttackTime + attackCooldown)
+            {
+                StartCoroutine(PerformAttack());
+            }
         }
         else
         {
-            agent.isStopped = false;
-            agent.SetDestination(currentTarget.position);
+            if (!isAttacking)
+            {
+                agent.isStopped = false;
+                agent.SetDestination(currentTarget.position);
+            }
         }
 
         if (!seesPlayer)
         {
-            state = AIState.Search;
-            searchTimer = 5f;
+            EnterSearch();
+        }
+    }
+
+    // ===================== ATTACK =====================
+    IEnumerator PerformAttack()
+    {
+        isAttacking = true;
+        lastAttackTime = Time.time;
+
+        agent.isStopped = true;
+        agent.ResetPath();
+
+        FaceTarget(currentTarget.position);
+
+        TriggerRandomAttack();
+
+        yield return new WaitForSeconds(attackDuration);
+
+        agent.isStopped = false;
+        isAttacking = false;
+    }
+
+    void TriggerRandomAttack()
+    {
+        int attackIndex = Random.Range(1, 13);
+
+        switch (attackIndex)
+        {
+            case 1: animator.SetTrigger("Attack1"); break;
+            case 2: animator.SetTrigger("Attack1LSpike"); break;
+            case 3: animator.SetTrigger("Attack1RSpike"); break;
+            case 4: animator.SetTrigger("Attack2"); break;
+            case 5: animator.SetTrigger("Attack2LSpike"); break;
+            case 6: animator.SetTrigger("Attack2RLSpike"); break;
+            case 7: animator.SetTrigger("Attack3"); break;
+            case 8: animator.SetTrigger("Attack3RSpike"); break;
+            case 9: animator.SetTrigger("Attack4"); break;
+            case 10: animator.SetTrigger("Attack4RSpike"); break;
+            case 11: animator.SetTrigger("Attack5"); break;
+            case 12: animator.SetTrigger("Attack5LSpike"); break;
+        }
+    }
+
+    // Called via Animation Event at hit frame
+    public void DealDamage()
+    {
+        if (currentTarget == null)
+            return;
+
+        float dist = Vector3.Distance(transform.position, currentTarget.position);
+
+        if (dist <= attackRange + 0.5f)
+        {
+            Health h = currentTarget.GetComponent<Health>();
+            if (h != null)
+            {
+                h.TakeDamage(attackDamage);
+            }
         }
     }
 
@@ -146,7 +212,8 @@ public class AILocomotion : MonoBehaviour
     {
         agent.speed = patrolSpeed;
 
-        if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance + 0.1f)
+        if (!agent.pathPending &&
+            agent.remainingDistance <= agent.stoppingDistance + 0.1f)
         {
             SetRandomPatrolPoint();
         }
@@ -170,6 +237,12 @@ public class AILocomotion : MonoBehaviour
         }
     }
 
+    void EnterSearch()
+    {
+        state = AIState.Search;
+        searchTimer = 5f;
+    }
+
     // ===================== HELPERS =====================
     void SetRandomPatrolPoint()
     {
@@ -186,7 +259,8 @@ public class AILocomotion : MonoBehaviour
         if (dir != Vector3.zero)
         {
             Quaternion rot = Quaternion.LookRotation(dir);
-            transform.rotation = Quaternion.Slerp(transform.rotation, rot, Time.deltaTime * 10f);
+            transform.rotation =
+                Quaternion.Slerp(transform.rotation, rot, Time.deltaTime * 10f);
         }
     }
 }
