@@ -182,7 +182,7 @@ MonoBehaviour:
   NetworkConfig:
     ProtocolVersion: 0
     NetworkTransport: {fileID: 102288460}
-    PlayerPrefab: {fileID: 1435870730363778741, guid: 37a5b228997b77249944a687e06ed4a6, type: 3}
+    PlayerPrefab: {fileID: 2686844498852408971, guid: c26648bdae40af847afda5907b9cd5d9, type: 3}
     Prefabs:
       NetworkPrefabsLists:
       - {fileID: 11400000, guid: 19826799c68b917499a7486b14cfd5ee, type: 2}
@@ -391,7 +391,7 @@ MonoBehaviour:
   m_OverrideTileSize: 0
   m_TileSize: 256
   m_OverrideVoxelSize: 0
-  m_VoxelSize: 0.16666667
+  m_VoxelSize: 0.016666668
   m_MinRegionArea: 2
   m_NavMeshData: {fileID: 23800000, guid: 635980b60e07ec64d92b2b3b8a7f3516, type: 2}
   m_BuildHeightMesh: 0
@@ -482,6 +482,11 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!95 &1231137523 stripped
+Animator:
+  m_CorrespondingSourceObject: {fileID: 362966689410299862, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+  m_PrefabInstance: {fileID: 4217594009785924689}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1001 &4217594009785924689
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -490,6 +495,14 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 400911283755929277, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: animator
+      value: 
+      objectReference: {fileID: 1231137523}
+    - target: {fileID: 400911283755929277, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: talkDuration
+      value: 10
+      objectReference: {fileID: 0}
     - target: {fileID: 400911283755929277, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       propertyPath: wanderCenter
       value: 
@@ -544,7 +557,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5081191139082070191, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       propertyPath: m_Speed
-      value: 3.5
+      value: 2
+      objectReference: {fileID: 0}
+    - target: {fileID: 5081191139082070191, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_AngularSpeed
+      value: 360
       objectReference: {fileID: 0}
     - target: {fileID: 6733780691644045083, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       propertyPath: m_Name
