@@ -25,6 +25,10 @@ public class AILocomotion : MonoBehaviour
     public float attackDamage = 25f;
     public float attackDuration = 1.2f;
 
+    [Header("Attack Facing")]
+    public float attackTurnSpeed = 10f;
+    public float maxAttackAngle = 10f;
+
     [Header("Animation")]
     public string speedParam = "Speed";
 
@@ -39,6 +43,11 @@ public class AILocomotion : MonoBehaviour
     float lastAttackTime;
     bool isAttacking;
     bool hasDealtDamage;
+
+    Vector3 attackStartForward;
+
+    [Header("Debug")]
+    public bool debugDodge = true;
 
     void Start()
     {
@@ -159,6 +168,9 @@ public class AILocomotion : MonoBehaviour
         agent.isStopped = true;
         agent.ResetPath();
 
+        // Store forward direction at attack start
+        attackStartForward = transform.forward;
+
         TriggerRandomAttack();
 
         float timer = 0f;
@@ -168,7 +180,7 @@ public class AILocomotion : MonoBehaviour
             timer += Time.deltaTime;
 
             if (currentTarget != null)
-                FaceTarget(currentTarget.position); // continuous facing
+                FaceTargetAttack(currentTarget.position);
 
             TryDealDamage();
 
@@ -180,21 +192,59 @@ public class AILocomotion : MonoBehaviour
     }
 
     void TryDealDamage()
+{
+    if (hasDealtDamage) return;
+    if (currentTarget == null) return;
+
+    float dist = Vector3.Distance(transform.position, currentTarget.position);
+
+    if (dist > attackRange + 0.5f)
     {
-        if (hasDealtDamage) return;
-        if (currentTarget == null) return;
+        if (debugDodge)
+            Debug.Log("Attack Missed: Player out of range");
+        return;
+    }
 
-        float dist = Vector3.Distance(transform.position, currentTarget.position);
+    Vector3 dirToPlayer = (currentTarget.position - transform.position).normalized;
+    dirToPlayer.y = 0;
 
-        if (dist <= attackRange + 0.5f)
-        {
-            Health h = currentTarget.GetComponent<Health>();
-            if (h != null)
-            {
-                h.TakeDamage(attackDamage);
-                hasDealtDamage = true;
-            }
-        }
+    // Use CURRENT forward instead of attackStartForward
+    float angle = Vector3.Angle(transform.forward, dirToPlayer);
+
+    if (angle > maxAttackAngle)
+    {
+        if (debugDodge)
+            Debug.Log("DODGED (Outside Cone) | Angle: " + angle);
+        return;
+    }
+
+    Health h = currentTarget.GetComponent<Health>();
+    if (h != null)
+    {
+        if (debugDodge)
+            Debug.Log("HIT | Angle: " + angle);
+
+        h.TakeDamage(attackDamage);
+        hasDealtDamage = true;
+    }
+}
+
+
+
+    void FaceTargetAttack(Vector3 target)
+    {
+        Vector3 dir = (target - transform.position).normalized;
+        dir.y = 0;
+
+        if (dir == Vector3.zero)
+            return;
+
+        Quaternion targetRot = Quaternion.LookRotation(dir);
+        transform.rotation = Quaternion.Slerp(
+            transform.rotation,
+            targetRot,
+            Time.deltaTime * attackTurnSpeed
+        );
     }
 
     void TriggerRandomAttack()
@@ -260,18 +310,5 @@ public class AILocomotion : MonoBehaviour
         Vector2 rand = Random.insideUnitCircle * patrolRadius;
         Vector3 target = homePosition + new Vector3(rand.x, 0, rand.y);
         agent.SetDestination(target);
-    }
-
-    void FaceTarget(Vector3 target)
-    {
-        Vector3 dir = (target - transform.position).normalized;
-        dir.y = 0;
-
-        if (dir != Vector3.zero)
-        {
-            Quaternion rot = Quaternion.LookRotation(dir);
-            transform.rotation =
-                Quaternion.Slerp(transform.rotation, rot, Time.deltaTime * 10f);
-        }
     }
 }
