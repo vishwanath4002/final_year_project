@@ -38,6 +38,7 @@ public class AILocomotion : MonoBehaviour
     Transform currentTarget;
     float lastAttackTime;
     bool isAttacking;
+    bool hasDealtDamage;
 
     void Start()
     {
@@ -124,7 +125,6 @@ public class AILocomotion : MonoBehaviour
         }
 
         float dist = Vector3.Distance(transform.position, currentTarget.position);
-
         agent.speed = chaseSpeed;
 
         if (dist <= attackRange)
@@ -153,19 +153,48 @@ public class AILocomotion : MonoBehaviour
     IEnumerator PerformAttack()
     {
         isAttacking = true;
+        hasDealtDamage = false;
         lastAttackTime = Time.time;
 
         agent.isStopped = true;
         agent.ResetPath();
 
-        FaceTarget(currentTarget.position);
-
         TriggerRandomAttack();
 
-        yield return new WaitForSeconds(attackDuration);
+        float timer = 0f;
+
+        while (timer < attackDuration)
+        {
+            timer += Time.deltaTime;
+
+            if (currentTarget != null)
+                FaceTarget(currentTarget.position); // continuous facing
+
+            TryDealDamage();
+
+            yield return null;
+        }
 
         agent.isStopped = false;
         isAttacking = false;
+    }
+
+    void TryDealDamage()
+    {
+        if (hasDealtDamage) return;
+        if (currentTarget == null) return;
+
+        float dist = Vector3.Distance(transform.position, currentTarget.position);
+
+        if (dist <= attackRange + 0.5f)
+        {
+            Health h = currentTarget.GetComponent<Health>();
+            if (h != null)
+            {
+                h.TakeDamage(attackDamage);
+                hasDealtDamage = true;
+            }
+        }
     }
 
     void TriggerRandomAttack()
@@ -186,24 +215,6 @@ public class AILocomotion : MonoBehaviour
             case 10: animator.SetTrigger("Attack4RSpike"); break;
             case 11: animator.SetTrigger("Attack5"); break;
             case 12: animator.SetTrigger("Attack5LSpike"); break;
-        }
-    }
-
-    // Called via Animation Event at hit frame
-    public void DealDamage()
-    {
-        if (currentTarget == null)
-            return;
-
-        float dist = Vector3.Distance(transform.position, currentTarget.position);
-
-        if (dist <= attackRange + 0.5f)
-        {
-            Health h = currentTarget.GetComponent<Health>();
-            if (h != null)
-            {
-                h.TakeDamage(attackDamage);
-            }
         }
     }
 
