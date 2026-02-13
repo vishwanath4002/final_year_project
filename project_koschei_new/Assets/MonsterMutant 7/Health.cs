@@ -1,11 +1,12 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.AI;
 
 public class Health : MonoBehaviour
 {
     [SerializeField] private float maxHealth = 100f;
-    [SerializeField] private float Defence = 15f;
+    [SerializeField] private float defence = 15f;
+    [SerializeField] private float destroyAfterSeconds = 0f; // 0 = don't destroy
+
     private float currentHealth;
     private bool isDead = false;
 
@@ -16,14 +17,9 @@ public class Health : MonoBehaviour
 
     public void TakeDamage(float damage)
     {
-        if (Defence > damage)
-        {
-            damage = 0;
-        }
-        else
-        {
-            damage -= Defence;
-        }
+        if (isDead) return;
+
+        damage = Mathf.Max(damage - defence, 0f);
         currentHealth -= damage;
 
         Debug.Log($"{gameObject.name} took {damage} damage. Remaining HP: {currentHealth}");
@@ -41,45 +37,75 @@ public class Health : MonoBehaviour
 
         Debug.Log($"{gameObject.name} died!");
 
-        // 1 Stop NavMesh movement
-        UnityEngine.AI.NavMeshAgent agent = GetComponent<UnityEngine.AI.NavMeshAgent>();
-        if (agent != null)
+        // =============================
+        // 1️⃣ Stop NavMeshAgent (if exists)
+        // =============================
+        NavMeshAgent agent;
+        if (TryGetComponent(out agent))
         {
             agent.isStopped = true;
             agent.enabled = false;
         }
 
-        // 2️ Disable AI locomotion
-        Ailocomotion aiLocomotion = GetComponent<Ailocomotion>();
-        if (aiLocomotion != null)
+        // =============================
+        // 2️⃣ Disable AILocomotion (if exists)
+        // =============================
+        AILocomotion ai;
+        if (TryGetComponent(out ai))
         {
-            aiLocomotion.enabled = false;
+            ai.enabled = false;
         }
 
-        // 3️ Stop Rigidbody motion
-        // Rigidbody rb = GetComponent<Rigidbody>();
-        // if (rb != null)
-        // {
-        //     rb.velocity = Vector3.zero;
-        //     rb.angularVelocity = Vector3.zero;
-        //     rb.isKinematic = true;
-        // }
-
-        // 4️ Trigger death animation
-        Animator animator = GetComponent<Animator>();
-        if (animator != null)
+        // =============================
+        // 3️⃣ Stop Rigidbody (if exists)
+        // =============================
+        Rigidbody rb;
+        if (TryGetComponent(out rb))
         {
-            animator.SetTrigger("die");
+            rb.velocity = Vector3.zero;     // use velocity (safe for all versions)
+            rb.angularVelocity = Vector3.zero;
+            rb.isKinematic = true;
         }
 
-        // 35 Disable Capsule Collider (prevents blocking & re-hits)
-        CapsuleCollider capsule = GetComponent<CapsuleCollider>();
-        if (capsule != null)
+        // =============================
+        // 4️⃣ Disable ALL Colliders (safe for AI & non-AI)
+        // =============================
+        Collider[] colliders = GetComponentsInChildren<Collider>();
+        foreach (Collider col in colliders)
         {
-            capsule.enabled = false;
+            col.enabled = false;
         }
 
-        // 6️ Optional: destroy after delay
-        // Destroy(gameObject, 5f);
+        // =============================
+        // 5️⃣ Trigger death animation safely
+        // =============================
+        Animator animator;
+        if (TryGetComponent(out animator))
+        {
+            bool hasDieTrigger = false;
+
+            foreach (var param in animator.parameters)
+            {
+                if (param.type == AnimatorControllerParameterType.Trigger &&
+                    param.name == "die")
+                {
+                    hasDieTrigger = true;
+                    break;
+                }
+            }
+
+            if (hasDieTrigger)
+            {
+                animator.SetTrigger("die");
+            }
+        }
+
+        // =============================
+        // 6️⃣ Optional destroy
+        // =============================
+        if (destroyAfterSeconds > 0f)
+        {
+            Destroy(gameObject, destroyAfterSeconds);
+        }
     }
 }
