@@ -30,6 +30,11 @@ public class Health : MonoBehaviour
         }
     }
 
+    public float GetCurrentHealth()
+    {
+        return currentHealth;
+    }
+
     private void Die()
     {
         if (isDead) return;
