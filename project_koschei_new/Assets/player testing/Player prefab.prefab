@@ -1731,6 +1731,7 @@ GameObject:
   - component: {fileID: 6445354656533786437}
   - component: {fileID: 3455955187979023611}
   - component: {fileID: 5929994612121965281}
+  - component: {fileID: 3342576043406728476}
   m_Layer: 0
   m_Name: Player prefab
   m_TagString: Player
@@ -2249,6 +2250,10 @@ MonoBehaviour:
   healthComponent: {fileID: 5929994612121965281}
   hitTriggerName: takehit
   dieTriggerName: die
+  enableDebugDamage: 1
+  debugDamageKey: 116
+  debugDamageAmount: 20
+  debugKillKey: 107
 --- !u!114 &5929994612121965281
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2264,6 +2269,18 @@ MonoBehaviour:
   maxHealth: 100
   defence: 15
   destroyAfterSeconds: 0
+--- !u!114 &3342576043406728476
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2686844498852408971}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 95e81cd10c021b14899b4dc5f948402c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1 &2812862538212974950
 GameObject:
   m_ObjectHideFlags: 0
@@ -2830,7 +2847,7 @@ MeshRenderer:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 4450700509621398486}
-  m_Enabled: 1
+  m_Enabled: 0
   m_CastShadows: 1
   m_ReceiveShadows: 1
   m_DynamicOccludee: 1
