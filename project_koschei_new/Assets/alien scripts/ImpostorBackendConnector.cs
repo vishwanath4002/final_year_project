@@ -75,11 +75,11 @@ public class ImpostorBackendConnector : NetworkBehaviour
             if (currentTargetGroupId != null && spawner != null)
             {
                 NetworkObject impostor = spawner.GetCurrentImpostor();
-                
+
                 if (impostor != null && impostor.IsSpawned)
                 {
                     Vector3 currentGroupCenter = GetCurrentGroupCenter(currentTargetGroupId);
-                    
+
                     if (currentGroupCenter != Vector3.zero)
                     {
                         ImpostorPlayerAI ai = impostor.GetComponent<ImpostorPlayerAI>();
@@ -87,7 +87,7 @@ public class ImpostorBackendConnector : NetworkBehaviour
                         {
                             string[] groupMembers = GetCurrentGroupMembers(currentTargetGroupId);
                             ai.UpdateTargetGroupPosition(currentGroupCenter, groupMembers);
-                            
+
                             if (showDebugLogs)
                                 Debug.Log($"[ImpostorBackend] 📍 Updated impostor target: {currentGroupCenter:F1}");
                         }
@@ -106,7 +106,7 @@ public class ImpostorBackendConnector : NetworkBehaviour
             return Vector3.zero;
 
         var activeGroups = playerGroupManager.GetActiveGroups();
-        
+
         foreach (var group in activeGroups)
         {
             if (group.groupId == groupId)
@@ -130,7 +130,7 @@ public class ImpostorBackendConnector : NetworkBehaviour
             return new string[0];
 
         var activeGroups = playerGroupManager.GetActiveGroups();
-        
+
         foreach (var group in activeGroups)
         {
             if (group.groupId == groupId)
@@ -160,7 +160,7 @@ public class ImpostorBackendConnector : NetworkBehaviour
         isCheckingSpawn = true;
 
         string url = $"{backendUrl}/impostor/check_spawn";
-        
+
         using (UnityWebRequest request = UnityWebRequest.Get(url))
         {
             yield return request.SendWebRequest();
@@ -226,11 +226,11 @@ public class ImpostorBackendConnector : NetworkBehaviour
         isWalkingAway = true;
 
         NetworkObject impostor = spawner.GetCurrentImpostor();
-        
+
         if (impostor != null && impostor.IsSpawned)
         {
             ImpostorPlayerAI ai = impostor.GetComponent<ImpostorPlayerAI>();
-            
+
             if (ai != null)
             {
                 if (showDebugLogs)
@@ -238,23 +238,23 @@ public class ImpostorBackendConnector : NetworkBehaviour
 
                 // Tell AI to leave area
                 ai.LeaveArea();
-                
+
                 // Wait until impostor is far enough from original position
                 Vector3 startPosition = impostor.transform.position;
                 float distanceTraveled = 0f;
                 float elapsedTime = 0f;
-                
-                while (distanceTraveled < walkAwayDistance && 
+
+                while (distanceTraveled < walkAwayDistance &&
                        elapsedTime < maxWalkAwayTime &&
-                       impostor != null && 
+                       impostor != null &&
                        impostor.IsSpawned)
                 {
                     distanceTraveled = Vector3.Distance(startPosition, impostor.transform.position);
                     elapsedTime += 0.5f;
-                    
+
                     if (showDebugLogs && Mathf.FloorToInt(elapsedTime) % 2 == 0) // Log every 2 seconds
                         Debug.Log($"[ImpostorBackend] 📏 Distance traveled: {distanceTraveled:F1}m / {walkAwayDistance}m");
-                    
+
                     yield return new WaitForSeconds(0.5f); // Check every 0.5 seconds
                 }
 
@@ -299,7 +299,7 @@ public class ImpostorBackendConnector : NetworkBehaviour
     IEnumerator ActivateImpostorBackend(string targetGroupId, string disguiseAs)
     {
         string url = $"{backendUrl}/impostor/activate";
-        
+
         ActivateRequest data = new ActivateRequest
         {
             target_player_id = disguiseAs,
@@ -308,7 +308,7 @@ public class ImpostorBackendConnector : NetworkBehaviour
         };
 
         string json = JsonUtility.ToJson(data);
-        
+
         using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
         {
             byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(json);
@@ -348,7 +348,7 @@ public class ImpostorBackendConnector : NetworkBehaviour
     IEnumerator DeactivateImpostorBackend()
     {
         string url = $"{backendUrl}/impostor/deactivate";
-        
+
         using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
         {
             request.downloadHandler = new DownloadHandlerBuffer();

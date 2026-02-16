@@ -1,249 +1,255 @@
-using Unity.Netcode;
+using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
+using StarterAssets;
 
-[RequireComponent(typeof(NavMeshAgent))]
-public class NetworkScientistNPCController : NetworkBehaviour
+public enum ScientistState { Idle, Patrol, Talk }
+
+public class ScientistNPCController : MonoBehaviour
 {
-    [Header("Movement")]
-    public float walkSpeed = 2.0f;          // match this to your walk animation speed
-    public float rotationSpeed = 8f;        // how fast to turn toward movement direction
-    public float wanderRadius = 10f;
-    public float wanderInterval = 5f;
+    [Header("Movement Speeds")]
+    public float patrolSpeed = 2f;
 
-    [Header("Detection")]
-    public RaycastConeSensor sensor;        // child sensor
-    public float stopDistanceToPlayer = 2f;
+    [Header("Idle / Talk")]
+    public float idleTimeAtPatrolPoint = 2f;
+    public float interactionRange = 3f;  // player must be within this range to press E
+    public float talkDuration = 5f;      // how long the talk animation plays
+    public float facePlayerSpeed = 5f;   // how fast NPC rotates to face player while talking
 
-    [Header("Patrol Area")]
-    public Transform wanderCenter;
-    public float navSampleRadius = 3f;
+    [Header("Random Patrol")]
+    public float patrolRadius = 20f;
 
-    [Header("Animation Parameters")]
-    public string speedParam = "Speed";     // float
-    public string talkingParam = "talking"; // bool
-    public string deadParam = "dead";       // trigger
+    [Header("Animation")]
+    public Animator animator;
+    public string speedParam = "Speed";       // float for walk blend
+    public string talkingParam = "IsTalking"; // bool for talk layer
 
-    private NavMeshAgent agent;
-    private Animator animator;
+    [Header("Interaction Prompt")]
+    //public GameObject interactionPrompt;  // UI hint (optional, e.g., "Press E")
 
-    private float wanderTimer;
-    private bool isDead = false;
-    private Transform currentTargetPlayer;
+    NavMeshAgent agent;
+    ScientistState state = ScientistState.Idle;
+    float stateTimer = 0f;
+    Vector3 homePosition;
+    bool isTalking = false;
+    float talkTimer = 0f;
+    Transform talkingToPlayer;  // Reference to player we're talking to
 
-    private NetworkVariable<bool> talkingNet = new NetworkVariable<bool>(
-        false,
-        NetworkVariableReadPermission.Everyone,
-        NetworkVariableWritePermission.Server
-    );
-
-    void Awake()
+    void Start()
     {
         agent = GetComponent<NavMeshAgent>();
-        animator = GetComponentInChildren<Animator>();
+        if (animator == null)
+            animator = GetComponentInChildren<Animator>();
 
-        if (wanderCenter == null)
-        {
-            GameObject centerObj = new GameObject($"{name}_WanderCenter");
-            centerObj.transform.position = transform.position;
-            wanderCenter = centerObj.transform;
-        }
+        homePosition = transform.position;
+        state = ScientistState.Patrol;
+        agent.speed = patrolSpeed;
+        SetRandomPatrolDestination();
 
-        if (sensor == null)
-        {
-            sensor = GetComponentInChildren<RaycastConeSensor>();
-        }
-    }
-
-    public override void OnNetworkSpawn()
-    {
-        base.OnNetworkSpawn();
-
-        // Only decide agent control once spawned (IsServer valid here)
-        agent.updatePosition = IsServer;
-        agent.updateRotation = false;     // we rotate manually
-        agent.speed = walkSpeed;
-        agent.acceleration = walkSpeed * 2f;
-        agent.angularSpeed = 0f;          // disable agent rotation
-
-        if (IsServer)
-        {
-            wanderTimer = wanderInterval;
-        }
-
-        talkingNet.OnValueChanged += OnTalkingChanged;
-    }
-
-    void OnDestroy()
-    {
-        talkingNet.OnValueChanged -= OnTalkingChanged;
+        //if (interactionPrompt != null)
+            //interactionPrompt.SetActive(false);
     }
 
     void Update()
     {
-        if (!IsServer)
+        // Check for player interaction if not talking
+        if (!isTalking)
         {
-            // Clients only animate based on velocity and talking flag
-            UpdateAnimationsFromVelocity();
-            return;
+            CheckForPlayerInteraction();
         }
 
-        if (isDead)
+        // State machine
+        switch (state)
         {
-            UpdateAnimationsFromVelocity();
-            return;
+            case ScientistState.Patrol:
+                UpdatePatrol();
+                break;
+            case ScientistState.Idle:
+                UpdateIdle();
+                break;
+            case ScientistState.Talk:
+                UpdateTalk();
+                break;
         }
 
-        if (sensor == null)
-        {
-            sensor = GetComponentInChildren<RaycastConeSensor>();
-        }
-
-        currentTargetPlayer = sensor != null ? sensor.GetClosestTarget("Player") : null;
-
-        if (currentTargetPlayer != null)
-        {
-            HandleChase();
-        }
-        else
-        {
-            HandleWander();
-        }
-
-        RotateTowardsMovement();
-        UpdateAnimationsFromVelocity();
+        UpdateAnimationFromAgent();
     }
 
-    void HandleChase()
+    // ========== Player Interaction Detection ==========
+    void CheckForPlayerInteraction()
     {
-        if (currentTargetPlayer == null) return;
+        // Find all nearby colliders with Player tag
+        Collider[] nearbyPlayers = Physics.OverlapSphere(transform.position, interactionRange);
 
-        Vector3 targetPos = currentTargetPlayer.position;
-        float dist = Vector3.Distance(transform.position, targetPos);
+        GameObject closestPlayer = null;
+        float closestDist = interactionRange;
 
-        if (dist > stopDistanceToPlayer)
+        foreach (Collider col in nearbyPlayers)
         {
-            agent.isStopped = false;
-            agent.SetDestination(targetPos);
+            if (col.CompareTag("Player"))
+            {
+                float dist = Vector3.Distance(transform.position, col.transform.position);
+                if (dist < closestDist)
+                {
+                    closestDist = dist;
+                    closestPlayer = col.gameObject;
+                }
+            }
+        }
+
+        // Show/hide prompt based on nearby player
+        if (closestPlayer != null)
+        {
+            //if (interactionPrompt != null)
+                //interactionPrompt.SetActive(true);
+
+            // Check if player pressed E
+            StarterAssetsInputs playerInput = closestPlayer.GetComponent<StarterAssetsInputs>();
+            if (playerInput != null && playerInput.interact)
+            {
+                playerInput.interact = false;  // consume input
+                StartTalking(closestPlayer.transform);
+            }
         }
         else
         {
+            //if (interactionPrompt != null)
+                //interactionPrompt.SetActive(false);
+        }
+    }
+
+    // ========== Random Patrol ==========
+    void UpdatePatrol()
+    {
+        if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance + 0.1f)
+        {
+            state = ScientistState.Idle;
+            stateTimer = idleTimeAtPatrolPoint;
             agent.isStopped = true;
-            agent.velocity = Vector3.zero;
         }
     }
 
-    void HandleWander()
+    void SetRandomPatrolDestination()
     {
-        wanderTimer -= Time.deltaTime;
+        Vector2 randomCircle = Random.insideUnitCircle * patrolRadius;
+        Vector3 candidate = homePosition + new Vector3(randomCircle.x, 0f, randomCircle.y);
 
-        bool needNewPoint = !agent.hasPath || agent.remainingDistance < 0.2f || wanderTimer <= 0f;
+        if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 3f, NavMesh.AllAreas))
+            agent.SetDestination(hit.position);
+        else
+            agent.SetDestination(candidate);
 
-        if (needNewPoint)
+        agent.isStopped = false;
+    }
+
+    // ========== Idle ==========
+    void UpdateIdle()
+    {
+        stateTimer -= Time.deltaTime;
+        transform.Rotate(Vector3.up, 30f * Time.deltaTime);  // look around
+
+        if (stateTimer <= 0f)
         {
-            if (TryGetRandomPointAroundCenter(out Vector3 newPos))
-            {
-                agent.isStopped = false;
-                agent.SetDestination(newPos);
-            }
-            wanderTimer = wanderInterval;
+            state = ScientistState.Patrol;
+            agent.speed = patrolSpeed;
+            SetRandomPatrolDestination();
         }
     }
 
-    bool TryGetRandomPointAroundCenter(out Vector3 result)
+    // ========== Talk State ==========
+    void StartTalking(Transform player)
     {
-        Vector3 center = wanderCenter.position;
-        for (int i = 0; i < 8; i++)
-        {
-            Vector2 circle = Random.insideUnitCircle * wanderRadius;
-            Vector3 candidate = center + new Vector3(circle.x, 0f, circle.y);
+        if (isTalking) return;
 
-            if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, navSampleRadius, NavMesh.AllAreas))
-            {
-                result = hit.position;
-                return true;
-            }
-        }
-
-        result = transform.position;
-        return false;
-    }
-
-    void RotateTowardsMovement()
-    {
-        Vector3 desired = agent.desiredVelocity;
-        desired.y = 0f;
-
-        if (desired.sqrMagnitude > 0.0001f)
-        {
-            Quaternion targetRot = Quaternion.LookRotation(desired.normalized);
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * rotationSpeed);
-        }
-    }
-
-    void UpdateAnimationsFromVelocity()
-    {
-        if (animator == null) return;
-
-        float speed = agent.velocity.magnitude;
-
-        // Dead zone so tiny velocities don't keep walk playing
-        if (speed < 0.05f) speed = 0f;
-
-        float normalizedSpeed = Mathf.InverseLerp(0f, walkSpeed, speed);
-        animator.SetFloat(speedParam, normalizedSpeed);
-        animator.SetBool(talkingParam, talkingNet.Value);
-    }
-
-    void OnTalkingChanged(bool oldVal, bool newVal)
-    {
-        if (animator == null) return;
-        animator.SetBool(talkingParam, newVal);
-    }
-
-    // -------- Public API (server-only) --------
-
-    public void StartTalking()
-    {
-        if (!IsServer || isDead) return;
-        talkingNet.Value = true;
+        isTalking = true;
+        talkingToPlayer = player;  // Store reference to player
+        state = ScientistState.Talk;
+        talkTimer = talkDuration;
         agent.isStopped = true;
         agent.velocity = Vector3.zero;
+
+        //if (interactionPrompt != null)
+            //interactionPrompt.SetActive(false);
+
+        Debug.Log("[Scientist] Started talking");
+
+        // Trigger your dialogue system here:
+        // DialogueManager.Instance.StartConversation(this);
+    }
+
+    void UpdateTalk()
+    {
+        // LOCKED: cannot move while talking
+        agent.isStopped = true;
+        agent.velocity = Vector3.zero;
+
+        // Face the player while talking
+        if (talkingToPlayer != null)
+        {
+            FaceTarget(talkingToPlayer);
+        }
+
+        // Count down talk timer
+        talkTimer -= Time.deltaTime;
+
+        if (talkTimer <= 0f)
+        {
+            // 5 seconds passed - stop talking automatically
+            StopTalking();
+        }
+    }
+
+    void FaceTarget(Transform target)
+    {
+        Vector3 direction = target.position - transform.position;
+        direction.y = 0f;  // Keep rotation only on Y axis (don't tilt up/down)
+
+        if (direction.sqrMagnitude > 0.001f)
+        {
+            Quaternion targetRotation = Quaternion.LookRotation(direction);
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.deltaTime * facePlayerSpeed);
+        }
     }
 
     public void StopTalking()
     {
-        if (!IsServer || isDead) return;
-        talkingNet.Value = false;
+        if (!isTalking) return;
+
+        isTalking = false;
+        talkTimer = 0f;
+        talkingToPlayer = null;  // Clear player reference
         agent.isStopped = false;
+        state = ScientistState.Patrol;
+        agent.speed = patrolSpeed;
+        SetRandomPatrolDestination();
+
+        Debug.Log("[Scientist] Stopped talking");
     }
 
-    public void Die()
+    // ========== Animation from NavMeshAgent velocity ==========
+    void UpdateAnimationFromAgent()
     {
-        if (!IsServer || isDead) return;
-        isDead = true;
+        if (animator == null) return;
 
-        agent.isStopped = true;
-        agent.velocity = Vector3.zero;
-        agent.ResetPath();
-        agent.enabled = false;
-        talkingNet.Value = false;
+        // Speed parameter (0 = idle, >0 = walking)
+        float speed = isTalking ? 0f : agent.velocity.magnitude;
+        animator.SetFloat(speedParam, speed);
 
-        if (animator != null)
-        {
-            animator.SetBool(talkingParam, false);
-            animator.SetFloat(speedParam, 0f);
-            animator.ResetTrigger(deadParam);
-            animator.SetTrigger(deadParam);
-        }
+        // Talking parameter (bool for talk animation layer)
+        animator.SetBool(talkingParam, isTalking);
     }
 
-#if UNITY_EDITOR
+    // ========== Gizmos ==========
     void OnDrawGizmosSelected()
     {
-        if (wanderCenter == null) return;
+        // Interaction range (cyan)
+        Gizmos.color = Color.cyan;
+        Gizmos.DrawWireSphere(transform.position, interactionRange);
+
+        // Patrol area (yellow)
         Gizmos.color = Color.yellow;
-        Gizmos.DrawWireSphere(wanderCenter.position, wanderRadius);
+        Vector3 home = Application.isPlaying ? homePosition : transform.position;
+        Gizmos.DrawWireSphere(home, patrolRadius);
     }
-#endif
 }

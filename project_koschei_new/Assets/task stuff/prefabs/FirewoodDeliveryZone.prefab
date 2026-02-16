@@ -73,7 +73,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  GlobalObjectIdHash: 4155555779
+  GlobalObjectIdHash: 3859301193
   InScenePlacedSourceGlobalObjectIdHash: 0
   AlwaysReplicateAsRoot: 0
   SynchronizeTransform: 1
@@ -94,7 +94,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cfdec5e09083d2f4ba80fb40c3aeaaa7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  firewoodPrefabName: firewood
+  firewoodPrefabName: FireWood
   firewoodPileObjects:
   - {fileID: 3348324630376056671}
   - {fileID: 7438726560041630591}

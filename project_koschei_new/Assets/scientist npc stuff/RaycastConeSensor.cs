@@ -34,7 +34,6 @@ public class RaycastConeSensor : MonoBehaviour
     public List<RaycastHitData> CastRays()
     {
         List<RaycastHitData> detectedObjects = new List<RaycastHitData>();
-
         float halfAngle = coneAngle * 0.5f;
 
         // We sweep in 2D: yaw (around Y) and pitch (around X)
@@ -65,7 +64,6 @@ public class RaycastConeSensor : MonoBehaviour
                             position = hit.collider.transform.position,
                             distance = hit.distance
                         });
-
                         rayColor = Color.red; // hit a detectable target
                     }
 
@@ -87,7 +85,6 @@ public class RaycastConeSensor : MonoBehaviour
     public Transform GetClosestTarget(string targetTag = "Player")
     {
         List<RaycastHitData> hits = CastRays();
-
         Transform closest = null;
         float bestDist = float.MaxValue;
 
