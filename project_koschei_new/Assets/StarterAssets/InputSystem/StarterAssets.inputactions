@@ -288,6 +288,17 @@
                 },
                 {
                     "name": "",
+                    "id": "b0bb5fb2-23a2-46a4-bf6b-de14c2283e85",
+                    "path": "<Keyboard>/leftCtrl",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": ";KeyboardMouse",
+                    "action": "Aim",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
                     "id": "34a21f87-7e67-41e1-ab1a-af1e109d397b",
                     "path": "<Mouse>/leftButton",
                     "interactions": "",

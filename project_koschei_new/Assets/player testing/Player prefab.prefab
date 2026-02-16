@@ -1729,6 +1729,9 @@ GameObject:
   - component: {fileID: 473880616874062379}
   - component: {fileID: 620814545897576245}
   - component: {fileID: 6445354656533786437}
+  - component: {fileID: 3455955187979023611}
+  - component: {fileID: 5929994612121965281}
+  - component: {fileID: 3342576043406728476}
   m_Layer: 0
   m_Name: Player prefab
   m_TagString: Player
@@ -2090,9 +2093,10 @@ MonoBehaviour:
   debugTransform: {fileID: 2078892657010081025}
   vfxHitGreen: {fileID: 5750949564298601908, guid: e3765759529011a45aa7e3bce0d7ae48, type: 3}
   vfxHitRed: {fileID: 238988826293623110, guid: 82eacf9159853a24898b277da512e7c7, type: 3}
+  damagePerShot: 35
   fireRate: 0.1
   magazineSize: 30
-  reloadTime: 2
+  reloadTime: 1.5
   interactRange: 5
   interactLayerMask:
     serializedVersion: 2
@@ -2231,6 +2235,52 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   gunPoint: {fileID: 5993927097259494677}
   gunObject: {fileID: 2283014843931169179}
+--- !u!114 &3455955187979023611
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2686844498852408971}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 63bea32ad72d4a640967791bbf0efce6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  healthComponent: {fileID: 5929994612121965281}
+  hitTriggerName: takehit
+  dieTriggerName: die
+  enableDebugDamage: 1
+  debugDamageKey: 116
+  debugDamageAmount: 20
+  debugKillKey: 107
+--- !u!114 &5929994612121965281
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2686844498852408971}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f4ba725ba35a7034ea319233c81265c3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  maxHealth: 100
+  defence: 15
+  destroyAfterSeconds: 0
+--- !u!114 &3342576043406728476
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2686844498852408971}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 95e81cd10c021b14899b4dc5f948402c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1 &2812862538212974950
 GameObject:
   m_ObjectHideFlags: 0
@@ -2797,7 +2847,7 @@ MeshRenderer:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 4450700509621398486}
-  m_Enabled: 1
+  m_Enabled: 0
   m_CastShadows: 1
   m_ReceiveShadows: 1
   m_DynamicOccludee: 1
