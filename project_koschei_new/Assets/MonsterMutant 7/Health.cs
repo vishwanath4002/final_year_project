@@ -1,30 +1,79 @@
 using UnityEngine;
 using UnityEngine.AI;
+using Unity.Netcode;
 
-public class Health : MonoBehaviour
+public class Health : NetworkBehaviour
 {
     [SerializeField] private float maxHealth = 100f;
     [SerializeField] private float defence = 15f;
     [SerializeField] private float destroyAfterSeconds = 0f; // 0 = don't destroy
 
-    private float currentHealth;
-    private bool isDead = false;
+    private NetworkVariable<float> currentHealth = new NetworkVariable<float>(
+        100f,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    private NetworkVariable<bool> isDead = new NetworkVariable<bool>(
+        false,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
 
     private void Awake()
     {
-        currentHealth = maxHealth;
+        // Initialize on server after network spawn
+    }
+
+    public override void OnNetworkSpawn()
+    {
+        base.OnNetworkSpawn();
+
+        if (IsServer)
+        {
+            currentHealth.Value = maxHealth;
+            isDead.Value = false;
+        }
+
+        // Subscribe to death state changes for all clients
+        isDead.OnValueChanged += OnDeathStateChanged;
+
+        Debug.Log($"[Health] {gameObject.name} spawned - Health: {currentHealth.Value}, IsServer: {IsServer}");
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        base.OnNetworkDespawn();
+        isDead.OnValueChanged -= OnDeathStateChanged;
+    }
+
+    private void OnDeathStateChanged(bool previousValue, bool newValue)
+    {
+        if (newValue && !previousValue)
+        {
+            // Death just occurred, handle it on all clients
+            Debug.Log($"[Health] {gameObject.name} death state changed on client");
+            HandleDeathOnClient();
+        }
     }
 
     public void TakeDamage(float damage)
     {
-        if (isDead) return;
+        // Only server can modify health
+        if (!IsServer)
+        {
+            Debug.LogWarning($"[Health] TakeDamage called on client - ignored");
+            return;
+        }
+
+        if (isDead.Value) return;
 
         damage = Mathf.Max(damage - defence, 0f);
-        currentHealth -= damage;
+        currentHealth.Value -= damage;
 
-        Debug.Log($"{gameObject.name} took {damage} damage. Remaining HP: {currentHealth}");
+        Debug.Log($"[Health] {gameObject.name} took {damage} damage. Remaining HP: {currentHealth.Value}");
 
-        if (currentHealth <= 0f)
+        if (currentHealth.Value <= 0f)
         {
             Die();
         }
@@ -32,19 +81,44 @@ public class Health : MonoBehaviour
 
     public float GetCurrentHealth()
     {
-        return currentHealth;
+        return currentHealth.Value;
+    }
+
+    public bool IsDead()
+    {
+        return isDead.Value;
     }
 
     private void Die()
     {
-        if (isDead) return;
-        isDead = true;
+        // Only server can trigger death
+        if (!IsServer) return;
+        if (isDead.Value) return;
 
-        Debug.Log($"{gameObject.name} died!");
+        isDead.Value = true;
 
-        // =============================
+        Debug.Log($"[Health] {gameObject.name} died on server!");
+
+        // The actual death handling will be done in OnDeathStateChanged
+        // which triggers on all clients including server
+    }
+
+    private void HandleDeathOnClient()
+    {
+        Debug.Log($"[Health] {gameObject.name} handling death on client");
+
+        // Check if this is a PLAYER (has PlayerHealthHandler)
+        PlayerHealthHandler playerHandler = GetComponent<PlayerHealthHandler>();
+        if (playerHandler != null)
+        {
+            // Let PlayerHealthHandler handle player death completely
+            Debug.Log("[Health] Player detected - delegating death handling to PlayerHealthHandler");
+            return;
+        }
+
+        // Below code only runs for AI/NPCs, NOT players
+
         // 1️⃣ Stop NavMeshAgent (if exists)
-        // =============================
         NavMeshAgent agent;
         if (TryGetComponent(out agent))
         {
@@ -52,43 +126,34 @@ public class Health : MonoBehaviour
             agent.enabled = false;
         }
 
-        // =============================
         // 2️⃣ Disable AILocomotion (if exists)
-        // =============================
         AILocomotion ai;
         if (TryGetComponent(out ai))
         {
             ai.enabled = false;
         }
 
-        // =============================
         // 3️⃣ Stop Rigidbody (if exists)
-        // =============================
         Rigidbody rb;
         if (TryGetComponent(out rb))
         {
-            rb.velocity = Vector3.zero;     // use velocity (safe for all versions)
+            rb.velocity = Vector3.zero;
             rb.angularVelocity = Vector3.zero;
             rb.isKinematic = true;
         }
 
-        // =============================
         // 4️⃣ Disable ALL Colliders (safe for AI & non-AI)
-        // =============================
         Collider[] colliders = GetComponentsInChildren<Collider>();
         foreach (Collider col in colliders)
         {
             col.enabled = false;
         }
 
-        // =============================
         // 5️⃣ Trigger death animation safely
-        // =============================
         Animator animator;
         if (TryGetComponent(out animator))
         {
             bool hasDieTrigger = false;
-
             foreach (var param in animator.parameters)
             {
                 if (param.type == AnimatorControllerParameterType.Trigger &&
@@ -105,10 +170,8 @@ public class Health : MonoBehaviour
             }
         }
 
-        // =============================
-        // 6️⃣ Optional destroy
-        // =============================
-        if (destroyAfterSeconds > 0f)
+        // 6️⃣ Optional destroy (only on server)
+        if (IsServer && destroyAfterSeconds > 0f)
         {
             Destroy(gameObject, destroyAfterSeconds);
         }
