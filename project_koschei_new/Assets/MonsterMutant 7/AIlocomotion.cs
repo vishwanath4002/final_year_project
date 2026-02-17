@@ -10,7 +10,7 @@ public class AILocomotion : MonoBehaviour
     [Header("Detection")]
     public float viewDistance = 15f;
     [Range(0, 180)] public float viewAngle = 90f;
-    public float proximityRange = 3f;
+    public float proximityRange = 15f;
     public LayerMask sightMask;
     public string playerTag = "Player";
 
@@ -22,15 +22,33 @@ public class AILocomotion : MonoBehaviour
 
     [Header("Combat")]
     public float attackCooldown = 2f;
-    public float attackDamage = 25f;
     public float attackDuration = 1.2f;
+
+    [Header("Damage")]
+    public float attackDamage = 25f;
+    [Range(0, 180)] public float attackAngle = 90f; // front cone angle
 
     [Header("Attack Facing")]
     public float attackTurnSpeed = 10f;
-    public float maxAttackAngle = 10f;
 
     [Header("Animation")]
     public string speedParam = "Speed";
+
+    [Header("Debug Gizmos")]
+    public bool showState = true;
+    public bool showViewDistance = true;
+    public bool showViewCone = true;
+    public bool showProximity = true;
+    public bool showAttackRange = true;
+    public bool showAttackCone = true;
+    public bool showForward = true;
+    public bool showCurrentTarget = true;
+    public bool showLastSeen = true;
+    public bool showHome = true;
+    public bool showNavDestination = true;
+    public bool showSearchArea = true;
+    public bool showAttackIndicator = true;
+
 
     NavMeshAgent agent;
     Animator animator;
@@ -42,12 +60,7 @@ public class AILocomotion : MonoBehaviour
     Transform currentTarget;
     float lastAttackTime;
     bool isAttacking;
-    bool hasDealtDamage;
-
-    Vector3 attackStartForward;
-
-    [Header("Debug")]
-    public bool debugDodge = true;
+    bool hasDealtDamageThisAttack;
 
     void Start()
     {
@@ -56,6 +69,9 @@ public class AILocomotion : MonoBehaviour
 
         homePosition = transform.position;
         state = AIState.Patrol;
+
+        agent.updateRotation = false;
+
     }
 
     void Update()
@@ -87,8 +103,45 @@ public class AILocomotion : MonoBehaviour
                 break;
         }
 
-        animator.SetFloat(speedParam, agent.velocity.magnitude);
+        HandlePhysicalMovement();
+        HandleRotation();
     }
+
+    // ===================== MOVEMENT CONTROL =====================
+    void HandlePhysicalMovement()
+    {
+        if (IsInLocomotionState())
+        {
+            agent.isStopped = false;
+            animator.SetFloat(speedParam, agent.velocity.magnitude);
+        }
+        else
+        {
+            agent.velocity = Vector3.zero;
+            agent.isStopped = true;
+            animator.SetFloat(speedParam, 0f);
+        }
+    }
+
+    bool IsInLocomotionState()
+    {
+        AnimatorStateInfo stateInfo = animator.GetCurrentAnimatorStateInfo(0);
+        return stateInfo.IsTag("Locomotion");
+    }
+
+    void HandleRotation()
+    {
+        if (agent.velocity.sqrMagnitude > 0.1f && !isAttacking)
+        {
+            Quaternion targetRot = Quaternion.LookRotation(agent.velocity.normalized);
+            transform.rotation = Quaternion.Slerp(
+                transform.rotation,
+                targetRot,
+                Time.deltaTime * 10f
+            );
+        }
+    }
+
 
     // ===================== DETECTION =====================
     Transform DetectPlayer()
@@ -100,24 +153,24 @@ public class AILocomotion : MonoBehaviour
             if (!col.CompareTag(playerTag))
                 continue;
 
-            Vector3 dir = col.transform.position - transform.position;
+            Vector3 origin = transform.position + Vector3.up * 1.6f; // eye height
+            Vector3 target = col.bounds.center;
+
+            Vector3 dir = target - origin;
             float distance = dir.magnitude;
 
-            if (distance <= proximityRange)
-                return col.transform;
-
             float angle = Vector3.Angle(transform.forward, dir);
+
             if (angle > viewAngle * 0.5f)
                 continue;
 
-            if (Physics.Raycast(transform.position + Vector3.up,
-                                dir.normalized,
-                                out RaycastHit hit,
-                                viewDistance,
-                                sightMask))
+            // Raycast ONLY to player distance
+            if (Physics.Raycast(origin, dir.normalized, out RaycastHit hit, distance))
             {
+                Debug.DrawLine(origin, hit.point, Color.green);
+
                 if (hit.collider.CompareTag(playerTag))
-                    return hit.transform;
+                    return col.transform;
             }
         }
 
@@ -147,7 +200,6 @@ public class AILocomotion : MonoBehaviour
         {
             if (!isAttacking)
             {
-                agent.isStopped = false;
                 agent.SetDestination(currentTarget.position);
             }
         }
@@ -162,14 +214,10 @@ public class AILocomotion : MonoBehaviour
     IEnumerator PerformAttack()
     {
         isAttacking = true;
-        hasDealtDamage = false;
+        hasDealtDamageThisAttack = false;
         lastAttackTime = Time.time;
 
-        agent.isStopped = true;
         agent.ResetPath();
-
-        // Store forward direction at attack start
-        attackStartForward = transform.forward;
 
         TriggerRandomAttack();
 
@@ -180,57 +228,47 @@ public class AILocomotion : MonoBehaviour
             timer += Time.deltaTime;
 
             if (currentTarget != null)
+            {
                 FaceTargetAttack(currentTarget.position);
 
-            TryDealDamage();
+                TryDealDamage();
+            }
 
             yield return null;
         }
 
-        agent.isStopped = false;
         isAttacking = false;
     }
 
     void TryDealDamage()
-{
-    if (hasDealtDamage) return;
-    if (currentTarget == null) return;
-
-    float dist = Vector3.Distance(transform.position, currentTarget.position);
-
-    if (dist > attackRange + 0.5f)
     {
-        if (debugDodge)
-            Debug.Log("Attack Missed: Player out of range");
-        return;
+        if (hasDealtDamageThisAttack) return;
+        if (currentTarget == null) return;
+
+        Vector3 toTarget = currentTarget.position - transform.position;
+        float distance = toTarget.magnitude;
+
+        if (distance > attackRange) return;
+
+        // Remove height difference
+        toTarget.y = 0f;
+
+        // Check angle
+        float angle = Vector3.Angle(transform.forward, toTarget);
+
+        if (angle > attackAngle * 0.5f) return;
+
+        Health health = currentTarget.GetComponent<Health>();
+
+        if (health != null)
+        {
+            health.TakeDamage(attackDamage);
+            hasDealtDamageThisAttack = true;
+
+            Debug.Log($"{name} dealt {attackDamage} damage to {currentTarget.name}");
+        }
     }
-
-    Vector3 dirToPlayer = (currentTarget.position - transform.position).normalized;
-    dirToPlayer.y = 0;
-
-    // Use CURRENT forward instead of attackStartForward
-    float angle = Vector3.Angle(transform.forward, dirToPlayer);
-
-    if (angle > maxAttackAngle)
-    {
-        if (debugDodge)
-            Debug.Log("DODGED (Outside Cone) | Angle: " + angle);
-        return;
-    }
-
-    Health h = currentTarget.GetComponent<Health>();
-    if (h != null)
-    {
-        if (debugDodge)
-            Debug.Log("HIT | Angle: " + angle);
-
-        h.TakeDamage(attackDamage);
-        hasDealtDamage = true;
-    }
-}
-
-
-
+    
     void FaceTargetAttack(Vector3 target)
     {
         Vector3 dir = (target - transform.position).normalized;
@@ -288,7 +326,7 @@ public class AILocomotion : MonoBehaviour
         if (agent.remainingDistance <= 0.5f)
         {
             searchTimer -= Time.deltaTime;
-            transform.Rotate(Vector3.up, 150f * Time.deltaTime);
+            transform.rotation *= Quaternion.Euler(0, 90f * Time.deltaTime, 0);
 
             if (searchTimer <= 0f)
             {
@@ -304,11 +342,143 @@ public class AILocomotion : MonoBehaviour
         searchTimer = 5f;
     }
 
-    // ===================== HELPERS =====================
     void SetRandomPatrolPoint()
     {
         Vector2 rand = Random.insideUnitCircle * patrolRadius;
         Vector3 target = homePosition + new Vector3(rand.x, 0, rand.y);
         agent.SetDestination(target);
     }
+
+    // ===================== GIZMOS =====================
+    void OnDrawGizmos()
+    {
+        Vector3 pos = transform.position;
+
+        // ===== STATE CORE =====
+        if (showState)
+        {
+            switch (state)
+            {
+                case AIState.Patrol: Gizmos.color = Color.green; break;
+                case AIState.Chase: Gizmos.color = Color.red; break;
+                case AIState.Search: Gizmos.color = Color.yellow; break;
+            }
+
+            Gizmos.DrawWireSphere(pos, 0.5f);
+        }
+
+        // ===== VIEW DISTANCE =====
+        if (showViewDistance)
+        {
+            Gizmos.color = Color.cyan;
+            Gizmos.DrawWireSphere(pos, viewDistance);
+        }
+
+        // ===== VIEW CONE =====
+        if (showViewCone)
+        {
+            DrawArc(pos, viewDistance, viewAngle, Color.cyan);
+        }
+
+        // ===== PROXIMITY =====
+        if (showProximity)
+        {
+            Gizmos.color = Color.magenta;
+            Gizmos.DrawWireSphere(pos, proximityRange);
+        }
+
+        // ===== ATTACK RANGE =====
+        if (showAttackRange)
+        {
+            Gizmos.color = Color.red;
+            Gizmos.DrawWireSphere(pos, attackRange);
+        }
+
+        // ===== ATTACK CONE =====
+        if (showAttackCone)
+        {
+            DrawArc(pos, attackRange, attackAngle, Color.red);
+        }
+
+        // ===== FORWARD =====
+        if (showForward)
+        {
+            Gizmos.color = Color.white;
+            Gizmos.DrawLine(pos, pos + transform.forward * 2f);
+        }
+
+        // ===== CURRENT TARGET =====
+        if (showCurrentTarget && currentTarget != null)
+        {
+            Gizmos.color = Color.white;
+            Gizmos.DrawLine(pos, currentTarget.position);
+            Gizmos.DrawSphere(currentTarget.position, 0.25f);
+        }
+
+        // ===== LAST SEEN =====
+        if (showLastSeen && lastSeenPlayerPos != Vector3.zero)
+        {
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawWireSphere(lastSeenPlayerPos, 0.3f);
+        }
+
+        // ===== HOME =====
+        if (showHome)
+        {
+            Gizmos.color = Color.blue;
+            Gizmos.DrawWireSphere(homePosition, 0.4f);
+        }
+
+        // ===== NAV DESTINATION =====
+        if (showNavDestination && agent != null && agent.hasPath)
+        {
+            Gizmos.color = Color.blue;
+            Gizmos.DrawLine(pos, agent.destination);
+            Gizmos.DrawSphere(agent.destination, 0.2f);
+        }
+
+        // ===== SEARCH AREA =====
+        if (showSearchArea && state == AIState.Search)
+        {
+            Gizmos.color = new Color(1f, 1f, 0f, 0.2f);
+            Gizmos.DrawWireSphere(pos, 1.5f);
+        }
+
+        // ===== ATTACK INDICATOR =====
+        if (showAttackIndicator && isAttacking)
+        {
+            Gizmos.color = new Color(1f, 0f, 0f, 0.3f);
+            Gizmos.DrawSphere(pos + transform.forward * (attackRange * 0.5f), 0.3f);
+        }
+    }
+
+    // ================= ARC DRAWER =================
+    void DrawArc(Vector3 center, float radius, float angle, Color color)
+    {
+        Gizmos.color = color;
+
+        int segments = 40;
+        float step = angle / segments;
+
+        Vector3 prevPoint = center +
+            Quaternion.Euler(0, -angle * 0.5f, 0) * transform.forward * radius;
+
+        for (int i = 1; i <= segments; i++)
+        {
+            float currentAngle = -angle * 0.5f + step * i;
+
+            Vector3 nextPoint = center +
+                Quaternion.Euler(0, currentAngle, 0) * transform.forward * radius;
+
+            Gizmos.DrawLine(prevPoint, nextPoint);
+            prevPoint = nextPoint;
+        }
+
+        Vector3 leftDir = Quaternion.Euler(0, -angle * 0.5f, 0) * transform.forward;
+        Vector3 rightDir = Quaternion.Euler(0, angle * 0.5f, 0) * transform.forward;
+
+        Gizmos.DrawLine(center, center + leftDir * radius);
+        Gizmos.DrawLine(center, center + rightDir * radius);
+    }
+
 }
