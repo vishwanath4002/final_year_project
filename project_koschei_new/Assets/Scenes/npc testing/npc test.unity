@@ -231,6 +231,7 @@ GameObject:
   - component: {fileID: 217536208}
   - component: {fileID: 217536207}
   - component: {fileID: 217536206}
+  - component: {fileID: 217536210}
   m_Layer: 5
   m_Name: npc chat canvas
   m_TagString: Untagged
@@ -321,6 +322,20 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0, y: 0}
+--- !u!114 &217536210
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 217536205}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 363520d9536675d4483f4308f25a2841, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  dialoguePanel: {fileID: 572119166}
+  dialogueText: {fileID: 513006456}
 --- !u!1 &513006454
 GameObject:
   m_ObjectHideFlags: 0
@@ -333,7 +348,7 @@ GameObject:
   - component: {fileID: 513006457}
   - component: {fileID: 513006456}
   m_Layer: 5
-  m_Name: NPCSpeech
+  m_Name: DialogueText
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -378,7 +393,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: New Text
+  m_text: 
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -405,15 +420,15 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 36
-  m_fontSizeBase: 36
+  m_fontSize: 20
+  m_fontSizeBase: 20
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
   m_fontSizeMax: 72
   m_fontStyle: 0
-  m_HorizontalAlignment: 1
-  m_VerticalAlignment: 256
+  m_HorizontalAlignment: 2
+  m_VerticalAlignment: 512
   m_textAlignment: 65535
   m_characterSpacing: 0
   m_wordSpacing: 0
@@ -467,12 +482,12 @@ GameObject:
   - component: {fileID: 572119169}
   - component: {fileID: 572119168}
   m_Layer: 5
-  m_Name: DialoguePanel
+  m_Name: NPCDialoguePanel
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &572119167
 RectTransform:
   m_ObjectHideFlags: 0
@@ -490,8 +505,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0}
   m_AnchorMax: {x: 0.5, y: 0}
-  m_AnchoredPosition: {x: 0, y: 50}
-  m_SizeDelta: {x: 1920, y: 1080}
+  m_AnchoredPosition: {x: 0, y: 200}
+  m_SizeDelta: {x: 1400, y: 200}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &572119168
 MonoBehaviour:
@@ -894,6 +909,29 @@ MeshCollider:
   m_Convex: 0
   m_CookingOptions: 30
   m_Mesh: {fileID: 0}
+--- !u!114 &2063239118
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2063239104}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a595aa9f65b6ad14eb59b0dfa92a2a74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  dialogueLines:
+  - 1986 meltdown hid Pripyat secret labs. Something escaped - intelligent, mimics
+    humans.
+  - Burn the infected mushrooms in the greenhouse. Use wood you scavenge to feed
+    the fire.
+  - Scavengers roam the zone. If they see you, they will not hesitate.
+  - Collect food cans from the abandoned homes and bring them to the church for the
+    survivors.
+  - And remember... one of your squad might not be who they look like.
+  animator: {fileID: 1231137523}
+  talkTrigger: talking
 --- !u!1001 &4217594009785924689
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -981,6 +1019,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 6733780691644045083, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       insertIndex: -1
       addedObject: {fileID: 2063239111}
+    - targetCorrespondingSourceObject: {fileID: 6733780691644045083, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 2063239118}
   m_SourcePrefab: {fileID: 100100000, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
