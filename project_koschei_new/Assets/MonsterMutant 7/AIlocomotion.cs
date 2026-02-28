@@ -312,38 +312,70 @@ public class AILocomotion : MonoBehaviour
     {
         if (hasDealtDamageThisAttack) return;
         if (currentTarget == null) return;
-        if (damageColliders == null || damageColliders.Length == 0) return;
 
-        foreach (Collider attackCol in damageColliders)
+        // ================= COLLIDER DAMAGE =================
+        if (damageColliders != null && damageColliders.Length > 0)
         {
-            if (attackCol == null || !attackCol.enabled)
-                continue;
-
-            Collider[] overlaps = Physics.OverlapBox(
-                attackCol.bounds.center,
-                attackCol.bounds.extents,
-                attackCol.transform.rotation
-            );
-
-            foreach (Collider hit in overlaps)
+            foreach (Collider attackCol in damageColliders)
             {
-                Transform root = hit.transform.root;
+                if (attackCol == null || !attackCol.enabled)
+                    continue;
 
-                if (root.CompareTag(playerTag))
+                Collider[] overlaps = Physics.OverlapBox(
+                    attackCol.bounds.center,
+                    attackCol.bounds.extents,
+                    attackCol.transform.rotation
+                );
+
+                foreach (Collider hit in overlaps)
                 {
-                    Health health = root.GetComponent<Health>();
-
-                    if (health != null)
-                    {
-                        health.TakeDamage(currentAttackDamage);
-                        hasDealtDamageThisAttack = true;
-
-                        Debug.Log($"{name} dealt {currentAttackDamage} damage to {root.name}");
+                    if (TryApplyDamage(hit.transform.root))
                         return;
-                    }
                 }
             }
         }
+
+        // ================= FORWARD AREA DAMAGE =================
+        if (useForwardDamageArea)
+        {
+            Vector3 center = transform.position + transform.forward * forwardDamageDistance * 0.5f;
+
+            Collider[] hits = Physics.OverlapSphere(center, forwardDamageRadius);
+
+            foreach (Collider hit in hits)
+            {
+                Transform root = hit.transform.root;
+
+                if (!root.CompareTag(playerTag))
+                    continue;
+
+                Vector3 dir = (root.position - transform.position).normalized;
+                float angle = Vector3.Angle(transform.forward, dir);
+
+                if (angle > forwardDamageAngle * 0.5f)
+                    continue;
+
+                if (TryApplyDamage(root))
+                    return;
+            }
+        }
+    }
+
+    bool TryApplyDamage(Transform root)
+    {
+        if (!root.CompareTag(playerTag))
+            return false;
+
+        Health health = root.GetComponent<Health>();
+
+        if (health == null)
+            return false;
+
+        health.TakeDamage(currentAttackDamage);
+        hasDealtDamageThisAttack = true;
+
+        Debug.Log($"{name} dealt {currentAttackDamage} damage to {root.name}");
+        return true;
     }
     
     void FaceTargetAttack(Vector3 target)
