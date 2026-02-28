@@ -419,6 +419,7 @@ GameObject:
   - component: {fileID: -4172530834877500892}
   - component: {fileID: 8584613353675355}
   - component: {fileID: -4513983875665858923}
+  - component: {fileID: 823976522528563874}
   m_Layer: 0
   m_Name: monster_scavenger_Skin_Gray
   m_TagString: Untagged
@@ -502,7 +503,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  GlobalObjectIdHash: 691558128
+  GlobalObjectIdHash: 2359796033
   InScenePlacedSourceGlobalObjectIdHash: 0
   AlwaysReplicateAsRoot: 0
   SynchronizeTransform: 1
@@ -539,6 +540,7 @@ MonoBehaviour:
   attack2Cooldown: 1.5
   attack1Duration: 2.1
   attack2Duration: 2.1
+  scientistTarget: {fileID: 0}
 --- !u!64 &-4172530834877500892
 MeshCollider:
   m_ObjectHideFlags: 0
@@ -606,6 +608,18 @@ MonoBehaviour:
   InLocalSpace: 0
   Interpolate: 1
   SlerpPosition: 0
+--- !u!114 &823976522528563874
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8070923430143094911}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 297774ad8bd017242b1a23c673d78a5f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1 &8197547816176235731
 GameObject:
   m_ObjectHideFlags: 0
