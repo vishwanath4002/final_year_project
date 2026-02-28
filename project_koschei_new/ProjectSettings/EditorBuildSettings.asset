@@ -6,15 +6,21 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/lobby stuff/LoginScene.unity
+    guid: bf59a7e06af18df46b6bec4170ba5384
+  - enabled: 1
+    path: Assets/lobby stuff/LobbyScene.unity
+    guid: b2c3cc76d4e34dc48afbf6c03563cafa
+  - enabled: 1
     path: Assets/Flooded_Grounds/Scenes/Scene_A.unity
     guid: c0d944ca9defd20449bc336e50d75a08
-  - enabled: 1
+  - enabled: 0
     path: Assets/Scenes/npc testing/npc test.unity
     guid: d55eff78b5de2a14984238c0d1862d68
-  - enabled: 1
+  - enabled: 0
     path: Assets/player testing/player testing scene.unity
     guid: eeb98d5e5adc6374da27f077f41060a4
-  - enabled: 1
+  - enabled: 0
     path: Assets/MonsterMutant 7/AI test.unity
     guid: ae41c4872dfdd5745aa7e92ecf3faaa3
   m_configObjects:
