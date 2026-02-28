@@ -6,6 +6,10 @@ public class Health : MonoBehaviour
     [SerializeField] private float maxHealth = 100f;
     [SerializeField] private float defence = 15f;
     [SerializeField] private float destroyAfterSeconds = 0f; // 0 = don't destroy
+    [Header("Debug")]
+    [SerializeField] private bool enableDebugDamage = false;
+    [SerializeField] private float debugDamageAmount = 25f;
+
 
     private float currentHealth;
     private bool isDead = false;
@@ -15,20 +19,55 @@ public class Health : MonoBehaviour
         currentHealth = maxHealth;
     }
 
+    private void Update()
+    {
+        if (!enableDebugDamage) return;
+
+        if (Input.GetKeyDown(KeyCode.D))
+        {
+            Debug.Log($"[DEBUG] Applying {debugDamageAmount} damage to {gameObject.name}");
+            TakeDamage(debugDamageAmount);
+        }
+    }
+
+
     public void TakeDamage(float damage)
     {
-        if (isDead) return;
+        if (isDead)
+        {
+            Debug.Log($"{gameObject.name} is already dead. No damage applied.");
+            return;
+        }
 
+        float originalDamage = damage;
+
+        // Apply defence
         damage = Mathf.Max(damage - defence, 0f);
-        currentHealth -= damage;
 
-        Debug.Log($"{gameObject.name} took {damage} damage. Remaining HP: {currentHealth}");
+        if (damage <= 0f)
+        {
+            Debug.Log($"{gameObject.name} blocked the attack! Incoming: {originalDamage}, Defence: {defence}");
+            return;
+        }
+
+        currentHealth -= damage;
+        currentHealth = Mathf.Max(currentHealth, 0f);
+
+        float healthPercent = (currentHealth / maxHealth) * 100f;
+
+        Debug.Log(
+            $"🩸 {gameObject.name} TOOK DAMAGE!\n" +
+            $"Incoming: {originalDamage}\n" +
+            $"After Defence: {damage}\n" +
+            $"HP: {currentHealth} / {maxHealth} ({healthPercent:F1}%)"
+        );
 
         if (currentHealth <= 0f)
         {
             Die();
         }
     }
+
 
     public float GetCurrentHealth()
     {

@@ -7,12 +7,29 @@ public class AILocomotion : MonoBehaviour
     enum AIState { Patrol, Chase, Search }
     [SerializeField] AIState state = AIState.Patrol;
 
+    [Header("Agent")]
+    NavMeshAgent agent;
+    public float agentAcceleration = 8f;
+    public float agentAngularSpeed = 720f;
+    public float agentStoppingDistance = 0.2f;
+
     [Header("Detection")]
     public float viewDistance = 15f;
     [Range(0, 180)] public float viewAngle = 90f;
     public float proximityRange = 15f;
     public LayerMask sightMask;
     public string playerTag = "Player";
+    public LayerMask targetMask;     // Player layer
+    public LayerMask obstacleMask;   // Walls / Environment
+
+
+    [Header("Search")]
+    bool seesPlayer;
+    Vector3 lastSeenPlayerPos;
+    Transform currentTarget;
+    Vector3 homePosition;
+    float searchTimer;
+    float currentSearchWaitTime;
 
     [Header("Movement")]
     public float patrolSpeed = 2f;
@@ -23,6 +40,9 @@ public class AILocomotion : MonoBehaviour
     [Header("Combat")]
     public float attackCooldown = 2f;
     public float attackDuration = 1.2f;
+    float lastAttackTime;
+    bool isAttacking;
+    bool hasDealtDamageThisAttack;
 
     [Header("Damage")]
     public float attackDamage = 25f;
@@ -33,6 +53,7 @@ public class AILocomotion : MonoBehaviour
 
     [Header("Animation")]
     public string speedParam = "Speed";
+    Animator animator;
 
     [Header("Debug Gizmos")]
     public bool showState = true;
@@ -49,19 +70,6 @@ public class AILocomotion : MonoBehaviour
     public bool showSearchArea = true;
     public bool showAttackIndicator = true;
 
-
-    NavMeshAgent agent;
-    Animator animator;
-
-    Vector3 homePosition;
-    Vector3 lastSeenPlayerPos;
-    float searchTimer;
-
-    Transform currentTarget;
-    float lastAttackTime;
-    bool isAttacking;
-    bool hasDealtDamageThisAttack;
-
     void Start()
     {
         agent = GetComponent<NavMeshAgent>();
@@ -69,59 +77,79 @@ public class AILocomotion : MonoBehaviour
 
         homePosition = transform.position;
         state = AIState.Patrol;
+        animator.speed = 1f; // ensures animation not slowed
 
         agent.updateRotation = false;
+        agent.acceleration = agentAcceleration;
+        agent.angularSpeed = agentAngularSpeed;
+        agent.stoppingDistance = agentStoppingDistance;
 
     }
+    
+    // ===================== BRAIN =====================
 
     void Update()
     {
         if (agent == null || animator == null)
+        {
             return;
+        }
 
         Transform detected = DetectPlayer();
+        seesPlayer = detected != null;
 
-        if (detected != null)
+        if (seesPlayer)
         {
             currentTarget = detected;
             lastSeenPlayerPos = detected.position;
             state = AIState.Chase;
         }
 
-        switch (state)
-        {
-            case AIState.Patrol:
-                UpdatePatrol();
-                break;
-
-            case AIState.Chase:
-                UpdateChase(detected != null);
-                break;
-
-            case AIState.Search:
-                UpdateSearch();
-                break;
-        }
+        UpdateState();
 
         HandlePhysicalMovement();
         HandleRotation();
     }
 
+    void UpdateState()
+    {
+        switch (state)
+        {
+            case AIState.Patrol:
+                agent.speed = patrolSpeed;
+                UpdatePatrol();
+                break;
+
+            case AIState.Chase:
+                agent.speed = chaseSpeed;
+                UpdateChase(seesPlayer);
+                break;
+
+            case AIState.Search:
+                agent.speed = patrolSpeed;
+                UpdateSearch();
+                break;
+        }
+    }
+
+
     // ===================== MOVEMENT CONTROL =====================
-    void HandlePhysicalMovement()
+   void HandlePhysicalMovement()
     {
         if (IsInLocomotionState())
         {
             agent.isStopped = false;
-            animator.SetFloat(speedParam, agent.velocity.magnitude);
+
+            float currentSpeed = agent.velocity.magnitude;
+            animator.SetFloat(speedParam, currentSpeed, 0.1f, Time.deltaTime);
         }
         else
         {
-            agent.velocity = Vector3.zero;
             agent.isStopped = true;
             animator.SetFloat(speedParam, 0f);
         }
     }
+
 
     bool IsInLocomotionState()
     {
@@ -146,31 +174,43 @@ public class AILocomotion : MonoBehaviour
     // ===================== DETECTION =====================
     Transform DetectPlayer()
     {
+        // Collider[] hits = Physics.OverlapSphere(transform.position, viewDistance, sightMask);
         Collider[] hits = Physics.OverlapSphere(transform.position, viewDistance);
+
 
         foreach (Collider col in hits)
         {
             if (!col.CompareTag(playerTag))
+            {
                 continue;
+            }
 
-            Vector3 origin = transform.position + Vector3.up * 1.6f; // eye height
+            Vector3 origin = transform.position + Vector3.up * 1.6f;
             Vector3 target = col.bounds.center;
 
             Vector3 dir = target - origin;
             float distance = dir.magnitude;
 
+            if (distance > viewDistance)
+            {
+                continue;
+            }
+
             float angle = Vector3.Angle(transform.forward, dir);
 
             if (angle > viewAngle * 0.5f)
-                continue;
-
-            // Raycast ONLY to player distance
-            if (Physics.Raycast(origin, dir.normalized, out RaycastHit hit, distance))
             {
-                Debug.DrawLine(origin, hit.point, Color.green);
-
+                continue;
+            }
+            
+            if (Physics.Raycast(origin, dir.normalized, out RaycastHit hit, viewDistance))
+            // if (Physics.Raycast(origin, dir.normalized, out RaycastHit hit, viewDistance, sightMask))
+            {
                 if (hit.collider.CompareTag(playerTag))
+                {
+                    Debug.DrawLine(origin, hit.point, Color.green);
                     return col.transform;
+                }
             }
         }
 
@@ -218,6 +258,7 @@ public class AILocomotion : MonoBehaviour
         lastAttackTime = Time.time;
 
         agent.ResetPath();
+        agent.isStopped = true;
 
         TriggerRandomAttack();
 
@@ -230,15 +271,16 @@ public class AILocomotion : MonoBehaviour
             if (currentTarget != null)
             {
                 FaceTargetAttack(currentTarget.position);
-
                 TryDealDamage();
             }
 
             yield return null;
         }
 
+        agent.isStopped = false;
         isAttacking = false;
     }
+
 
     void TryDealDamage()
     {
@@ -321,25 +363,56 @@ public class AILocomotion : MonoBehaviour
     // ===================== SEARCH =====================
     void UpdateSearch()
     {
-        agent.SetDestination(lastSeenPlayerPos);
+        agent.speed = patrolSpeed;
 
-        if (agent.remainingDistance <= 0.5f)
+        if (searchPointsVisited >= maxSearchPoints)
         {
-            searchTimer -= Time.deltaTime;
-            transform.rotation *= Quaternion.Euler(0, 90f * Time.deltaTime, 0);
+            currentTarget = null;
+            state = AIState.Patrol;
+            return;
+        }
 
-            if (searchTimer <= 0f)
+        if (!movingToSearchPoint)
+        {
+            Vector2 randomCircle = Random.insideUnitCircle * 4f;
+            Vector3 nextPoint = searchCenter + new Vector3(randomCircle.x, 0, randomCircle.y);
+
+            agent.SetDestination(nextPoint);
+            movingToSearchPoint = true;
+        }
+
+        if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance + 0.2f)
+        {
+            waitTimer += Time.deltaTime;
+            transform.Rotate(0, Time.deltaTime * 40f, 0);
+
+
+            // Stand still briefly like "listening"
+            if (waitTimer >= currentSearchWaitTime)
             {
-                currentTarget = null;
-                state = AIState.Patrol;
+                searchPointsVisited++;
+                movingToSearchPoint = false;
+                waitTimer = 0f;
             }
         }
     }
 
+
+    Vector3 searchCenter;
+    int searchPointsVisited;
+    int maxSearchPoints = 5;
+    bool movingToSearchPoint;
+    float waitTimer;
+
     void EnterSearch()
     {
         state = AIState.Search;
-        searchTimer = 5f;
+
+        searchCenter = lastSeenPlayerPos;
+        searchPointsVisited = 0;
+        movingToSearchPoint = false;
+        waitTimer = 0f;
+        currentSearchWaitTime = Random.Range(0.8f, 1.5f);
     }
 
     void SetRandomPatrolPoint()
@@ -348,6 +421,15 @@ public class AILocomotion : MonoBehaviour
         Vector3 target = homePosition + new Vector3(rand.x, 0, rand.y);
         agent.SetDestination(target);
     }
+
+    //===================== ANIMATION ====================
+
+    // void UpdateAnimation()
+    // {   
+    //     float speedPercent = agent.velocity.magnitude / agent.speed;
+    //     animator.SetFloat("Speed", speedPercent * agent.speed, 0.1f, Time.deltaTime);
+    // }
+
 
     // ===================== GIZMOS =====================
     void OnDrawGizmos()
