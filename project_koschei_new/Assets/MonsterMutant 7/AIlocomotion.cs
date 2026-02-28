@@ -87,19 +87,32 @@ public class AILocomotion : MonoBehaviour
     Animator animator;
 
     [Header("Debug Gizmos")]
+
+    // Core State
     public bool showState = true;
+
+    // Detection
+    public bool showDetectionOrigin = true;   // eye position
     public bool showViewDistance = true;
     public bool showViewCone = true;
     public bool showProximity = true;
+
+    // Combat
     public bool showAttackRange = true;
     public bool showAttackCone = true;
     public bool showForward = true;
+    public bool showForwardDamageArea = true; // new
+    public bool showDamageColliders = true;   // new
+    public bool showAttackIndicator = true;
+
+    // Targets & Memory
     public bool showCurrentTarget = true;
     public bool showLastSeen = true;
+
+    // Navigation
     public bool showHome = true;
     public bool showNavDestination = true;
-    public bool showSearchArea = true;
-    public bool showAttackIndicator = true;
+    public bool showSearchCenter = true;  // renamed from showSearchArea
 
     void Start()
     {
@@ -544,11 +557,11 @@ public class AILocomotion : MonoBehaviour
     //     animator.SetFloat("Speed", speedPercent * agent.speed, 0.1f, Time.deltaTime);
     // }
 
-
     // ===================== GIZMOS =====================
     void OnDrawGizmos()
     {
         Vector3 pos = transform.position;
+        Vector3 eyePos = pos + Vector3.up * 1.6f;
 
         // ===== STATE CORE =====
         if (showState)
@@ -563,17 +576,21 @@ public class AILocomotion : MonoBehaviour
             Gizmos.DrawWireSphere(pos, 0.5f);
         }
 
+        // ===== DETECTION ORIGIN (EYE) =====
+        Gizmos.color = Color.white;
+        Gizmos.DrawSphere(eyePos, 0.1f);
+
         // ===== VIEW DISTANCE =====
         if (showViewDistance)
         {
             Gizmos.color = Color.cyan;
-            Gizmos.DrawWireSphere(pos, viewDistance);
+            Gizmos.DrawWireSphere(eyePos, viewDistance);
         }
 
         // ===== VIEW CONE =====
         if (showViewCone)
         {
-            DrawArc(pos, viewDistance, viewAngle, Color.cyan);
+            DrawArc(eyePos, viewDistance, viewAngle, Color.cyan);
         }
 
         // ===== PROXIMITY =====
@@ -596,12 +613,55 @@ public class AILocomotion : MonoBehaviour
             DrawArc(pos, attackRange, attackAngle, Color.red);
         }
 
-        // ===== FORWARD =====
+        // ===== FORWARD DIRECTION =====
         if (showForward)
         {
             Gizmos.color = Color.white;
             Gizmos.DrawLine(pos, pos + transform.forward * 2f);
         }
+
+        // ===== FORWARD DAMAGE AREA =====
+        if (useForwardDamageArea)
+        {
+            Vector3 forwardCenter =
+                pos + transform.forward * forwardDamageDistance * 0.5f;
+
+            Gizmos.color = new Color(1f, 0.5f, 0f, 0.6f);
+            Gizmos.DrawWireSphere(forwardCenter, forwardDamageRadius);
+
+            DrawArc(pos, forwardDamageDistance, forwardDamageAngle,
+                new Color(1f, 0.5f, 0f, 0.6f));
+        }
+
+        // ===== DAMAGE COLLIDERS (OVERLAP BOXES) =====
+        if (showDamageColliders && damageColliders != null)
+        {
+            foreach (Collider col in damageColliders)
+            {
+                if (col == null) continue;
+
+                BoxCollider box = col as BoxCollider;
+                if (box == null) continue;
+
+                Gizmos.color = new Color(1f, 0f, 0f, 0.6f);
+
+                Matrix4x4 matrix = Matrix4x4.TRS(
+                    box.transform.position,
+                    box.transform.rotation,
+                    box.transform.lossyScale
+                );
+
+                Gizmos.matrix = matrix;
+
+                Gizmos.DrawWireCube(
+                    box.center,
+                    box.size
+                );
+
+                Gizmos.matrix = Matrix4x4.identity;
+            }
+        }
+
 
         // ===== CURRENT TARGET =====
         if (showCurrentTarget && currentTarget != null)
@@ -611,14 +671,22 @@ public class AILocomotion : MonoBehaviour
             Gizmos.DrawSphere(currentTarget.position, 0.25f);
         }
 
-        // ===== LAST SEEN =====
+        // ===== LAST SEEN POSITION =====
         if (showLastSeen && lastSeenPlayerPos != Vector3.zero)
         {
             Gizmos.color = Color.yellow;
             Gizmos.DrawWireSphere(lastSeenPlayerPos, 0.3f);
         }
 
-        // ===== HOME =====
+        // ===== SEARCH CENTER =====
+        if (showSearchCenter && state == AIState.Search)
+        {
+            Gizmos.color = new Color(1f, 1f, 0f, 0.5f);
+            Gizmos.DrawWireSphere(searchCenter, 4f);
+        }
+
+
+        // ===== HOME POSITION =====
         if (showHome)
         {
             Gizmos.color = Color.blue;
@@ -633,20 +701,17 @@ public class AILocomotion : MonoBehaviour
             Gizmos.DrawSphere(agent.destination, 0.2f);
         }
 
-        // ===== SEARCH AREA =====
-        if (showSearchArea && state == AIState.Search)
-        {
-            Gizmos.color = new Color(1f, 1f, 0f, 0.2f);
-            Gizmos.DrawWireSphere(pos, 1.5f);
-        }
-
         // ===== ATTACK INDICATOR =====
         if (showAttackIndicator && isAttacking)
         {
             Gizmos.color = new Color(1f, 0f, 0f, 0.3f);
-            Gizmos.DrawSphere(pos + transform.forward * (attackRange * 0.5f), 0.3f);
+            Gizmos.DrawSphere(
+                pos + transform.forward * (attackRange * 0.5f),
+                0.3f
+            );
         }
     }
+
 
     // ================= ARC DRAWER =================
     void DrawArc(Vector3 center, float radius, float angle, Color color)
