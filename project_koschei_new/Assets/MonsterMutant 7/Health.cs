@@ -8,6 +8,13 @@ public class Health : NetworkBehaviour
     [SerializeField] private float defence = 15f;
     [SerializeField] private float destroyAfterSeconds = 0f; // 0 = don't destroy
 
+    [Header("Debug")]
+    [SerializeField] private bool enableDebugDamage = false;
+    [SerializeField] private float debugDamageAmount = 25f;
+    [SerializeField] private KeyCode debugDamageKey = KeyCode.K;
+
+
+
     private NetworkVariable<float> currentHealth = new NetworkVariable<float>(
         100f,
         NetworkVariableReadPermission.Everyone,
@@ -24,6 +31,19 @@ public class Health : NetworkBehaviour
     {
         // Initialize on server after network spawn
     }
+
+    private void Update()
+    {
+        if (!enableDebugDamage) return;
+
+        if (Input.GetKeyDown(debugDamageKey))
+        {
+            Debug.Log($"[DEBUG] Applying {debugDamageAmount} damage to {gameObject.name}");
+            TakeDamage(debugDamageAmount);
+        }
+    }
+
+
 
     public override void OnNetworkSpawn()
     {
