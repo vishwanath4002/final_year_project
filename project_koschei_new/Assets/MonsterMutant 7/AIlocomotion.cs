@@ -44,9 +44,40 @@ public class AILocomotion : MonoBehaviour
     bool isAttacking;
     bool hasDealtDamageThisAttack;
 
-    [Header("Damage")]
-    public float attackDamage = 25f;
+    [Header("Attack Hitboxes")]
+    [SerializeField] private Collider[] damageColliders;
     [Range(0, 180)] public float attackAngle = 90f; // front cone angle
+
+    [Header("Damage Values")]
+
+    // Light
+    public float attack1Damage = 10f;
+    public float attack1LSpikeDamage = 12f;
+    public float attack1RSpikeDamage = 12f;
+
+    // Combo
+    public float attack2HitDamage = 8f;
+    public float attack2SpikeDamage = 12f;
+
+    // Heavy
+    public float attack3Damage = 22f;
+    public float attack3RSpikeDamage = 28f;
+
+    // Special
+    public float attack4Damage = 35f;
+    public float attack4RSpikeDamage = 45f;
+
+    // Ultimate
+    public float attack5Damage = 60f;
+    public float attack5LSpikeDamage = 75f;
+
+    float currentAttackDamage;
+
+    [Header("Forward Damage Area")]
+    public bool useForwardDamageArea = true;
+    public float forwardDamageDistance = 2f;
+    public float forwardDamageRadius = 1.2f;
+    public float forwardDamageAngle = 90f;
 
     [Header("Attack Facing")]
     public float attackTurnSpeed = 10f;
@@ -174,42 +205,37 @@ public class AILocomotion : MonoBehaviour
     // ===================== DETECTION =====================
     Transform DetectPlayer()
     {
-        // Collider[] hits = Physics.OverlapSphere(transform.position, viewDistance, sightMask);
-        Collider[] hits = Physics.OverlapSphere(transform.position, viewDistance);
+        Vector3 origin = transform.position + Vector3.up * 1.6f;
 
+        Collider[] hits = Physics.OverlapSphere(origin, viewDistance);
 
         foreach (Collider col in hits)
         {
-            if (!col.CompareTag(playerTag))
-            {
+            Transform root = col.transform.root;
+
+            if (!root.CompareTag(playerTag))
                 continue;
-            }
 
-            Vector3 origin = transform.position + Vector3.up * 1.6f;
             Vector3 target = col.bounds.center;
-
             Vector3 dir = target - origin;
             float distance = dir.magnitude;
 
-            if (distance > viewDistance)
-            {
-                continue;
-            }
-
             float angle = Vector3.Angle(transform.forward, dir);
-
             if (angle > viewAngle * 0.5f)
-            {
                 continue;
-            }
-            
-            if (Physics.Raycast(origin, dir.normalized, out RaycastHit hit, viewDistance))
-            // if (Physics.Raycast(origin, dir.normalized, out RaycastHit hit, viewDistance, sightMask))
+
+            // Raycast against EVERYTHING
+            if (Physics.Raycast(origin, dir.normalized, out RaycastHit hit, distance))
             {
-                if (hit.collider.CompareTag(playerTag))
+                // Only detect if first thing hit is player (or its child)
+                if (hit.transform.root.CompareTag(playerTag))
                 {
                     Debug.DrawLine(origin, hit.point, Color.green);
-                    return col.transform;
+                    return root;
+                }
+                else
+                {
+                    Debug.DrawLine(origin, hit.point, Color.red);
                 }
             }
         }
@@ -286,28 +312,37 @@ public class AILocomotion : MonoBehaviour
     {
         if (hasDealtDamageThisAttack) return;
         if (currentTarget == null) return;
+        if (damageColliders == null || damageColliders.Length == 0) return;
 
-        Vector3 toTarget = currentTarget.position - transform.position;
-        float distance = toTarget.magnitude;
-
-        if (distance > attackRange) return;
-
-        // Remove height difference
-        toTarget.y = 0f;
-
-        // Check angle
-        float angle = Vector3.Angle(transform.forward, toTarget);
-
-        if (angle > attackAngle * 0.5f) return;
-
-        Health health = currentTarget.GetComponent<Health>();
-
-        if (health != null)
+        foreach (Collider attackCol in damageColliders)
         {
-            health.TakeDamage(attackDamage);
-            hasDealtDamageThisAttack = true;
+            if (attackCol == null || !attackCol.enabled)
+                continue;
 
-            Debug.Log($"{name} dealt {attackDamage} damage to {currentTarget.name}");
+            Collider[] overlaps = Physics.OverlapBox(
+                attackCol.bounds.center,
+                attackCol.bounds.extents,
+                attackCol.transform.rotation
+            );
+
+            foreach (Collider hit in overlaps)
+            {
+                Transform root = hit.transform.root;
+
+                if (root.CompareTag(playerTag))
+                {
+                    Health health = root.GetComponent<Health>();
+
+                    if (health != null)
+                    {
+                        health.TakeDamage(currentAttackDamage);
+                        hasDealtDamageThisAttack = true;
+
+                        Debug.Log($"{name} dealt {currentAttackDamage} damage to {root.name}");
+                        return;
+                    }
+                }
+            }
         }
     }
     
@@ -333,18 +368,65 @@ public class AILocomotion : MonoBehaviour
 
         switch (attackIndex)
         {
-            case 1: animator.SetTrigger("Attack1"); break;
-            case 2: animator.SetTrigger("Attack1LSpike"); break;
-            case 3: animator.SetTrigger("Attack1RSpike"); break;
-            case 4: animator.SetTrigger("Attack2"); break;
-            case 5: animator.SetTrigger("Attack2LSpike"); break;
-            case 6: animator.SetTrigger("Attack2RLSpike"); break;
-            case 7: animator.SetTrigger("Attack3"); break;
-            case 8: animator.SetTrigger("Attack3RSpike"); break;
-            case 9: animator.SetTrigger("Attack4"); break;
-            case 10: animator.SetTrigger("Attack4RSpike"); break;
-            case 11: animator.SetTrigger("Attack5"); break;
-            case 12: animator.SetTrigger("Attack5LSpike"); break;
+            case 1:
+                animator.SetTrigger("Attack1");
+                currentAttackDamage = attack1Damage;
+                break;
+
+            case 2:
+                animator.SetTrigger("Attack1LSpike");
+                currentAttackDamage = attack1LSpikeDamage;
+                break;
+
+            case 3:
+                animator.SetTrigger("Attack1RSpike");
+                currentAttackDamage = attack1RSpikeDamage;
+                break;
+
+            case 4:
+                animator.SetTrigger("Attack2");
+                currentAttackDamage = attack2HitDamage * 2f; // 8 + 8
+                break;
+
+            case 5:
+                animator.SetTrigger("Attack2LSpike");
+                currentAttackDamage = attack2HitDamage + attack2SpikeDamage; // 8 + 12
+                break;
+
+            case 6:
+                animator.SetTrigger("Attack2RLSpike");
+                currentAttackDamage = attack2SpikeDamage * 2f; // 12 + 12
+                break;
+
+            case 7:
+                animator.SetTrigger("Attack3");
+                currentAttackDamage = attack3Damage;
+                break;
+
+            case 8:
+                animator.SetTrigger("Attack3RSpike");
+                currentAttackDamage = attack3RSpikeDamage;
+                break;
+
+            case 9:
+                animator.SetTrigger("Attack4");
+                currentAttackDamage = attack4Damage;
+                break;
+
+            case 10:
+                animator.SetTrigger("Attack4RSpike");
+                currentAttackDamage = attack4RSpikeDamage;
+                break;
+
+            case 11:
+                animator.SetTrigger("Attack5");
+                currentAttackDamage = attack5Damage;
+                break;
+
+            case 12:
+                animator.SetTrigger("Attack5LSpike");
+                currentAttackDamage = attack5LSpikeDamage;
+                break;
         }
     }
 

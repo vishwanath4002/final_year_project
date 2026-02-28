@@ -1997,9 +1997,9 @@ GameObject:
   - component: {fileID: 4343494672101714150}
   - component: {fileID: 4343494672101714154}
   - component: {fileID: 4343494672101714152}
+  - component: {fileID: 4343494672101714160}
   - component: {fileID: 4343494672101714156}
   - component: {fileID: 4343494672101714158}
-  - component: {fileID: 4343494672101714160}
   m_Layer: 0
   m_Name: Base mesh MonsterMutant7 skin2
   m_TagString: Untagged
@@ -5149,8 +5149,25 @@ MonoBehaviour:
   attackRange: 2
   attackCooldown: 2
   attackDuration: 1.2
-  attackDamage: 25
+  damageColliders:
+  - {fileID: 4343494672101714202}
+  - {fileID: 4343494672101714398}
+  - {fileID: 4343494672101714332}
+  - {fileID: 4343494672101714314}
+  - {fileID: 4343494672101714368}
+  - {fileID: 4343494672101714350}
   attackAngle: 90
+  attack1Damage: 10
+  attack1LSpikeDamage: 12
+  attack1RSpikeDamage: 12
+  attack2HitDamage: 8
+  attack2SpikeDamage: 12
+  attack3Damage: 22
+  attack3RSpikeDamage: 28
+  attack4Damage: 35
+  attack4RSpikeDamage: 45
+  attack5Damage: 60
+  attack5LSpikeDamage: 75
   attackTurnSpeed: 10
   speedParam: Speed
   showState: 1
@@ -5330,8 +5347,9 @@ MonoBehaviour:
   maxHealth: 100
   defence: 15
   destroyAfterSeconds: 0
-  enableDebugDamage: 0
+  enableDebugDamage: 1
   debugDamageAmount: 25
+  debugDamageKey: 112
 --- !u!4 &4343494672101714157
 Transform:
   m_ObjectHideFlags: 0

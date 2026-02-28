@@ -2267,8 +2267,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   maxHealth: 100
-  defence: 15
+  defence: 5
   destroyAfterSeconds: 0
+  enableDebugDamage: 0
+  debugDamageAmount: 25
+  debugDamageKey: 107
 --- !u!114 &3342576043406728476
 MonoBehaviour:
   m_ObjectHideFlags: 0
