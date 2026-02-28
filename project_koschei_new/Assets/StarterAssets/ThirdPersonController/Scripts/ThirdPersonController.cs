@@ -115,6 +115,8 @@ namespace StarterAssets
 
         private bool _hasAnimator;
 
+        private ScientistNPCDialogue _nearbyNPC;
+
         private bool IsCurrentDeviceMouse
         {
             get
@@ -197,6 +199,9 @@ namespace StarterAssets
             JumpAndGravity();
             GroundedCheck();
             Move();
+
+            if (Input.GetKeyDown(KeyCode.E) && _nearbyNPC != null)
+                RequestNPCInteractServerRpc();
         }
 
         private void LateUpdate()
@@ -391,6 +396,31 @@ namespace StarterAssets
             {
                 _verticalVelocity += Gravity * Time.deltaTime;
             }
+        }
+
+        private void OnTriggerEnter(Collider other)
+        {
+            if (!IsOwner) return;
+            if (other.TryGetComponent<ScientistNPCDialogue>(out var npc))
+                _nearbyNPC = npc;
+        }
+
+        private void OnTriggerExit(Collider other)
+        {
+            if (!IsOwner) return;
+            if (other.TryGetComponent<ScientistNPCDialogue>(out var npc) && npc == _nearbyNPC)
+            {
+                _nearbyNPC = null;
+                if (NPCDialogueUI.Instance != null)
+                    NPCDialogueUI.Instance.HideDialogue();
+            }
+        }
+
+        [ServerRpc]
+        private void RequestNPCInteractServerRpc()
+        {
+            if (_nearbyNPC != null)
+                _nearbyNPC.RequestInteract(OwnerClientId);
         }
 
         private static float ClampAngle(float lfAngle, float lfMin, float lfMax)
