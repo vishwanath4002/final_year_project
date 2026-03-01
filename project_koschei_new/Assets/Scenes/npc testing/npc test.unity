@@ -336,6 +336,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   dialoguePanel: {fileID: 572119166}
   dialogueText: {fileID: 513006456}
+  hintPanel: {fileID: 0}
+  hintText: {fileID: 0}
 --- !u!1 &513006454
 GameObject:
   m_ObjectHideFlags: 0
@@ -546,37 +548,6 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 572119166}
   m_CullTransparentMesh: 1
---- !u!1 &894756370
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 894756371}
-  m_Layer: 0
-  m_Name: area
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &894756371
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 894756370}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -4.87, y: 0, z: -5.54}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1034847456
 GameObject:
   m_ObjectHideFlags: 0
@@ -909,7 +880,7 @@ MeshCollider:
   m_Convex: 0
   m_CookingOptions: 30
   m_Mesh: {fileID: 0}
---- !u!114 &2063239118
+--- !u!114 &2063239125
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -921,17 +892,24 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a595aa9f65b6ad14eb59b0dfa92a2a74, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  dialogueLines:
-  - 1986 meltdown hid Pripyat secret labs. Something escaped - intelligent, mimics
-    humans.
-  - Burn the infected mushrooms in the greenhouse. Use wood you scavenge to feed
-    the fire.
-  - Scavengers roam the zone. If they see you, they will not hesitate.
-  - Collect food cans from the abandoned homes and bring them to the church for the
-    survivors.
-  - And remember... one of your squad might not be who they look like.
+  stages:
+  - stageName: Introduction
+    lines:
+    - So. They actually sent someone. I was not holding my breath.
+    - I am what remains of the advance team. We entered three days ago. There were
+      four of us. Now there is me.
+    - This place -- Koschei Station. Soviet research post. Abandoned. Flooded. Whatever
+      happened here, it is not finished happening. You understand?
+    - Your objective is not complicated. Find the researchers still alive in this
+      zone. Stay with your group. Do not wander. This place does not forgive stupidity.
+    - There is a woman waiting for you ahead. She has been in this zone longer than
+      any of us. She knows the layout, the dangers, all of it. She will brief you
+      properly.
+    - Go. And try not to die before you even reach her.
+    secondsPerLine: 5
   animator: {fileID: 1231137523}
-  talkTrigger: talking
+  talkingBool: talking
+  speedFloat: speed
 --- !u!1001 &4217594009785924689
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -951,7 +929,7 @@ PrefabInstance:
     - target: {fileID: 400911283755929277, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       propertyPath: wanderCenter
       value: 
-      objectReference: {fileID: 894756371}
+      objectReference: {fileID: 0}
     - target: {fileID: 596278783192970733, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       propertyPath: GlobalObjectIdHash
       value: 2038856249
@@ -1021,7 +999,7 @@ PrefabInstance:
       addedObject: {fileID: 2063239111}
     - targetCorrespondingSourceObject: {fileID: 6733780691644045083, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       insertIndex: -1
-      addedObject: {fileID: 2063239118}
+      addedObject: {fileID: 2063239125}
   m_SourcePrefab: {fileID: 100100000, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
@@ -1029,7 +1007,6 @@ SceneRoots:
   m_Roots:
   - {fileID: 1034847458}
   - {fileID: 1043058793}
-  - {fileID: 894756371}
   - {fileID: 4217594009785924689}
   - {fileID: 102288462}
   - {fileID: 217536209}

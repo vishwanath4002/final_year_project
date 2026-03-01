@@ -1,108 +1,229 @@
+using System.Collections;
 using UnityEngine;
 using Unity.Netcode;
 
 public class ScientistNPCDialogue : NetworkBehaviour
 {
-    [Header("Dialogue Lines")]
-    [SerializeField, TextArea]
-    private string[] dialogueLines = new string[]
+    [System.Serializable]
+    public class DialogueStage
     {
-        "So. They actually sent someone. I was not holding my breath.",
-        "I am what remains of the advance team. We entered three days ago. There were four of us. Now there is me.",
-        "This place — Koschei Station. Soviet research post. Abandoned. Flooded. Whatever happened here, it is not finished happening. You understand?",
-        "Your objective is not complicated. Find the researchers still alive in this zone. Stay with your group. Do not wander. This place does not forgive stupidity.",
-        "There is a woman waiting for you ahead. She has been in this zone longer than any of us. She knows the layout, the dangers, all of it. She will brief you properly.",
-        "Go. And try not to die before you even reach her."
+        public string stageName = "Stage";
+        [TextArea(2, 5)]
+        public string[] lines = new string[] { "Hello." };
+        [Tooltip("Seconds each line stays on screen before auto-advancing.")]
+        public float secondsPerLine = 4f;
+    }
+
+    [Header("Dialogue Stages")]
+    [SerializeField]
+    private DialogueStage[] stages = new DialogueStage[]
+    {
+        new DialogueStage
+        {
+            stageName      = "Introduction",
+            secondsPerLine = 5f,
+            lines = new string[]
+            {
+                "So. They actually sent someone. I was not holding my breath.",
+                "I am what remains of the advance team. We entered three days ago. There were four of us. Now there is me.",
+                "This place -- Koschei Station. Soviet research post. Abandoned. Flooded. Whatever happened here, it is not finished happening. You understand?",
+                "Your objective is not complicated. Find the researchers still alive in this zone. Stay with your group. Do not wander. This place does not forgive stupidity.",
+                "There is a woman waiting for you ahead. She has been in this zone longer than any of us. She knows the layout, the dangers, all of it. She will brief you properly.",
+                "Go. And try not to die before you even reach her."
+            }
+        }
     };
 
     [Header("Animation")]
     [SerializeField] private Animator animator;
-    [SerializeField] private string talkTrigger = "Talk";
+    [Tooltip("Must match the Bool parameter name in the Animator exactly.")]
+    [SerializeField] private string talkingBool = "Talking";
+    [SerializeField] private string speedFloat = "Speed";
 
-    // Synced over network so all clients know current state
-    private NetworkVariable<ulong> _interactorClientId = new NetworkVariable<ulong>(ulong.MaxValue);
-    private NetworkVariable<int> _currentLineIndex = new NetworkVariable<int>(0);
-    private NetworkVariable<bool> _isTalking = new NetworkVariable<bool>(false);
+    // -------------------------------------------------------------------------
+    // NetworkVariables -- automatically synced to every client
+    // -------------------------------------------------------------------------
+    private NetworkVariable<bool> _isTalking = new NetworkVariable<bool>(false,
+        NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    private NetworkVariable<int> _currentStage = new NetworkVariable<int>(0,
+        NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    private NetworkVariable<int> _currentLine = new NetworkVariable<int>(0,
+        NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    // Syncs NPC walk speed to all clients so the walking animation plays correctly
+    private NetworkVariable<float> _syncSpeed = new NetworkVariable<float>(0f,
+        NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    private Coroutine _dialogueCoroutine;
+
+    // -------------------------------------------------------------------------
+    public override void OnNetworkSpawn()
+    {
+        base.OnNetworkSpawn();
+
+        if (animator == null)
+            animator = GetComponentInChildren<Animator>();
+
+        // Talking animation -- driven by NetworkVariable so it syncs on all clients
+        _isTalking.OnValueChanged += (_, nowTalking) =>
+        {
+            if (animator != null)
+                animator.SetBool(talkingBool, nowTalking);
+        };
+
+        // Walking speed -- driven by NetworkVariable so clients animate correctly
+        _syncSpeed.OnValueChanged += (_, speed) =>
+        {
+            if (animator != null)
+                animator.SetFloat(speedFloat, speed);
+        };
+
+        // Apply current values immediately for late-joining clients
+        if (animator != null)
+        {
+            animator.SetBool(talkingBool, _isTalking.Value);
+            animator.SetFloat(speedFloat, _syncSpeed.Value);
+        }
+    }
+
+    // Called by ScientistNPCController on the server every frame
+    public void ServerUpdateSpeed(float speed)
+    {
+        if (!IsServer) return;
+        _syncSpeed.Value = speed;
+    }
+
+    // -------------------------------------------------------------------------
+    // Interact
+    // -------------------------------------------------------------------------
+    public void RequestInteractFromController(ulong clientId)
+    {
+        if (IsServer)
+            RequestInteract(clientId);
+        else
+            RequestInteractServerRpc(clientId);
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    private void RequestInteractServerRpc(ulong clientId) { RequestInteract(clientId); }
 
     public void RequestInteract(ulong clientId)
     {
         if (!IsServer) return;
+        if (_isTalking.Value) return;
 
-        Debug.Log($"[NPC] RequestInteract from client {clientId}, isTalking={_isTalking.Value}");
+        if (_dialogueCoroutine != null)
+            StopCoroutine(_dialogueCoroutine);
 
-        if (!_isTalking.Value)
-            StartDialogueServer(clientId);
-        else if (clientId == _interactorClientId.Value)
-            AdvanceDialogueServer();
+        _dialogueCoroutine = StartCoroutine(RunDialogue());
     }
 
-    private void StartDialogueServer(ulong clientId)
+    // -------------------------------------------------------------------------
+    // Stage unlocking -- call from quest/task scripts
+    // -------------------------------------------------------------------------
+    public void UnlockNextStage()
     {
+        if (IsServer) UnlockNextStageInternal();
+        else UnlockNextStageServerRpc();
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    private void UnlockNextStageServerRpc() { UnlockNextStageInternal(); }
+
+    private void UnlockNextStageInternal()
+    {
+        int next = _currentStage.Value + 1;
+        if (next < stages.Length)
+        {
+            _currentStage.Value = next;
+            Debug.Log("[NPC] Stage unlocked: " + stages[next].stageName);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Called by ScientistNPCController whenever the local player enters/exits
+    // the NPC's interaction radius. Runs on every client for their own player.
+    // -------------------------------------------------------------------------
+    public void SetPlayerNearby(bool nearby)
+    {
+        if (NPCDialogueUI.Instance == null) return;
+
+        NPCDialogueUI.Instance.IsNearNPC = nearby;
+
+        if (nearby)
+        {
+            if (!_isTalking.Value)
+            {
+                NPCDialogueUI.Instance.ShowInteractHint();
+            }
+            else
+            {
+                // Dialogue is already running -- show the current line immediately
+                int s = _currentStage.Value;
+                int l = _currentLine.Value;
+                if (s < stages.Length && l < stages[s].lines.Length)
+                    NPCDialogueUI.Instance.ShowLine(stages[s].lines[l]);
+            }
+        }
+        else
+        {
+            NPCDialogueUI.Instance.HideDialogue();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Server coroutine -- single source of truth for all timing
+    // -------------------------------------------------------------------------
+    private IEnumerator RunDialogue()
+    {
+        if (stages == null || stages.Length == 0) yield break;
+
+        int stageIdx = Mathf.Clamp(_currentStage.Value, 0, stages.Length - 1);
+        DialogueStage stage = stages[stageIdx];
+        if (stage.lines == null || stage.lines.Length == 0) yield break;
+
+        // Setting _isTalking triggers OnValueChanged on ALL clients,
+        // setting animator.SetBool(talkingBool, true) everywhere
         _isTalking.Value = true;
-        _interactorClientId.Value = clientId;
-        _currentLineIndex.Value = 0;
 
-        // Trigger anim + show line to ALL clients
-        ShowLineToAllClientRpc(dialogueLines[0]);
-    }
+        var controller = GetComponent<ScientistNPCController>();
+        if (controller != null) controller.StartTalking(null);
 
-    private void AdvanceDialogueServer()
-    {
-        _currentLineIndex.Value++;
-
-        if (_currentLineIndex.Value >= dialogueLines.Length)
+        for (int i = 0; i < stage.lines.Length; i++)
         {
-            _isTalking.Value = false;
-            _interactorClientId.Value = ulong.MaxValue;
-            HideDialogueAllClientRpc();
-            return;
+            _currentLine.Value = i;
+            ShowLineClientRpc(stage.lines[i]);
+            yield return new WaitForSeconds(stage.secondsPerLine);
         }
 
-        ShowLineToAllClientRpc(dialogueLines[_currentLineIndex.Value]);
+        // Setting false triggers OnValueChanged everywhere, turning animation off
+        _isTalking.Value = false;
+        _currentLine.Value = 0;
+        HideDialogueClientRpc();
+
+        if (controller != null) controller.StopTalking();
+
+        _dialogueCoroutine = null;
     }
 
+    // -------------------------------------------------------------------------
+    // ClientRpcs -- UI only, animation handled by NetworkVariable callbacks
+    // -------------------------------------------------------------------------
     [ClientRpc]
-    private void ShowLineToAllClientRpc(string line)
+    private void ShowLineClientRpc(string line)
     {
-        Debug.Log($"[NPC] ShowLine to all: {line}");
-
-        if (animator != null)
-            animator.SetTrigger(talkTrigger);
-
-        if (NPCDialogueUI.Instance == null)
-        {
-            Debug.LogError("[NPC] NPCDialogueUI.Instance is NULL!");
-            return;
-        }
-
-        // Only show panel to players who are near this NPC
-        if (NPCDialogueUI.Instance.IsNearNPC)
+        if (NPCDialogueUI.Instance != null && NPCDialogueUI.Instance.IsNearNPC)
             NPCDialogueUI.Instance.ShowLine(line);
     }
 
     [ClientRpc]
-    private void HideDialogueAllClientRpc()
+    private void HideDialogueClientRpc()
     {
-        if (animator != null)
-            animator.SetTrigger(talkTrigger);
-
         if (NPCDialogueUI.Instance != null)
             NPCDialogueUI.Instance.HideDialogue();
     }
 
-    // Called by ScientistNPCController when player enters/exits range
-    public void SetPlayerNearby(bool nearby)
-    {
-        if (NPCDialogueUI.Instance == null) return;
-        NPCDialogueUI.Instance.IsNearNPC = nearby;
-
-        // If dialogue is already in progress and player just walked in, show current line
-        if (nearby && _isTalking.Value)
-            NPCDialogueUI.Instance.ShowLine(dialogueLines[_currentLineIndex.Value]);
-
-        if (!nearby)
-            NPCDialogueUI.Instance.HideDialogue();
-    }
-
-    public bool IsTalking() => _isTalking.Value;
+    public bool IsTalking => _isTalking.Value;
 }

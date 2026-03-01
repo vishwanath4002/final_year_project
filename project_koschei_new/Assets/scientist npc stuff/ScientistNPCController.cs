@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
+using Unity.Netcode;
 using StarterAssets;
 
 public enum ScientistState { Idle, Patrol, Talk }
@@ -14,7 +15,6 @@ public class ScientistNPCController : MonoBehaviour
     [Header("Idle / Talk")]
     public float idleTimeAtPatrolPoint = 2f;
     public float interactionRange = 3f;
-    public float talkDuration = 5f;
     public float facePlayerSpeed = 5f;
 
     [Header("Random Patrol")]
@@ -23,14 +23,12 @@ public class ScientistNPCController : MonoBehaviour
     [Header("Animation")]
     public Animator animator;
     public string speedParam = "Speed";
-    public string talkingParam = "IsTalking";
 
     NavMeshAgent agent;
     ScientistState state = ScientistState.Idle;
     float stateTimer = 0f;
     Vector3 homePosition;
     bool isTalking = false;
-    float talkTimer = 0f;
     Transform talkingToPlayer;
 
     private ScientistNPCDialogue _dialogue;
@@ -39,6 +37,8 @@ public class ScientistNPCController : MonoBehaviour
     void Start()
     {
         agent = GetComponent<NavMeshAgent>();
+        _dialogue = GetComponent<ScientistNPCDialogue>();
+
         if (animator == null)
             animator = GetComponentInChildren<Animator>();
 
@@ -46,14 +46,16 @@ public class ScientistNPCController : MonoBehaviour
         state = ScientistState.Patrol;
         agent.speed = patrolSpeed;
         SetRandomPatrolDestination();
-
-        _dialogue = GetComponent<ScientistNPCDialogue>();
     }
 
     void Update()
     {
-        if (!isTalking)
-            CheckForPlayerInteraction();
+        // Proximity check always runs so UI stays accurate on all clients
+        CheckForPlayerProximity();
+
+        // Interact input only checked when not talking
+        if (!(_dialogue != null && _dialogue.IsTalking))
+            CheckForInteractPress();
 
         switch (state)
         {
@@ -62,50 +64,40 @@ public class ScientistNPCController : MonoBehaviour
             case ScientistState.Talk: UpdateTalk(); break;
         }
 
-        UpdateAnimationFromAgent();
+        // Only the server drives speed -- NetworkVariable syncs it to all clients
+        bool isServer = NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer;
+        if (isServer)
+        {
+            float speed = isTalking ? 0f : agent.velocity.magnitude;
+            if (_dialogue != null) _dialogue.ServerUpdateSpeed(speed);
+            UpdateAnimationFromAgent();
+        }
     }
 
-    void CheckForPlayerInteraction()
+    // Runs every frame on every client -- keeps IsNearNPC and UI hint accurate
+    void CheckForPlayerProximity()
     {
-        Collider[] nearbyColliders = Physics.OverlapSphere(transform.position, interactionRange);
+        Collider[] nearby = Physics.OverlapSphere(transform.position, interactionRange);
 
-        GameObject closestPlayer = null;
-        float closestDist = interactionRange;
-
-        foreach (Collider col in nearbyColliders)
+        GameObject localPlayer = null;
+        foreach (Collider col in nearby)
         {
-            if (col.CompareTag("Player"))
+            if (!col.CompareTag("Player")) continue;
+            var netObj = col.GetComponent<NetworkObject>();
+            if (netObj != null && netObj.IsOwner)
             {
-                float dist = Vector3.Distance(transform.position, col.transform.position);
-                if (dist < closestDist)
-                {
-                    closestDist = dist;
-                    closestPlayer = col.gameObject;
-                }
+                localPlayer = col.gameObject;
+                break;
             }
         }
 
-        if (closestPlayer != null)
+        if (localPlayer != null)
         {
             if (!_playerWasNearby)
             {
                 _playerWasNearby = true;
-                // Only notify local owned player
-                var netObj = closestPlayer.GetComponent<Unity.Netcode.NetworkObject>();
-                if (netObj != null && netObj.IsOwner && _dialogue != null)
+                if (_dialogue != null)
                     _dialogue.SetPlayerNearby(true);
-            }
-
-            StarterAssetsInputs playerInput = closestPlayer.GetComponent<StarterAssetsInputs>();
-            if (playerInput != null && playerInput.interact)
-            {
-                playerInput.interact = false;
-
-                var netObj = closestPlayer.GetComponent<Unity.Netcode.NetworkObject>();
-                if (_dialogue != null && netObj != null)
-                    _dialogue.RequestInteract(netObj.OwnerClientId);
-
-                StartTalking(closestPlayer.transform);
             }
         }
         else
@@ -116,6 +108,40 @@ public class ScientistNPCController : MonoBehaviour
                 if (_dialogue != null)
                     _dialogue.SetPlayerNearby(false);
             }
+        }
+    }
+
+    // Runs every frame only when not talking -- handles E / interact press
+    void CheckForInteractPress()
+    {
+        Collider[] nearby = Physics.OverlapSphere(transform.position, interactionRange);
+
+        GameObject closestPlayer = null;
+        float closestDist = interactionRange;
+
+        foreach (Collider col in nearby)
+        {
+            if (!col.CompareTag("Player")) continue;
+            float dist = Vector3.Distance(transform.position, col.transform.position);
+            if (dist < closestDist)
+            {
+                closestDist = dist;
+                closestPlayer = col.gameObject;
+            }
+        }
+
+        if (closestPlayer == null) return;
+
+        StarterAssetsInputs playerInput = closestPlayer.GetComponent<StarterAssetsInputs>();
+        if (playerInput != null && playerInput.interact)
+        {
+            playerInput.interact = false;
+
+            var netObj = closestPlayer.GetComponent<NetworkObject>();
+            if (_dialogue != null && netObj != null)
+                _dialogue.RequestInteractFromController(netObj.OwnerClientId);
+
+            StartTalking(closestPlayer.transform);
         }
     }
 
@@ -155,18 +181,15 @@ public class ScientistNPCController : MonoBehaviour
         }
     }
 
-    void StartTalking(Transform player)
+    public void StartTalking(Transform player)
     {
         if (isTalking) return;
 
         isTalking = true;
         talkingToPlayer = player;
         state = ScientistState.Talk;
-        talkTimer = talkDuration;
         agent.isStopped = true;
         agent.velocity = Vector3.zero;
-
-        Debug.Log("[Scientist] Started talking");
     }
 
     void UpdateTalk()
@@ -176,11 +199,6 @@ public class ScientistNPCController : MonoBehaviour
 
         if (talkingToPlayer != null)
             FaceTarget(talkingToPlayer);
-
-        talkTimer -= Time.deltaTime;
-
-        if (talkTimer <= 0f)
-            StopTalking();
     }
 
     void FaceTarget(Transform target)
@@ -191,7 +209,8 @@ public class ScientistNPCController : MonoBehaviour
         if (direction.sqrMagnitude > 0.001f)
         {
             Quaternion targetRotation = Quaternion.LookRotation(direction);
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.deltaTime * facePlayerSpeed);
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation,
+                Time.deltaTime * facePlayerSpeed);
         }
     }
 
@@ -200,33 +219,27 @@ public class ScientistNPCController : MonoBehaviour
         if (!isTalking) return;
 
         isTalking = false;
-        talkTimer = 0f;
         talkingToPlayer = null;
         agent.isStopped = false;
         state = ScientistState.Patrol;
         agent.speed = patrolSpeed;
         SetRandomPatrolDestination();
 
-        if (_dialogue != null)
-            _dialogue.SetPlayerNearby(false);
-
-        Debug.Log("[Scientist] Stopped talking");
+        // Reset so proximity check re-evaluates cleanly next frame
+        _playerWasNearby = false;
     }
 
     void UpdateAnimationFromAgent()
     {
         if (animator == null) return;
-
         float speed = isTalking ? 0f : agent.velocity.magnitude;
         animator.SetFloat(speedParam, speed);
-        animator.SetBool(talkingParam, isTalking);
     }
 
     void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.cyan;
         Gizmos.DrawWireSphere(transform.position, interactionRange);
-
         Gizmos.color = Color.yellow;
         Vector3 home = Application.isPlaying ? homePosition : transform.position;
         Gizmos.DrawWireSphere(home, patrolRadius);

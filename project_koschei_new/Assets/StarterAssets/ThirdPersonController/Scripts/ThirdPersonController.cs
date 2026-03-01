@@ -80,6 +80,10 @@ namespace StarterAssets
         [Tooltip("For locking the camera position on all axis")]
         public bool LockCameraPosition = false;
 
+        [Header("NPC Interaction")]
+        [Tooltip("Radius to detect nearby NPCs. Match this to interactionRange on ScientistNPCController.")]
+        public float npcInteractionRadius = 3f;
+
         // cinemachine
         private float _cinemachineTargetYaw;
         private float _cinemachineTargetPitch;
@@ -112,10 +116,11 @@ namespace StarterAssets
         private GameObject _mainCamera;
         private bool _rotateOnMove = true;
         private const float _threshold = 0.01f;
-
         private bool _hasAnimator;
 
+        // NPC proximity tracking -- no trigger collider needed
         private ScientistNPCDialogue _nearbyNPC;
+        private ScientistNPCDialogue _lastNearbyNPC;
 
         private bool IsCurrentDeviceMouse
         {
@@ -124,48 +129,38 @@ namespace StarterAssets
 #if ENABLE_INPUT_SYSTEM
                 return _playerInput != null && _playerInput.currentControlScheme == "KeyboardMouse";
 #else
-				return false;
+                return false;
 #endif
             }
         }
 
-
         private void Awake()
         {
-            // get a reference to our main camera
             if (_mainCamera == null)
-            {
                 _mainCamera = GameObject.FindGameObjectWithTag("MainCamera");
-            }
         }
 
         public override void OnNetworkSpawn()
         {
             base.OnNetworkSpawn();
 
-            // Disable input and camera control for non-owned players
             if (!IsOwner)
             {
                 var playerInput = GetComponent<PlayerInput>();
-                if (playerInput != null)
-                    playerInput.enabled = false;
+                if (playerInput != null) playerInput.enabled = false;
 
                 var starterInput = GetComponent<StarterAssetsInputs>();
-                if (starterInput != null)
-                    starterInput.enabled = false;
+                if (starterInput != null) starterInput.enabled = false;
 
-                // Disable camera target for non-owned players
                 if (CinemachineCameraTarget != null)
                     CinemachineCameraTarget.SetActive(false);
 
-                enabled = false; // Disable this script for non-owned players
+                enabled = false;
                 return;
             }
 
-            // For owned player, find and assign the main camera
             _mainCamera = GameObject.FindGameObjectWithTag("MainCamera");
-
-            Debug.Log($"[ThirdPersonController] Local player spawned - Controller enabled");
+            Debug.Log("[ThirdPersonController] Local player spawned - Controller enabled");
         }
 
         private void Start()
@@ -173,19 +168,15 @@ namespace StarterAssets
             if (!IsOwner) return;
 
             _cinemachineTargetYaw = CinemachineCameraTarget.transform.rotation.eulerAngles.y;
-
             _hasAnimator = TryGetComponent(out _animator);
             _controller = GetComponent<CharacterController>();
             _input = GetComponent<StarterAssetsInputs>();
 #if ENABLE_INPUT_SYSTEM 
             _playerInput = GetComponent<PlayerInput>();
 #else
-			Debug.LogError( "Starter Assets package is missing dependencies. Please use Tools/Starter Assets/Reinstall Dependencies to fix it");
+            Debug.LogError("Starter Assets package is missing dependencies. Please use Tools/Starter Assets/Reinstall Dependencies to fix it");
 #endif
-
             AssignAnimationIDs();
-
-            // reset our timeouts on start
             _jumpTimeoutDelta = JumpTimeout;
             _fallTimeoutDelta = FallTimeout;
         }
@@ -199,9 +190,10 @@ namespace StarterAssets
             JumpAndGravity();
             GroundedCheck();
             Move();
+            CheckNPCProximity();
 
             if (Input.GetKeyDown(KeyCode.E) && _nearbyNPC != null)
-                RequestNPCInteractServerRpc();
+                RequestNPCInteractServerRpc(_nearbyNPC.NetworkObjectId);
         }
 
         private void LateUpdate()
@@ -210,6 +202,62 @@ namespace StarterAssets
             CameraRotation();
         }
 
+        // -------------------------------------------------------------------------
+        // NPC Proximity -- polls every frame using OverlapSphere.
+        // No trigger collider needed on the player or the NPC.
+        // -------------------------------------------------------------------------
+        private void CheckNPCProximity()
+        {
+            ScientistNPCDialogue closest = null;
+            float closestDist = npcInteractionRadius;
+
+            Collider[] hits = Physics.OverlapSphere(transform.position, npcInteractionRadius);
+            foreach (Collider col in hits)
+            {
+                if (col.TryGetComponent<ScientistNPCDialogue>(out var npc))
+                {
+                    float dist = Vector3.Distance(transform.position, col.transform.position);
+                    if (dist < closestDist)
+                    {
+                        closestDist = dist;
+                        closest = npc;
+                    }
+                }
+            }
+
+            // Only fire SetPlayerNearby when the nearest NPC actually changes
+            if (closest != _lastNearbyNPC)
+            {
+                if (_lastNearbyNPC != null)
+                    _lastNearbyNPC.SetPlayerNearby(false);
+
+                if (closest != null)
+                    closest.SetPlayerNearby(true);
+
+                _lastNearbyNPC = closest;
+            }
+
+            _nearbyNPC = closest;
+        }
+
+        // -------------------------------------------------------------------------
+        // ServerRpc -- passes the NPC's NetworkObjectId so the server can look it
+        // up directly. _nearbyNPC is null on the server so we cannot use it there.
+        // -------------------------------------------------------------------------
+        [ServerRpc]
+        private void RequestNPCInteractServerRpc(ulong npcNetworkObjectId)
+        {
+            if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(npcNetworkObjectId, out var netObj))
+            {
+                var dialogue = netObj.GetComponent<ScientistNPCDialogue>();
+                if (dialogue != null)
+                    dialogue.RequestInteract(OwnerClientId);
+            }
+        }
+
+        // -------------------------------------------------------------------------
+        // Movement, camera, animation -- unchanged from original Starter Assets
+        // -------------------------------------------------------------------------
         private void AssignAnimationIDs()
         {
             _animIDSpeed = Animator.StringToHash("Speed");
@@ -221,69 +269,51 @@ namespace StarterAssets
 
         private void GroundedCheck()
         {
-            // set sphere position, with offset
-            Vector3 spherePosition = new Vector3(transform.position.x, transform.position.y - GroundedOffset,
-                transform.position.z);
+            Vector3 spherePosition = new Vector3(transform.position.x,
+                transform.position.y - GroundedOffset, transform.position.z);
             Grounded = Physics.CheckSphere(spherePosition, GroundedRadius, GroundLayers,
                 QueryTriggerInteraction.Ignore);
-
-            // update animator if using character
             if (_hasAnimator)
-            {
                 _animator.SetBool(_animIDGrounded, Grounded);
-            }
         }
 
         private void CameraRotation()
         {
-            // if there is an input and camera position is not fixed
             if (_input.look.sqrMagnitude >= _threshold && !LockCameraPosition)
             {
-                //Don't multiply mouse input by Time.deltaTime;
                 float deltaTimeMultiplier = IsCurrentDeviceMouse ? 1.0f : Time.deltaTime;
-
                 _cinemachineTargetYaw += _input.look.x * deltaTimeMultiplier * Sensitivity;
                 _cinemachineTargetPitch += _input.look.y * deltaTimeMultiplier * Sensitivity;
             }
 
-            // clamp our rotations so our values are limited 360 degrees
             _cinemachineTargetYaw = ClampAngle(_cinemachineTargetYaw, float.MinValue, float.MaxValue);
             _cinemachineTargetPitch = ClampAngle(_cinemachineTargetPitch, BottomClamp, TopClamp);
 
-            // Cinemachine will follow this target
-            CinemachineCameraTarget.transform.rotation = Quaternion.Euler(_cinemachineTargetPitch + CameraAngleOverride, _cinemachineTargetYaw, 0.0f);
+            CinemachineCameraTarget.transform.rotation = Quaternion.Euler(
+                _cinemachineTargetPitch + CameraAngleOverride, _cinemachineTargetYaw, 0.0f);
         }
 
         private void Move()
         {
-            // set target speed based on move speed, sprint speed and if sprint is pressed
             float targetSpeed = _input.sprint ? SprintSpeed : MoveSpeed;
 
-            // a simplistic acceleration and deceleration designed to be easy to remove, replace, or iterate upon
-
-            // note: Vector2's == operator uses approximation so is not floating point error prone, and is cheaper than magnitude
-            // if there is no input, set the target speed to 0
             if (_input.move == Vector2.zero)
             {
                 targetSpeed = 0.0f;
                 _input.sprint = false;
             }
 
-            // a reference to the players current horizontal velocity
-            float currentHorizontalSpeed = new Vector3(_controller.velocity.x, 0.0f, _controller.velocity.z).magnitude;
+            float currentHorizontalSpeed = new Vector3(
+                _controller.velocity.x, 0.0f, _controller.velocity.z).magnitude;
 
             float speedOffset = 0.1f;
             float inputMagnitude = _input.analogMovement ? _input.move.magnitude : 1f;
 
-            // accelerate or decelerate to target speed
             if (currentHorizontalSpeed < targetSpeed - speedOffset ||
                 currentHorizontalSpeed > targetSpeed + speedOffset)
             {
-                // creates curved result rather than a linear one giving a more organic speed change
-                // note T in Lerp is clamped, so we don't need to clamp our speed
-                _speed = Mathf.Lerp(currentHorizontalSpeed, targetSpeed * inputMagnitude, Time.deltaTime * SpeedChangeRate);
-
-                // round speed to 3 decimal places
+                _speed = Mathf.Lerp(currentHorizontalSpeed, targetSpeed * inputMagnitude,
+                    Time.deltaTime * SpeedChangeRate);
                 _speed = Mathf.Round(_speed * 1000f) / 1000f;
             }
             else
@@ -294,34 +324,22 @@ namespace StarterAssets
             _animationBlend = Mathf.Lerp(_animationBlend, targetSpeed, Time.deltaTime * SpeedChangeRate);
             if (_animationBlend < 0.01f) _animationBlend = 0f;
 
-            // normalise input direction
             Vector3 inputDirection = new Vector3(_input.move.x, 0.0f, _input.move.y).normalized;
 
-            // note: Vector2's != operator uses approximation so is not floating point error prone, and is cheaper than magnitude
-            // if there is a move input rotate player when the player is moving
-            if (_input.move != Vector2.zero)
+            if (_input.move != Vector2.zero && _mainCamera != null)
             {
-                // Null check for camera
-                if (_mainCamera != null)
-                {
-                    _targetRotation = Mathf.Atan2(inputDirection.x, inputDirection.z) * Mathf.Rad2Deg + _mainCamera.transform.eulerAngles.y;
-                    float rotation = Mathf.SmoothDampAngle(transform.eulerAngles.y, _targetRotation, ref _rotationVelocity, RotationSmoothTime);
-
-                    if (_rotateOnMove)
-                    {
-                        // rotate to face input direction relative to camera position
-                        transform.rotation = Quaternion.Euler(0.0f, rotation, 0.0f);
-                    }
-                }
+                _targetRotation = Mathf.Atan2(inputDirection.x, inputDirection.z)
+                    * Mathf.Rad2Deg + _mainCamera.transform.eulerAngles.y;
+                float rotation = Mathf.SmoothDampAngle(transform.eulerAngles.y,
+                    _targetRotation, ref _rotationVelocity, RotationSmoothTime);
+                if (_rotateOnMove)
+                    transform.rotation = Quaternion.Euler(0.0f, rotation, 0.0f);
             }
 
-
             Vector3 targetDirection = Quaternion.Euler(0.0f, _targetRotation, 0.0f) * Vector3.forward;
+            _controller.Move(targetDirection.normalized * (_speed * Time.deltaTime)
+                + new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime);
 
-            // move the player
-            _controller.Move(targetDirection.normalized * (_speed * Time.deltaTime) + new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime);
-
-            // update animator if using character
             if (_hasAnimator)
             {
                 _animator.SetFloat(_animIDSpeed, _animationBlend);
@@ -333,94 +351,41 @@ namespace StarterAssets
         {
             if (Grounded)
             {
-                // reset the fall timeout timer
                 _fallTimeoutDelta = FallTimeout;
 
-                // update animator if using character
                 if (_hasAnimator)
                 {
                     _animator.SetBool(_animIDJump, false);
                     _animator.SetBool(_animIDFreeFall, false);
                 }
 
-                // stop our velocity dropping infinitely when grounded
                 if (_verticalVelocity < 0.0f)
-                {
                     _verticalVelocity = -2f;
-                }
 
-                // Jump
                 if (_input.jump && _jumpTimeoutDelta <= 0.0f)
                 {
-                    // the square root of H * -2 * G = how much velocity needed to reach desired height
                     _verticalVelocity = Mathf.Sqrt(JumpHeight * -2f * Gravity);
-
-                    // update animator if using character
                     if (_hasAnimator)
-                    {
                         _animator.SetBool(_animIDJump, true);
-                    }
                 }
 
-                // jump timeout
                 if (_jumpTimeoutDelta >= 0.0f)
-                {
                     _jumpTimeoutDelta -= Time.deltaTime;
-                }
             }
             else
             {
-                // reset the jump timeout timer
                 _jumpTimeoutDelta = JumpTimeout;
 
-                // fall timeout
                 if (_fallTimeoutDelta >= 0.0f)
-                {
                     _fallTimeoutDelta -= Time.deltaTime;
-                }
-                else
-                {
-                    // update animator if using character
-                    if (_hasAnimator)
-                    {
-                        _animator.SetBool(_animIDFreeFall, true);
-                    }
-                }
+                else if (_hasAnimator)
+                    _animator.SetBool(_animIDFreeFall, true);
 
-                // if we are not grounded, do not jump
                 _input.jump = false;
             }
 
-            // apply gravity over time if under terminal (multiply by delta time twice to linearly speed up over time)
             if (_verticalVelocity < _terminalVelocity)
-            {
                 _verticalVelocity += Gravity * Time.deltaTime;
-            }
-        }
-
-        private void OnTriggerEnter(Collider other)
-        {
-            if (!IsOwner) return;
-            if (other.TryGetComponent<ScientistNPCDialogue>(out var npc))
-                _nearbyNPC = npc;
-        }
-
-        private void OnTriggerExit(Collider other)
-        {
-            if (!IsOwner) return;
-            if (other.TryGetComponent<ScientistNPCDialogue>(out var npc) && npc == _nearbyNPC)
-            {
-                _nearbyNPC = null;
-                if (NPCDialogueUI.Instance != null)
-                    NPCDialogueUI.Instance.HideDialogue();
-            }
-        }
-
-        [ServerRpc]
-        private void RequestNPCInteractServerRpc()
-        {
-            if (_nearbyNPC != null)
-                _nearbyNPC.RequestInteract(OwnerClientId);
         }
 
         private static float ClampAngle(float lfAngle, float lfMin, float lfMax)
@@ -434,48 +399,31 @@ namespace StarterAssets
         {
             Color transparentGreen = new Color(0.0f, 1.0f, 0.0f, 0.35f);
             Color transparentRed = new Color(1.0f, 0.0f, 0.0f, 0.35f);
-
-            if (Grounded) Gizmos.color = transparentGreen;
-            else Gizmos.color = transparentRed;
-
-            // when selected, draw a gizmo in the position of, and matching radius of, the grounded collider
-            Gizmos.DrawSphere(new Vector3(transform.position.x, transform.position.y - GroundedOffset, transform.position.z), GroundedRadius);
+            Gizmos.color = Grounded ? transparentGreen : transparentRed;
+            Gizmos.DrawSphere(new Vector3(transform.position.x,
+                transform.position.y - GroundedOffset, transform.position.z), GroundedRadius);
         }
 
         private void OnFootstep(AnimationEvent animationEvent)
         {
-            // Only play audio for the local player
             if (!IsOwner || _controller == null) return;
-
-            if (animationEvent.animatorClipInfo.weight > 0.5f)
+            if (animationEvent.animatorClipInfo.weight > 0.5f && FootstepAudioClips.Length > 0)
             {
-                if (FootstepAudioClips.Length > 0)
-                {
-                    var index = Random.Range(0, FootstepAudioClips.Length);
-                    AudioSource.PlayClipAtPoint(FootstepAudioClips[index], transform.TransformPoint(_controller.center), FootstepAudioVolume);
-                }
+                var index = Random.Range(0, FootstepAudioClips.Length);
+                AudioSource.PlayClipAtPoint(FootstepAudioClips[index],
+                    transform.TransformPoint(_controller.center), FootstepAudioVolume);
             }
         }
 
         private void OnLand(AnimationEvent animationEvent)
         {
-            // Only play audio for the local player
             if (!IsOwner || _controller == null || LandingAudioClip == null) return;
-
             if (animationEvent.animatorClipInfo.weight > 0.5f)
-            {
-                AudioSource.PlayClipAtPoint(LandingAudioClip, transform.TransformPoint(_controller.center), FootstepAudioVolume);
-            }
+                AudioSource.PlayClipAtPoint(LandingAudioClip,
+                    transform.TransformPoint(_controller.center), FootstepAudioVolume);
         }
 
-        public void SetSensitivity(float newSensitivity)
-        {
-            Sensitivity = newSensitivity;
-        }
-
-        public void SetRotateOnMove(bool newRotateOnMove)
-        {
-            _rotateOnMove = newRotateOnMove;
-        }
+        public void SetSensitivity(float newSensitivity) => Sensitivity = newSensitivity;
+        public void SetRotateOnMove(bool newRotateOnMove) => _rotateOnMove = newRotateOnMove;
     }
 }
