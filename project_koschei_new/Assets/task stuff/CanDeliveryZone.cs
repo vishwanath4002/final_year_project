@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -13,6 +14,9 @@ public class CanDeliveryZone : NetworkBehaviour
         "meat can box old", "meat can round", "meat can box"
     };
 
+    // ── Task1 listens to this (server-side only) ──
+    public event Action OnCansComplete;
+
     private NetworkVariable<int> collectedCans = new NetworkVariable<int>(0);
     private bool playerInZone = false;
     private GameObject playerInTrigger = null;
@@ -25,9 +29,12 @@ public class CanDeliveryZone : NetworkBehaviour
 
     void OnCansChanged(int oldValue, int newValue)
     {
+        Debug.Log($"Cans delivered: {newValue}/{requiredCans}");
         if (newValue >= requiredCans)
         {
-            TaskCompleteClientRpc();
+            Debug.Log("All cans delivered!");
+            if (IsServer) OnCansComplete?.Invoke();
+            CansCompleteClientRpc();
         }
     }
 
@@ -37,7 +44,6 @@ public class CanDeliveryZone : NetworkBehaviour
         {
             playerInZone = true;
             playerInTrigger = other.gameObject;
-            Debug.Log($"Player entered CanDeliveryZone. Press E to deposit a can if holding one.");
         }
     }
 
@@ -47,7 +53,6 @@ public class CanDeliveryZone : NetworkBehaviour
         {
             playerInZone = false;
             playerInTrigger = null;
-            Debug.Log("Player exited CanDeliveryZone.");
         }
     }
 
@@ -55,8 +60,6 @@ public class CanDeliveryZone : NetworkBehaviour
     {
         if (playerInZone && Input.GetKeyDown(KeyCode.E))
         {
-            Debug.Log("Player pressed E inside CanDeliveryZone.");
-
             if (playerInTrigger != null)
             {
                 PlayerInventory inventory = playerInTrigger.GetComponent<PlayerInventory>();
@@ -64,18 +67,13 @@ public class CanDeliveryZone : NetworkBehaviour
                 {
                     GameObject heldPrefab = inventory.GetHeldPrefab();
                     if (heldPrefab != null && IsFoodCan(heldPrefab))
-                    {
-                        Debug.Log($"Deposit option: YES. Depositing {heldPrefab.name}.");
                         DepositCanServerRpc(NetworkManager.Singleton.LocalClientId);
-                    }
                     else
-                    {
-                        Debug.Log("Deposit option: NO. Item held is NOT a valid food can.");
-                    }
+                        Debug.Log("Deposit option: NO. Item is not a valid food can.");
                 }
                 else
                 {
-                    Debug.Log("Deposit option: NO. You are not holding anything.");
+                    Debug.Log("Deposit option: NO. Not holding anything.");
                 }
             }
         }
@@ -106,9 +104,8 @@ public class CanDeliveryZone : NetworkBehaviour
     void SpawnCanInZone(GameObject canPrefabToSpawn)
     {
         if (canPrefabToSpawn == null) return;
-
-        Vector3 spawnPos;
         int canCount = collectedCans.Value;
+        Vector3 spawnPos;
 
         if (dropOffPoint != null)
         {
@@ -118,47 +115,25 @@ public class CanDeliveryZone : NetworkBehaviour
         }
         else
         {
-            BoxCollider boxCollider = GetComponent<BoxCollider>();
-            if (boxCollider != null)
-            {
-                Vector3 zoneCenter = transform.TransformPoint(boxCollider.center);
-                float offsetX = (canCount % 4) * 0.4f - 0.6f;
-                float offsetZ = (canCount / 4) * 0.4f - 0.6f;
-                spawnPos = zoneCenter + new Vector3(offsetX, 0.5f, offsetZ);
-            }
-            else
-            {
-                spawnPos = transform.position + Vector3.up * 0.5f;
-            }
+            BoxCollider box = GetComponent<BoxCollider>();
+            Vector3 center = box != null ? transform.TransformPoint(box.center) : transform.position;
+            spawnPos = center + new Vector3((canCount % 4) * 0.4f - 0.6f, 0.5f, (canCount / 4) * 0.4f - 0.6f);
         }
 
         GameObject depositedCan = Instantiate(canPrefabToSpawn, spawnPos, Quaternion.identity);
+        var pickup = depositedCan.GetComponent<PickupObject>();
+        if (pickup != null) Destroy(pickup);
 
-        var pickupScript = depositedCan.GetComponent<PickupObject>();
-        if (pickupScript != null)
-        {
-            Destroy(pickupScript);
-        }
-
-        Collider[] colliders = depositedCan.GetComponents<Collider>();
-        foreach (Collider col in colliders)
-        {
-            if (col.isTrigger)
-            {
-                col.enabled = false;
-            }
-        }
+        foreach (Collider col in depositedCan.GetComponents<Collider>())
+            if (col.isTrigger) col.enabled = false;
 
         NetworkObject netObj = depositedCan.GetComponent<NetworkObject>();
-        if (netObj != null)
-        {
-            netObj.Spawn();
-        }
+        if (netObj != null) netObj.Spawn();
     }
 
     [ClientRpc]
-    void TaskCompleteClientRpc()
+    void CansCompleteClientRpc()
     {
-        // No logic needed unless you want completion events.
+        Debug.Log("All cans delivered to the church!");
     }
 }
