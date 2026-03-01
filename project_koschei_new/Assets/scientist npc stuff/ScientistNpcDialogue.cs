@@ -57,6 +57,7 @@ public class ScientistNPCDialogue : NetworkBehaviour
         NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
     private Coroutine _dialogueCoroutine;
+    private ulong _interactingClientId = ulong.MaxValue;
 
     // -------------------------------------------------------------------------
     public override void OnNetworkSpawn()
@@ -117,6 +118,7 @@ public class ScientistNPCDialogue : NetworkBehaviour
         if (_dialogueCoroutine != null)
             StopCoroutine(_dialogueCoroutine);
 
+        _interactingClientId = clientId;
         _dialogueCoroutine = StartCoroutine(RunDialogue());
     }
 
@@ -189,7 +191,13 @@ public class ScientistNPCDialogue : NetworkBehaviour
         _isTalking.Value = true;
 
         var controller = GetComponent<ScientistNPCController>();
-        if (controller != null) controller.StartTalking(null);
+        if (controller != null)
+        {
+            Transform playerTransform = null;
+            if (NetworkManager.Singleton.ConnectedClients.TryGetValue(_interactingClientId, out var client))
+                playerTransform = client.PlayerObject != null ? client.PlayerObject.transform : null;
+            controller.StartTalking(playerTransform);
+        }
 
         for (int i = 0; i < stage.lines.Length; i++)
         {
