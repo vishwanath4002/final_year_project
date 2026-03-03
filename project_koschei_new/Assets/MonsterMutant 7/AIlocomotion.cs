@@ -86,6 +86,23 @@ public class AILocomotion : MonoBehaviour
     public string speedParam = "Speed";
     Animator animator;
 
+    // [Header("Model Variants")]
+    // public GameObject[] modelPrefabs;   // drag your 4 prefabs here
+    // public Transform modelHolder;       // assign ModelHolder
+    // public bool randomizeModel = true;
+
+    // [Header("Health Based Models")]
+    // public Health health;  // assign in inspector
+    // private float maxHealth;
+
+	// public HealthBar healthBar;
+
+    // [Range(0f, 1f)] public float stage2Threshold = 0.75f;
+    // [Range(0f, 1f)] public float stage3Threshold = 0.5f;
+    // [Range(0f, 1f)] public float stage4Threshold = 0.25f;
+
+    // int currentModelStage = -1;
+
     [Header("Debug Gizmos")]
 
     // Core State
@@ -118,9 +135,18 @@ public class AILocomotion : MonoBehaviour
     {
         agent = GetComponent<NavMeshAgent>();
         animator = GetComponent<Animator>();
+        
+        // if (health != null)
+        // {
+        //     maxHealth = health.GetMaxHealth();
+        // }
+
+		// healthBar.SetMaxHealth(maxHealth);
+        // UpdateModelByHealth();
 
         homePosition = transform.position;
         state = AIState.Patrol;
+
         animator.speed = 1f; // ensures animation not slowed
 
         agent.updateRotation = false;
@@ -139,6 +165,8 @@ public class AILocomotion : MonoBehaviour
             return;
         }
 
+        // UpdateModelByHealth();
+        
         Transform detected = DetectPlayer();
         seesPlayer = detected != null;
 
@@ -557,6 +585,63 @@ public class AILocomotion : MonoBehaviour
     //     animator.SetFloat("Speed", speedPercent * agent.speed, 0.1f, Time.deltaTime);
     // }
 
+    // void SetupModel(int index)
+    // {
+    //     if (modelPrefabs == null || modelPrefabs.Length == 0)
+    //         return;
+
+    //     if (index < 0 || index >= modelPrefabs.Length)
+    //         return;
+
+    //     // Clear old model
+    //     if (modelHolder.childCount > 0)
+    //     {
+    //         for (int i = modelHolder.childCount - 1; i >= 0; i--)
+    //         {
+    //             Destroy(modelHolder.GetChild(i).gameObject);
+    //         }
+    //     }
+
+    //     GameObject modelInstance = Instantiate(
+    //         modelPrefabs[index],
+    //         modelHolder
+    //     );
+
+    //     modelInstance.transform.localPosition = Vector3.zero;
+    //     modelInstance.transform.localRotation = Quaternion.identity;
+
+    //     animator = modelInstance.GetComponentInChildren<Animator>();
+
+    //     // Only collect colliders marked as damage
+    //     damageColliders = modelInstance.GetComponentsInChildren<Collider>();
+    // }
+
+    // public void UpdateModelByHealth()
+    // {
+    //     if (health == null)
+    //         return;
+
+    //     float healthPercent =
+    //         health.GetCurrentHealth() / maxHealth;
+
+    //     int newStage = 0;
+
+    //     if (healthPercent <= stage4Threshold)
+    //         newStage = 3;
+    //     else if (healthPercent <= stage3Threshold)
+    //         newStage = 2;
+    //     else if (healthPercent <= stage2Threshold)
+    //         newStage = 1;
+    //     else
+    //         newStage = 0;
+
+    //     if (newStage != currentModelStage)
+    //     {
+    //         currentModelStage = newStage;
+    //         SetupModel(newStage);
+    //     }
+    // }
+
     // ===================== GIZMOS =====================
     void OnDrawGizmos()
     {
@@ -743,3 +828,33 @@ public class AILocomotion : MonoBehaviour
     }
 
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
