@@ -7,6 +7,7 @@ public class PlayerHUD : NetworkBehaviour
 {
     [Header("HUD Root")]
     [SerializeField] private GameObject hudPanel;
+    [SerializeField] private Canvas playerCanvas; // ADD THIS — drag the full Canvas here
 
     [Header("Health (Bottom Center Bar)")]
     [SerializeField] private Image healthBarFill;
@@ -21,7 +22,7 @@ public class PlayerHUD : NetworkBehaviour
     [SerializeField] private GameObject inventoryGroup;
     [SerializeField] private TextMeshProUGUI itemNameText;
     [SerializeField] private TextMeshProUGUI holdHintText;
-
+ 
     // Component refs
     private PlayerHealthHandler healthHandler;
     private ThirdPersonShooterController shooterController;
@@ -35,13 +36,17 @@ public class PlayerHUD : NetworkBehaviour
     {
         base.OnNetworkSpawn();
 
-        // Only the owning player sees their own HUD
         if (!IsOwner)
         {
+            // Hide the entire canvas for non-owners
+            if (playerCanvas != null) playerCanvas.enabled = false;
             if (hudPanel != null) hudPanel.SetActive(false);
             enabled = false;
             return;
         }
+
+        // Owner — make sure canvas is on
+        if (playerCanvas != null) playerCanvas.enabled = true;
 
         healthHandler = GetComponent<PlayerHealthHandler>();
         shooterController = GetComponent<ThirdPersonShooterController>();
@@ -54,6 +59,7 @@ public class PlayerHUD : NetworkBehaviour
         UpdateHealthUI();
         UpdateAmmoUI();
     }
+
 
     private void Update()
     {
