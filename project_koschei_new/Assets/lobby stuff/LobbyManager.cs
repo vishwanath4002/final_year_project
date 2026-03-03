@@ -29,8 +29,6 @@ public class LobbyManager : MonoBehaviour
     private float lobbyTimerMax = 300f;
     private float currentLobbyTimer;
     private string playerName = "Player";
-
-    // Prevents HandleLobbyPolling from firing JoinRelay multiple times
     private bool isJoiningRelay = false;
 
     private const string KEY_RELAY_CODE = "RelayCode";
@@ -196,18 +194,31 @@ public class LobbyManager : MonoBehaviour
             var relayServerData = new RelayServerData(allocation, "dtls");
             NetworkManager.Singleton.GetComponent<UnityTransport>().SetRelayServerData(relayServerData);
 
-            // 3. Start host
+            // 3. FIX: Set a temporary approval callback BEFORE StartHost()
+            //    so the host's own connection approval doesn't hit a null callback.
+            //    SpawnManager in the game scene will override this with proper spawn logic.
+            NetworkManager.Singleton.ConnectionApprovalCallback = (request, response) =>
+            {
+                response.Approved = true;
+                response.CreatePlayerObject = true;
+                response.Pending = false;
+                Debug.Log("[LobbyManager] Temporary approval callback -- SpawnManager not loaded yet.");
+            };
+
+            // 4. Start host
             bool isHostStarted = NetworkManager.Singleton.StartHost();
             if (!isHostStarted)
             {
                 Debug.LogError("[LobbyManager] StartHost() failed!");
+                NetworkManager.Singleton.ConnectionApprovalCallback = null;
                 if (LobbyUI.Instance != null)
                     LobbyUI.Instance.SetUIInteractable(true);
                 LeaveLobby();
                 return;
             }
 
-            // 4. Push relay code to lobby so clients can pick it up via polling
+            // 5. Push relay code to lobby IMMEDIATELY so clients can
+            //    start joining while the scene is loading -- reduces relay timeout risk
             UpdateLobbyOptions updateOptions = new UpdateLobbyOptions
             {
                 IsLocked = true,
@@ -218,14 +229,16 @@ public class LobbyManager : MonoBehaviour
             };
             await Lobbies.Instance.UpdateLobbyAsync(joinedLobby.Id, updateOptions);
 
-            Debug.Log("[LobbyManager] Lobby updated with relay code. Loading game scene...");
+            Debug.Log("[LobbyManager] Relay code pushed to lobby. Loading game scene...");
 
-            // 5. Load scene -- NetworkManager replicates this to all connected clients
+            // 6. Load scene -- SpawnManager.Awake() in the game scene will
+            //    immediately override the temporary approval callback above
             NetworkManager.Singleton.SceneManager.LoadScene(SCENE_NAME_GAME, LoadSceneMode.Single);
         }
         catch (Exception e)
         {
             Debug.LogError("[LobbyManager] StartGame failed: " + e);
+            NetworkManager.Singleton.ConnectionApprovalCallback = null;
             if (LobbyUI.Instance != null)
                 LobbyUI.Instance.SetUIInteractable(true);
             LeaveLobby();
@@ -238,7 +251,7 @@ public class LobbyManager : MonoBehaviour
 
     private async void JoinRelay(string relayCode)
     {
-        if (isJoiningRelay) return; // prevent double-joining from rapid polls
+        if (isJoiningRelay) return;
         isJoiningRelay = true;
 
         try
@@ -263,9 +276,6 @@ public class LobbyManager : MonoBehaviour
                     LobbyUI.Instance.SetUIInteractable(true);
                 LeaveLobby();
             }
-            // Note: do NOT set joinedLobby = null here
-            // Let HandleLobbyPolling do it AFTER JoinRelay is called
-            // to avoid a second JoinRelay call on the next poll tick
         }
         catch (Exception e)
         {
@@ -308,12 +318,12 @@ public class LobbyManager : MonoBehaviour
     private async void HandleLobbyPolling()
     {
         if (joinedLobby == null) return;
-        if (isJoiningRelay) return; // don't poll while already connecting
+        if (isJoiningRelay) return;
 
         lobbyPollTimer -= Time.deltaTime;
         if (lobbyPollTimer > 0f) return;
 
-        lobbyPollTimer = 2.5f;
+        lobbyPollTimer = 1.5f; // poll faster (1.5s) to catch relay code quickly and reduce timeout risk
 
         try
         {
@@ -337,7 +347,7 @@ public class LobbyManager : MonoBehaviour
                 if (!IsLobbyHost())
                 {
                     string relayCode = joinedLobby.Data[KEY_RELAY_CODE].Value;
-                    joinedLobby = null; // clear BEFORE calling JoinRelay to stop further polls
+                    joinedLobby = null; // clear BEFORE JoinRelay to stop further polls
                     JoinRelay(relayCode);
                 }
             }
@@ -346,8 +356,8 @@ public class LobbyManager : MonoBehaviour
         {
             if (e.Reason == LobbyExceptionReason.RateLimited)
             {
-                Debug.LogWarning("[LobbyManager] Rate limited -- slowing poll.");
-                lobbyPollTimer = 5f; // back off instead of crashing
+                Debug.LogWarning("[LobbyManager] Rate limited -- backing off.");
+                lobbyPollTimer = 5f;
                 return;
             }
 
@@ -370,7 +380,6 @@ public class LobbyManager : MonoBehaviour
             long startTimeTicks = long.Parse(joinedLobby.Data[KEY_START_TIME].Value);
             DateTime startTime = new DateTime(startTimeTicks, DateTimeKind.Utc);
             float secondsPassed = (float)(DateTime.UtcNow - startTime).TotalSeconds;
-
             currentLobbyTimer = lobbyTimerMax - secondsPassed;
 
             if (currentLobbyTimer <= 0f)
@@ -397,7 +406,7 @@ public class LobbyManager : MonoBehaviour
             }
             catch (Exception e)
             {
-                Debug.LogWarning("[LobbyManager] LeaveLobby cleanup failed: " + e.Message);
+                Debug.LogWarning("[LobbyManager] LeaveLobby cleanup: " + e.Message);
             }
 
             joinedLobby = null;
@@ -405,11 +414,8 @@ public class LobbyManager : MonoBehaviour
 
         isJoiningRelay = false;
 
-        // Only go back to menu if we're not already in-game via Netcode
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
-        {
             NetworkManager.Singleton.Shutdown();
-        }
 
         SceneManager.LoadScene(SCENE_NAME_MENU);
     }
@@ -424,7 +430,6 @@ public class LobbyManager : MonoBehaviour
         joinedLobby.HostId == AuthenticationService.Instance.PlayerId;
 
     public float GetLobbyTimer() => currentLobbyTimer;
-
     public Lobby GetJoinedLobby() => joinedLobby;
 
     private Player GetPlayer()
