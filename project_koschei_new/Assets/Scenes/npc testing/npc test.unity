@@ -880,36 +880,6 @@ MeshCollider:
   m_Convex: 0
   m_CookingOptions: 30
   m_Mesh: {fileID: 0}
---- !u!114 &2063239125
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2063239104}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a595aa9f65b6ad14eb59b0dfa92a2a74, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  stages:
-  - stageName: Introduction
-    lines:
-    - So. They actually sent someone. I was not holding my breath.
-    - I am what remains of the advance team. We entered three days ago. There were
-      four of us. Now there is me.
-    - This place -- Koschei Station. Soviet research post. Abandoned. Flooded. Whatever
-      happened here, it is not finished happening. You understand?
-    - Your objective is not complicated. Find the researchers still alive in this
-      zone. Stay with your group. Do not wander. This place does not forgive stupidity.
-    - There is a woman waiting for you ahead. She has been in this zone longer than
-      any of us. She knows the layout, the dangers, all of it. She will brief you
-      properly.
-    - Go. And try not to die before you even reach her.
-    secondsPerLine: 5
-  animator: {fileID: 1231137523}
-  talkingBool: talking
-  speedFloat: speed
 --- !u!1001 &4217594009785924689
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -997,9 +967,6 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 6733780691644045083, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       insertIndex: -1
       addedObject: {fileID: 2063239111}
-    - targetCorrespondingSourceObject: {fileID: 6733780691644045083, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 2063239125}
   m_SourcePrefab: {fileID: 100100000, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
