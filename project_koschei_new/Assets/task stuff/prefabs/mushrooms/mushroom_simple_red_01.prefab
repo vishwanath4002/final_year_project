@@ -16,7 +16,6 @@ GameObject:
   - component: {fileID: -3761306110016883783}
   - component: {fileID: -8630168563768993349}
   - component: {fileID: -4532069414132603270}
-  - component: {fileID: 5954568007338999783}
   m_Layer: 0
   m_Name: mushroom_simple_red_01
   m_TagString: Untagged
@@ -202,15 +201,3 @@ MonoBehaviour:
   InLocalSpace: 0
   Interpolate: 1
   SlerpPosition: 0
---- !u!114 &5954568007338999783
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 6456322593793875397}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f6c0be61502bb534f922ebb746851216, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 

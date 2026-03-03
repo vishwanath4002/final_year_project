@@ -8620,6 +8620,37 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 488080, guid: d56462b3ff64676458a7fead7cda0e5f, type: 3}
   m_PrefabInstance: {fileID: 71447538}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &71891538
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 71891539}
+  m_Layer: 0
+  m_Name: boss spawn point
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &71891539
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 71891538}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 106.6, y: -17.42, z: 447.34}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 221949681}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &72196108
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -28043,12 +28074,15 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
-  - {fileID: 1907816349}
+  - {fileID: 427285921}
+  - {fileID: 1059626900}
   - {fileID: 1828592590}
   - {fileID: 1401641865}
   - {fileID: 597111022}
   - {fileID: 1691946134}
   - {fileID: 1623659184}
+  - {fileID: 71891539}
+  - {fileID: 1907816349}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &222924338
@@ -52797,6 +52831,38 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 482554, guid: b3c489c06c04c1d4d835d20adc6ab60a, type: 3}
   m_PrefabInstance: {fileID: 426707675}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &427285920
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 427285921}
+  m_Layer: 0
+  m_Name: intro
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &427285921
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 427285920}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 1658215122}
+  m_Father: {fileID: 221949681}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &427753589
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -75819,10 +75885,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   spawnPositions:
-  - {x: 550, y: 20, z: 475}
-  - {x: 560, y: 20, z: 475}
-  - {x: 540, y: 20, z: 475}
-  - {x: 530, y: 20, z: 475}
+  - {x: 457, y: 28, z: 156}
+  - {x: 457, y: 28, z: 160}
+  - {x: 457, y: 28, z: 164}
+  - {x: 457, y: 28, z: 168}
 --- !u!1001 &620835270
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -129833,6 +129899,38 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 441094, guid: e891df2b218bdaf45ad012d0e25fb64c, type: 3}
   m_PrefabInstance: {fileID: 1059574780}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &1059626899
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1059626900}
+  m_Layer: 0
+  m_Name: second npc
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1059626900
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1059626899}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 1978964280}
+  m_Father: {fileID: 221949681}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &1060003405
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -181673,6 +181771,147 @@ PrefabInstance:
       propertyPath: talkingBool
       value: talking
       objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.size
+      value: 2
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[0].stageName
+      value: Before rescuing
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].stageName
+      value: After rescuing
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[0].secondsPerLine
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].secondsPerLine
+      value: 8
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[0].lines.Array.size
+      value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.size
+      value: 17
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[0].lines.Array.data[0]
+      value: Over here! Do not stop moving -- they track sound, keep shooting!
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[0].lines.Array.data[1]
+      value: I did not think anyone was coming. I have been down here for four days.
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[0].lines.Array.data[2]
+      value: We talk when they are dead. Go!
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[0]
+      value: Good. That is the last of them for now. They will send more eventually.
+        They always do.
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[1]
+      value: My name is Petrov. Aleksei Petrov. I built half of what is in this station.
+        I am not proud of that anymore.
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[2]
+      value: Koschei was not a research post. That was the cover. This was a weapons
+        program. Late Soviet era, fully black. The goal was biological enhancement
+        -- soldiers who did not feel pain, did not tire, did not disobey.
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[3]
+      value: They succeeded. Partially. The subjects did not feel pain. They did
+        not tire. But they also stopped being people. Something in the process --
+        we never understood exactly what -- it rewrote them. Made them into something
+        that only knows hunger and proximity.
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[4]
+      value: The scavengers you have been fighting. They were the test subjects.
+        The ones that survived the process. When the program was shut down they were
+        supposed to be destroyed. They were not. Someone decided they were still
+        useful.
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[5]
+      value: The station was sealed around them. The official story was a chemical
+        leak. Forty years they have been in here. Breeding. Evolving. Getting worse.
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[6]
+      value: But that is not the worst of it. There was one subject. The first one.
+        The one the entire program was built around. They called it Koschei -- same
+        as the station.
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[7]
+      value: 'The others changed physically. Koschei changed differently. It retained
+        cognitive function. Higher than human, we think. It did not lose the ability
+        to reason -- it lost the ability to care.
+
+        
+
+'
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[8]
+      value: It learned to mimic. Early on it was crude -- wrong posture, wrong timing,
+        wrong words. By the time we realized what it was doing it had already moved
+        through three secure wings undetected. It had watched us long enough to become
+        convincing.
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[9]
+      value: We found the bodies later. The real people. Koschei had not killed them
+        out of aggression. It had simply replaced them because they were in the way.
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[10]
+      value: It does not attack directly unless it has to. It walks among its targets.
+        It listens. It learns your patterns, your voice, the way you move. Then it
+        becomes someone you trust.
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[11]
+      value: We tried to contain it. We failed. The station was sealed with it inside
+        because nobody could agree on how to kill it without getting close enough
+        for it to study them.
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[12]
+      value: If it has been down here for forty years with nothing but time and the
+        scavengers to practice on -- I do not want to think about how good it has
+        gotten.
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[13]
+      value: If anyone in your group has been acting strangely. Saying things that
+        feel slightly wrong. Appearing somewhere they should not be. Do not dismiss
+        it. Do not confront it alone.
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[14]
+      value: It will not look like a monster. That is the whole point. It will look
+        exactly like someone you have already decided to trust.
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[15]
+      value: Get back to Dr. Voss. Tell her Petrov is alive. Tell her Koschei is
+        active and moving toward the surface. She will know what to do with that.
+      objectReference: {fileID: 0}
+    - target: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[16]
+      value: I will follow when I can walk. Go. And watch who you walk back with.
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -181688,6 +181927,28 @@ Animator:
   m_CorrespondingSourceObject: {fileID: 3971455369552112223, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
   m_PrefabInstance: {fileID: 1461466543}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &1461466551 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 9095793402428652668, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+  m_PrefabInstance: {fileID: 1461466543}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a595aa9f65b6ad14eb59b0dfa92a2a74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+--- !u!114 &1461466554 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 5077920981715410504, guid: 8053684853cb0d44ca452ee02f54e217, type: 3}
+  m_PrefabInstance: {fileID: 1461466543}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3934e0d788a8fbc4790c75debaefb1b9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1001 &1461798351
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -212719,6 +212980,106 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 439586, guid: 46aad46494938c844a7bfbbcb53b98e1, type: 3}
   m_PrefabInstance: {fileID: 1657947871}
   m_PrefabAsset: {fileID: 0}
+--- !u!1001 &1658215120
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 427285921}
+    m_Modifications:
+    - target: {fileID: 400911283755929277, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: dieParam
+      value: dead
+      objectReference: {fileID: 0}
+    - target: {fileID: 400911283755929277, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: patrolRadius
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 596278783192970733, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: GlobalObjectIdHash
+      value: 2643569376
+      objectReference: {fileID: 0}
+    - target: {fileID: 596278783192970733, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: InScenePlacedSourceGlobalObjectIdHash
+      value: 4274773428
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: -3.928894
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: -17.33247
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 113.793335
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: -0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: -0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: -0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6733780691644045083, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_Name
+      value: scientist npc
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+--- !u!114 &1658215121 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 400911283755929277, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+  m_PrefabInstance: {fileID: 1658215120}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3934e0d788a8fbc4790c75debaefb1b9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+--- !u!4 &1658215122 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+  m_PrefabInstance: {fileID: 1658215120}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &1658215123 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+  m_PrefabInstance: {fileID: 1658215120}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a595aa9f65b6ad14eb59b0dfa92a2a74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1001 &1658552829
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -217052,6 +217413,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1691946134}
+  - component: {fileID: 1691946135}
   m_Layer: 0
   m_Name: rescue task
   m_TagString: Untagged
@@ -217076,6 +217438,28 @@ Transform:
   - {fileID: 1393555088}
   m_Father: {fileID: 221949681}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1691946135
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1691946133}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e6ed388e37d38ef44a33ae3c80e639ad, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  buildingCenter: {fileID: 1393555088}
+  scientistNPC: {fileID: 1461466544}
+  alienPrefab: {fileID: 8070923430143094911, guid: fa28d04f0fe6d4f44b548ea292dd8ecf, type: 3}
+  totalAliens: 50
+  aliensPerWave: 5
+  timeBetweenWaves: 12
+  spawnStaggerInterval: 0.35
+  spawnRadius: 30
+  spawnRadiusJitter: 3
+  alienPatrolRadius: 8
 --- !u!1001 &1692129402
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -243414,21 +243798,53 @@ PrefabInstance:
       propertyPath: fieldTask
       value: 
       objectReference: {fileID: 1907816352}
-    - target: {fileID: 3921729399335060767, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
-      propertyPath: spawnRadius
-      value: 30
-      objectReference: {fileID: 0}
-    - target: {fileID: 3921729399335060767, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
-      propertyPath: scientistNPC
+    - target: {fileID: 2923355420650352709, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
+      propertyPath: bossPrefab
       value: 
-      objectReference: {fileID: 1461466544}
-    - target: {fileID: 3921729399335060767, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
-      propertyPath: buildingCenter
+      objectReference: {fileID: 8070923430143094911, guid: fa28d04f0fe6d4f44b548ea292dd8ecf, type: 3}
+    - target: {fileID: 2923355420650352709, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
+      propertyPath: npc1Dialogue
       value: 
-      objectReference: {fileID: 1393555088}
+      objectReference: {fileID: 1658215123}
+    - target: {fileID: 2923355420650352709, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
+      propertyPath: npc2Dialogue
+      value: 
+      objectReference: {fileID: 1978964279}
+    - target: {fileID: 2923355420650352709, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
+      propertyPath: npc3Dialogue
+      value: 
+      objectReference: {fileID: 1461466551}
+    - target: {fileID: 2923355420650352709, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
+      propertyPath: bossSpawnPoint
+      value: 
+      objectReference: {fileID: 71891539}
+    - target: {fileID: 2923355420650352709, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
+      propertyPath: npc1Controller
+      value: 
+      objectReference: {fileID: 1658215121}
+    - target: {fileID: 2923355420650352709, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
+      propertyPath: npc3Controller
+      value: 
+      objectReference: {fileID: 1461466554}
+    - target: {fileID: 2923355420650352709, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
+      propertyPath: impostorConnector
+      value: 
+      objectReference: {fileID: 2139008039}
+    - target: {fileID: 2923355420650352709, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
+      propertyPath: scavengerRaidTask
+      value: 
+      objectReference: {fileID: 1691946135}
     - target: {fileID: 7237781434840970133, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
       propertyPath: m_Name
       value: TaskManager
+      objectReference: {fileID: 0}
+    - target: {fileID: 7346632230547729201, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
+      propertyPath: GlobalObjectIdHash
+      value: 1784135589
+      objectReference: {fileID: 0}
+    - target: {fileID: 7346632230547729201, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
+      propertyPath: InScenePlacedSourceGlobalObjectIdHash
+      value: 3947647358
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
@@ -252023,6 +252439,242 @@ PrefabInstance:
 Transform:
   m_CorrespondingSourceObject: {fileID: 406252, guid: ab34233292d193c47948f094a12fc6c7, type: 3}
   m_PrefabInstance: {fileID: 1978741389}
+  m_PrefabAsset: {fileID: 0}
+--- !u!1001 &1978964278
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 1059626900}
+    m_Modifications:
+    - target: {fileID: 400911283755929277, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: dieParam
+      value: dead
+      objectReference: {fileID: 0}
+    - target: {fileID: 400911283755929277, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: patrolRadius
+      value: 10
+      objectReference: {fileID: 0}
+    - target: {fileID: 596278783192970733, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: GlobalObjectIdHash
+      value: 3222437368
+      objectReference: {fileID: 0}
+    - target: {fileID: 596278783192970733, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: InScenePlacedSourceGlobalObjectIdHash
+      value: 4274773428
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 97.0506
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: -17.201694
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 431.99158
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: -0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: -0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: -0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6733780691644045083, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: m_Name
+      value: scientist npc
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.size
+      value: 2
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[0].stageName
+      value: Food and Burning task
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[1].stageName
+      value: Rescue task
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[2].stageName
+      value: Rescue task
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[0].secondsPerLine
+      value: 6
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[1].secondsPerLine
+      value: 6
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[2].secondsPerLine
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[0].lines.Array.size
+      value: 8
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.size
+      value: 7
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[2].lines.Array.size
+      value: 6
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[0].lines.Array.data[0]
+      value: 'You made it. I stopped counting on that about two days ago.
+
+'
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[0].lines.Array.data[1]
+      value: I am Dr. Voss. I have been in this station for eleven days. Do not ask
+        me how.
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[0].lines.Array.data[2]
+      value: There is a fungal growth spreading through the east corridor. It is
+        not natural. It responds to heat -- the only way to stop it spreading further
+        is to burn it out completely.
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[0].lines.Array.data[3]
+      value: Firewood has already been staged at the burn points. You just need to
+        get it there and light it. Do not breathe the spores in. Do not linger.
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[0].lines.Array.data[4]
+      value: 'The second problem: the survivors sheltering at the old church have
+        not eaten in three days. Supply cans are scattered across the station grounds.
+        Find them. Bring them.'
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[0].lines.Array.data[5]
+      value: Both of these need to happen. Not one. Both. The mushrooms will spread
+        if you delay, and the survivors will not last another night without food.
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[0].lines.Array.data[6]
+      value: I would come with you, but I cannot. There are things I am still trying
+        to understand here. Things that explain why this station was abandoned in
+        the first place.
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[0].lines.Array.data[7]
+      value: Do not dawdle. Come back when it is done.
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[0]
+      value: You are back. Fast. I did not expect that.
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[1]
+      value: While you were out there, I picked up a distress signal from the lower
+        levels. It is one of ours -- Dr. Petrov. He was part of the original research
+        team that worked here before the evacuation.
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[2]
+      value: He knows what this station was really used for. What they were building
+        down here before they sealed it off. That information cannot die with him.
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[3]
+      value: The scavengers have overrun that entire wing. He is still alive -- they
+        herd their targets, they do not kill immediately. But that will not last.
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[4]
+      value: You need to get down there and hold them off long enough for him to
+        get out. They will come in waves. Do not let them reach him.
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[5]
+      value: I would go myself but I cannot leave this post. If I lose what I have
+        found here, we lose the only lead we have on what caused all of this.
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[1].lines.Array.data[6]
+      value: Get him out. Whatever he tells you after -- listen to it. All of it.
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[2].lines.Array.data[0]
+      value: So. They actually sent someone. I was not holding my breath.
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[2].lines.Array.data[1]
+      value: I am what remains of the advance team. We entered three days ago. There
+        were four of us. Now there is me.
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[2].lines.Array.data[2]
+      value: This place -- Koschei Station. Soviet research post. Abandoned. Flooded.
+        Whatever happened here, it is not finished happening. You understand?
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[2].lines.Array.data[3]
+      value: Your objective is not complicated. Find the researchers still alive
+        in this zone. Stay with your group. Do not wander. This place does not forgive
+        stupidity.
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[2].lines.Array.data[4]
+      value: There is a woman waiting for you ahead. She has been in this zone longer
+        than any of us. She knows the layout, the dangers, all of it. She will brief
+        you properly.
+      objectReference: {fileID: 0}
+    - target: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+      propertyPath: stages.Array.data[2].lines.Array.data[5]
+      value: Go. And try not to die before you even reach her.
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+--- !u!114 &1978964279 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 7118270944668595468, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+  m_PrefabInstance: {fileID: 1978964278}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a595aa9f65b6ad14eb59b0dfa92a2a74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+--- !u!4 &1978964280 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
+  m_PrefabInstance: {fileID: 1978964278}
   m_PrefabAsset: {fileID: 0}
 --- !u!1001 &1979252082
 PrefabInstance:

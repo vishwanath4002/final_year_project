@@ -127,7 +127,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  GlobalObjectIdHash: 4274773428
+  GlobalObjectIdHash: 4038594572
   InScenePlacedSourceGlobalObjectIdHash: 0
   AlwaysReplicateAsRoot: 0
   SynchronizeTransform: 1
@@ -155,6 +155,7 @@ MonoBehaviour:
   patrolRadius: 20
   animator: {fileID: 0}
   speedParam: speed
+  dieParam: Die
 --- !u!95 &362966689410299862
 Animator:
   serializedVersion: 5
@@ -257,7 +258,7 @@ MonoBehaviour:
     secondsPerLine: 5
   animator: {fileID: 362966689410299862}
   talkingBool: talking
-  speedFloat: Speed
+  speedFloat: speed
 --- !u!1 &6820727631649590406
 GameObject:
   m_ObjectHideFlags: 0
@@ -293,7 +294,7 @@ RectTransform:
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
   m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 200, y: 50}
+  m_SizeDelta: {x: 250, y: 50}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &5643098009331201165
 CanvasRenderer:
@@ -428,7 +429,7 @@ RectTransform:
   m_AnchorMin: {x: 0.5, y: 0}
   m_AnchorMax: {x: 0.5, y: 0}
   m_AnchoredPosition: {x: 0, y: 200}
-  m_SizeDelta: {x: 1400, y: 200}
+  m_SizeDelta: {x: 1000, y: 200}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &6687313488924159697
 CanvasRenderer:

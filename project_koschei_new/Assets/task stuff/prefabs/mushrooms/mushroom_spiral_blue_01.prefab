@@ -16,7 +16,6 @@ GameObject:
   - component: {fileID: -9131870204250314144}
   - component: {fileID: 8484161584704819772}
   - component: {fileID: 523218290340747257}
-  - component: {fileID: -8586968658667504543}
   m_Layer: 0
   m_Name: mushroom_spiral_blue_01
   m_TagString: Untagged
@@ -202,15 +201,3 @@ MonoBehaviour:
   InLocalSpace: 0
   Interpolate: 1
   SlerpPosition: 0
---- !u!114 &-8586968658667504543
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7356094531894080164}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f6c0be61502bb534f922ebb746851216, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 

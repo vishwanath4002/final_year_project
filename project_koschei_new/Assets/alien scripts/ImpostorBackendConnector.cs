@@ -5,9 +5,8 @@ using UnityEngine;
 using UnityEngine.Networking;
 
 /// <summary>
-/// Handles communication between Unity and FastAPI backend for impostor spawning/despawning
-/// NOW: Continuously updates impostor with current group position
-/// UPDATED: Impostor walks away before despawning (distance-based)
+/// Handles communication between Unity and FastAPI backend for impostor spawning/despawning.
+/// Impostor spawning is GATED by game phase -- only active between Briefing and BossFight.
 /// </summary>
 public class ImpostorBackendConnector : NetworkBehaviour
 {
@@ -17,8 +16,8 @@ public class ImpostorBackendConnector : NetworkBehaviour
     public float groupUpdateInterval = 2f;
 
     [Header("Despawn Settings")]
-    public float walkAwayDistance = 30f; // How far impostor must walk before despawning
-    public float maxWalkAwayTime = 15f; // Safety timeout in case impostor gets stuck
+    public float walkAwayDistance = 30f;
+    public float maxWalkAwayTime = 15f;
 
     [Header("References")]
     public ImpostorAlienSpawner spawner;
@@ -30,6 +29,7 @@ public class ImpostorBackendConnector : NetworkBehaviour
 
     private bool isCheckingSpawn = false;
     private bool isWalkingAway = false;
+    private bool isImpostorEnabled = false;
     private string currentTargetGroupId = null;
     private string currentDisguiseAs = null;
 
@@ -59,18 +59,52 @@ public class ImpostorBackendConnector : NetworkBehaviour
         }
     }
 
+    // ----------------------------------------------------------------
+    // Phase Gating -- called by TaskManager
+    // ----------------------------------------------------------------
+
     /// <summary>
-    /// Continuously update impostor with current group position
+    /// Call this when players complete the Briefing (NPC2 dialogue done).
+    /// Impostor can now be spawned by the backend.
     /// </summary>
+    public void EnableImpostorSpawning()
+    {
+        isImpostorEnabled = true;
+        Debug.Log("[ImpostorBackend] Impostor spawning ENABLED (Briefing complete).");
+    }
+
+    /// <summary>
+    /// Call this when the Boss Fight begins (or on game over).
+    /// Immediately despawns any active impostor and blocks future spawns.
+    /// </summary>
+    public void DisableImpostorSpawning()
+    {
+        isImpostorEnabled = false;
+        Debug.Log("[ImpostorBackend] Impostor spawning DISABLED (Boss Fight / Game Over).");
+
+        // Despawn active impostor if one exists
+        if (spawner != null)
+        {
+            NetworkObject impostor = spawner.GetCurrentImpostor();
+            if (impostor != null && impostor.IsSpawned && !isWalkingAway)
+            {
+                Debug.Log("[ImpostorBackend] Forcing impostor despawn due to phase change.");
+                StartCoroutine(WalkAwayAndDespawn());
+            }
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // Continuously update impostor target position
+    // ----------------------------------------------------------------
+
     IEnumerator UpdateImpostorTargetRoutine()
     {
         while (true)
         {
             yield return new WaitForSeconds(groupUpdateInterval);
 
-            // Don't update if impostor is walking away
-            if (isWalkingAway)
-                continue;
+            if (isWalkingAway || !isImpostorEnabled) continue;
 
             if (currentTargetGroupId != null && spawner != null)
             {
@@ -89,7 +123,7 @@ public class ImpostorBackendConnector : NetworkBehaviour
                             ai.UpdateTargetGroupPosition(currentGroupCenter, groupMembers);
 
                             if (showDebugLogs)
-                                Debug.Log($"[ImpostorBackend] 📍 Updated impostor target: {currentGroupCenter:F1}");
+                                Debug.Log($"[ImpostorBackend] Updated impostor target: {currentGroupCenter:F1}");
                         }
                     }
                 }
@@ -97,22 +131,15 @@ public class ImpostorBackendConnector : NetworkBehaviour
         }
     }
 
-    /// <summary>
-    /// Get current center position of target group using PlayerGroupManager
-    /// </summary>
     Vector3 GetCurrentGroupCenter(string groupId)
     {
-        if (playerGroupManager == null)
-            return Vector3.zero;
+        if (playerGroupManager == null) return Vector3.zero;
 
         var activeGroups = playerGroupManager.GetActiveGroups();
-
         foreach (var group in activeGroups)
         {
             if (group.groupId == groupId)
-            {
                 return group.centerPosition;
-            }
         }
 
         if (showDebugLogs)
@@ -121,26 +148,23 @@ public class ImpostorBackendConnector : NetworkBehaviour
         return Vector3.zero;
     }
 
-    /// <summary>
-    /// Get current members of target group using PlayerGroupManager
-    /// </summary>
     string[] GetCurrentGroupMembers(string groupId)
     {
-        if (playerGroupManager == null)
-            return new string[0];
+        if (playerGroupManager == null) return new string[0];
 
         var activeGroups = playerGroupManager.GetActiveGroups();
-
         foreach (var group in activeGroups)
         {
             if (group.groupId == groupId)
-            {
                 return group.playerIds.ToArray();
-            }
         }
 
         return new string[0];
     }
+
+    // ----------------------------------------------------------------
+    // Spawn Polling
+    // ----------------------------------------------------------------
 
     IEnumerator CheckSpawnRoutine()
     {
@@ -148,15 +172,20 @@ public class ImpostorBackendConnector : NetworkBehaviour
         {
             yield return new WaitForSeconds(checkSpawnInterval);
 
-            if (!isCheckingSpawn && spawner != null)
-            {
+            if (!isCheckingSpawn && spawner != null && isImpostorEnabled)
                 StartCoroutine(CheckSpawnWithBackend());
-            }
         }
     }
 
     IEnumerator CheckSpawnWithBackend()
     {
+        // Guard: do not spawn if phase gate is closed
+        if (!isImpostorEnabled)
+        {
+            isCheckingSpawn = false;
+            yield break;
+        }
+
         isCheckingSpawn = true;
 
         string url = $"{backendUrl}/impostor/check_spawn";
@@ -170,25 +199,21 @@ public class ImpostorBackendConnector : NetworkBehaviour
                 string json = request.downloadHandler.text;
                 SpawnCheckResponse response = JsonUtility.FromJson<SpawnCheckResponse>(json);
 
-                // Handle despawn signal - with walk away animation
                 if (response.should_despawn && !isWalkingAway)
                 {
                     if (showDebugLogs)
-                        Debug.Log($"[ImpostorBackend] 👋 Backend says: DESPAWN (reason: {response.reason})");
+                        Debug.Log($"[ImpostorBackend] Backend says: DESPAWN (reason: {response.reason})");
 
-                    // Start walk away sequence instead of immediate despawn
                     StartCoroutine(WalkAwayAndDespawn());
                 }
-                // Handle spawn signal
-                else if (response.should_spawn && !string.IsNullOrEmpty(response.disguise_as))
+                else if (response.should_spawn && !string.IsNullOrEmpty(response.disguise_as) && isImpostorEnabled)
                 {
                     if (showDebugLogs)
                     {
                         Debug.Log($"[ImpostorBackend] ═══════════════════════════════════");
-                        Debug.Log($"[ImpostorBackend] 🎯 Backend says: SPAWN IMPOSTOR");
+                        Debug.Log($"[ImpostorBackend] Backend says: SPAWN IMPOSTOR");
                         Debug.Log($"[ImpostorBackend] Target Group: {response.target_group_id}");
                         Debug.Log($"[ImpostorBackend] Disguise As: {response.disguise_as}");
-                        Debug.Log($"[ImpostorBackend] Position: {response.target_group_position[0]}, {response.target_group_position[1]}, {response.target_group_position[2]}");
                         Debug.Log($"[ImpostorBackend] ═══════════════════════════════════");
                     }
 
@@ -218,14 +243,15 @@ public class ImpostorBackendConnector : NetworkBehaviour
         isCheckingSpawn = false;
     }
 
-    /// <summary>
-    /// Make impostor walk away and despawn when far enough (distance-based)
-    /// </summary>
+    // ----------------------------------------------------------------
+    // Walk Away & Despawn
+    // ----------------------------------------------------------------
+
     IEnumerator WalkAwayAndDespawn()
     {
         isWalkingAway = true;
 
-        NetworkObject impostor = spawner.GetCurrentImpostor();
+        NetworkObject impostor = spawner?.GetCurrentImpostor();
 
         if (impostor != null && impostor.IsSpawned)
         {
@@ -234,12 +260,10 @@ public class ImpostorBackendConnector : NetworkBehaviour
             if (ai != null)
             {
                 if (showDebugLogs)
-                    Debug.Log($"[ImpostorBackend] 🚶 Impostor walking away...");
+                    Debug.Log("[ImpostorBackend] Impostor walking away...");
 
-                // Tell AI to leave area
                 ai.LeaveArea();
 
-                // Wait until impostor is far enough from original position
                 Vector3 startPosition = impostor.transform.position;
                 float distanceTraveled = 0f;
                 float elapsedTime = 0f;
@@ -251,43 +275,36 @@ public class ImpostorBackendConnector : NetworkBehaviour
                 {
                     distanceTraveled = Vector3.Distance(startPosition, impostor.transform.position);
                     elapsedTime += 0.5f;
-
-                    if (showDebugLogs && Mathf.FloorToInt(elapsedTime) % 2 == 0) // Log every 2 seconds
-                        Debug.Log($"[ImpostorBackend] 📏 Distance traveled: {distanceTraveled:F1}m / {walkAwayDistance}m");
-
-                    yield return new WaitForSeconds(0.5f); // Check every 0.5 seconds
+                    yield return new WaitForSeconds(0.5f);
                 }
 
-                if (distanceTraveled >= walkAwayDistance)
+                if (showDebugLogs)
                 {
-                    if (showDebugLogs)
-                        Debug.Log($"[ImpostorBackend] ✅ Impostor reached target distance: {distanceTraveled:F1}m");
-                }
-                else if (elapsedTime >= maxWalkAwayTime)
-                {
-                    if (showDebugLogs)
-                        Debug.LogWarning($"[ImpostorBackend] ⏱️ Walk away timeout reached ({elapsedTime:F1}s), despawning anyway");
+                    if (distanceTraveled >= walkAwayDistance)
+                        Debug.Log($"[ImpostorBackend] Impostor reached leave distance: {distanceTraveled:F1}m");
+                    else
+                        Debug.LogWarning($"[ImpostorBackend] Walk-away timeout after {elapsedTime:F1}s");
                 }
             }
         }
 
-        // Now despawn
         if (showDebugLogs)
-            Debug.Log($"[ImpostorBackend] 💨 Despawning impostor now");
+            Debug.Log("[ImpostorBackend] Despawning impostor now.");
 
-        spawner.DespawnCurrentImpostor();
+        spawner?.DespawnCurrentImpostor();
         currentTargetGroupId = null;
         currentDisguiseAs = null;
         isWalkingAway = false;
     }
 
-    /// <summary>
-    /// Called by spawner after impostor spawns successfully
-    /// </summary>
+    // ----------------------------------------------------------------
+    // Called by spawner after impostor spawns
+    // ----------------------------------------------------------------
+
     public void OnImpostorSpawned(NetworkObject impostorNetObj, string targetGroupId, string disguiseAs)
     {
         if (showDebugLogs)
-            Debug.Log($"[ImpostorBackend] ✅ Impostor spawned, activating backend...");
+            Debug.Log("[ImpostorBackend] Impostor spawned, activating backend...");
 
         currentTargetGroupId = targetGroupId;
         currentDisguiseAs = disguiseAs;
@@ -321,7 +338,7 @@ public class ImpostorBackendConnector : NetworkBehaviour
             if (request.result == UnityWebRequest.Result.Success)
             {
                 if (showDebugLogs)
-                    Debug.Log($"[ImpostorBackend] ✅ Backend impostor activated as {disguiseAs}");
+                    Debug.Log($"[ImpostorBackend] Backend impostor activated as {disguiseAs}");
             }
             else
             {
@@ -330,13 +347,14 @@ public class ImpostorBackendConnector : NetworkBehaviour
         }
     }
 
-    /// <summary>
-    /// Notify backend when impostor despawns
-    /// </summary>
+    // ----------------------------------------------------------------
+    // Notify backend when impostor despawns
+    // ----------------------------------------------------------------
+
     public void NotifyImpostorDespawned()
     {
         if (showDebugLogs)
-            Debug.Log($"[ImpostorBackend] 🗑️ Notifying backend of despawn...");
+            Debug.Log("[ImpostorBackend] Notifying backend of despawn...");
 
         currentTargetGroupId = null;
         currentDisguiseAs = null;
@@ -359,7 +377,7 @@ public class ImpostorBackendConnector : NetworkBehaviour
             if (request.result == UnityWebRequest.Result.Success)
             {
                 if (showDebugLogs)
-                    Debug.Log($"[ImpostorBackend] ✅ Backend impostor deactivated");
+                    Debug.Log("[ImpostorBackend] Backend impostor deactivated.");
             }
             else
             {
@@ -367,6 +385,10 @@ public class ImpostorBackendConnector : NetworkBehaviour
             }
         }
     }
+
+    // ----------------------------------------------------------------
+    // Data Classes
+    // ----------------------------------------------------------------
 
     [System.Serializable]
     public class SpawnCheckResponse

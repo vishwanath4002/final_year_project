@@ -16,7 +16,6 @@ GameObject:
   - component: {fileID: 1674216975467630093}
   - component: {fileID: -860098809812348408}
   - component: {fileID: -4954861132206968877}
-  - component: {fileID: -8256769613481797313}
   m_Layer: 0
   m_Name: mushroom_tall_blue_03
   m_TagString: Untagged
@@ -202,15 +201,3 @@ MonoBehaviour:
   InLocalSpace: 0
   Interpolate: 1
   SlerpPosition: 0
---- !u!114 &-8256769613481797313
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8838989336892331598}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f6c0be61502bb534f922ebb746851216, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 

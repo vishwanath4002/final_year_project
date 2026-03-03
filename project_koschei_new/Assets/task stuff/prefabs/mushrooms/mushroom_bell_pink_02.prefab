@@ -16,7 +16,6 @@ GameObject:
   - component: {fileID: 5789304639561462250}
   - component: {fileID: 5222128352248571591}
   - component: {fileID: -903985705757024755}
-  - component: {fileID: 4245579146914042390}
   m_Layer: 0
   m_Name: mushroom_bell_pink_02
   m_TagString: Untagged
@@ -202,15 +201,3 @@ MonoBehaviour:
   InLocalSpace: 0
   Interpolate: 1
   SlerpPosition: 0
---- !u!114 &4245579146914042390
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 3355958843791965789}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f6c0be61502bb534f922ebb746851216, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 

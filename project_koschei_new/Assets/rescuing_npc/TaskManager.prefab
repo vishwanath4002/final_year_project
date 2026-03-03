@@ -9,7 +9,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 206118842897371004}
-  - component: {fileID: 3921729399335060767}
+  - component: {fileID: 7346632230547729201}
   - component: {fileID: 2923355420650352709}
   m_Layer: 0
   m_Name: TaskManager
@@ -33,7 +33,7 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &3921729399335060767
+--- !u!114 &7346632230547729201
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -42,19 +42,18 @@ MonoBehaviour:
   m_GameObject: {fileID: 7237781434840970133}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e6ed388e37d38ef44a33ae3c80e639ad, type: 3}
+  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  buildingCenter: {fileID: 0}
-  scientistNPC: {fileID: 0}
-  alienPrefab: {fileID: 8070923430143094911, guid: fa28d04f0fe6d4f44b548ea292dd8ecf, type: 3}
-  totalAliens: 50
-  aliensPerWave: 5
-  timeBetweenWaves: 12
-  spawnStaggerInterval: 0.35
-  spawnRadius: 20
-  spawnRadiusJitter: 3
-  alienPatrolRadius: 8
+  GlobalObjectIdHash: 3947647358
+  InScenePlacedSourceGlobalObjectIdHash: 0
+  AlwaysReplicateAsRoot: 0
+  SynchronizeTransform: 1
+  ActiveSceneSynchronization: 0
+  SceneMigrationSynchronization: 1
+  SpawnWithObservers: 1
+  DontDestroyWithOwner: 0
+  AutoObjectParentSync: 1
 --- !u!114 &2923355420650352709
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -67,4 +66,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e4f0842dc472ae749a5bfc132665f446, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  scavengerRaidTask: {fileID: 3921729399335060767}
+  fieldTask: {fileID: 0}
+  scavengerRaidTask: {fileID: 0}
+  npc1Dialogue: {fileID: 0}
+  npc1Controller: {fileID: 0}
+  npc2Dialogue: {fileID: 0}
+  npc3Dialogue: {fileID: 0}
+  npc3Controller: {fileID: 0}
+  bossPrefab: {fileID: 0}
+  bossSpawnPoint: {fileID: 0}
+  impostorConnector: {fileID: 0}
+  currentPhaseDisplay: 0

@@ -16,7 +16,6 @@ GameObject:
   - component: {fileID: -6375431100234469098}
   - component: {fileID: 5299124571149656050}
   - component: {fileID: -8380754843815341438}
-  - component: {fileID: -9090067201458549192}
   m_Layer: 0
   m_Name: mushroom_spiral_pink_03
   m_TagString: Untagged
@@ -202,15 +201,3 @@ MonoBehaviour:
   InLocalSpace: 0
   Interpolate: 1
   SlerpPosition: 0
---- !u!114 &-9090067201458549192
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 3335838654002185629}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f6c0be61502bb534f922ebb746851216, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 

@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using UnityEngine;
 using Unity.Netcode;
@@ -20,7 +21,7 @@ public class ScientistNPCDialogue : NetworkBehaviour
     {
         new DialogueStage
         {
-            stageName      = "Introduction",
+            stageName = "Introduction",
             secondsPerLine = 5f,
             lines = new string[]
             {
@@ -41,7 +42,7 @@ public class ScientistNPCDialogue : NetworkBehaviour
     [SerializeField] private string speedFloat = "Speed";
 
     // -------------------------------------------------------------------------
-    // NetworkVariables -- automatically synced to every client
+    // NetworkVariables
     // -------------------------------------------------------------------------
     private NetworkVariable<bool> _isTalking = new NetworkVariable<bool>(false,
         NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
@@ -52,12 +53,21 @@ public class ScientistNPCDialogue : NetworkBehaviour
     private NetworkVariable<int> _currentLine = new NetworkVariable<int>(0,
         NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
-    // Syncs NPC walk speed to all clients so the walking animation plays correctly
     private NetworkVariable<float> _syncSpeed = new NetworkVariable<float>(0f,
+        NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    // Synced death state -- so late-joining clients also see NPC as dead
+    private NetworkVariable<bool> _isDead = new NetworkVariable<bool>(false,
         NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
     private Coroutine _dialogueCoroutine;
     private ulong _interactingClientId = ulong.MaxValue;
+
+    /// <summary>
+    /// Fires on the server when a dialogue stage fully completes.
+    /// int = the stage index that just finished.
+    /// </summary>
+    public event Action<int> OnStageCompleted;
 
     // -------------------------------------------------------------------------
     public override void OnNetworkSpawn()
@@ -67,29 +77,47 @@ public class ScientistNPCDialogue : NetworkBehaviour
         if (animator == null)
             animator = GetComponentInChildren<Animator>();
 
-        // Talking animation -- driven by NetworkVariable so it syncs on all clients
+        // Talking animation
         _isTalking.OnValueChanged += (_, nowTalking) =>
         {
             if (animator != null)
                 animator.SetBool(talkingBool, nowTalking);
         };
 
-        // Walking speed -- driven by NetworkVariable so clients animate correctly
+        // Walk speed
         _syncSpeed.OnValueChanged += (_, speed) =>
         {
             if (animator != null)
                 animator.SetFloat(speedFloat, speed);
         };
 
-        // Apply current values immediately for late-joining clients
+        // Death sync -- fires on all clients when server sets _isDead
+        _isDead.OnValueChanged += (_, nowDead) =>
+        {
+            if (nowDead)
+            {
+                var controller = GetComponent<ScientistNPCController>();
+                if (controller != null) controller.KillNPC();
+            }
+        };
+
+        // Apply current state immediately for late-joining clients
         if (animator != null)
         {
             animator.SetBool(talkingBool, _isTalking.Value);
             animator.SetFloat(speedFloat, _syncSpeed.Value);
         }
+
+        if (_isDead.Value)
+        {
+            var controller = GetComponent<ScientistNPCController>();
+            if (controller != null) controller.KillNPC();
+        }
     }
 
-    // Called by ScientistNPCController on the server every frame
+    // -------------------------------------------------------------------------
+    // Speed sync (called by controller on server every frame)
+    // -------------------------------------------------------------------------
     public void ServerUpdateSpeed(float speed)
     {
         if (!IsServer) return;
@@ -114,6 +142,7 @@ public class ScientistNPCDialogue : NetworkBehaviour
     {
         if (!IsServer) return;
         if (_isTalking.Value) return;
+        if (_isDead.Value) return;
 
         if (_dialogueCoroutine != null)
             StopCoroutine(_dialogueCoroutine);
@@ -123,7 +152,7 @@ public class ScientistNPCDialogue : NetworkBehaviour
     }
 
     // -------------------------------------------------------------------------
-    // Stage unlocking -- call from quest/task scripts
+    // Stage unlocking -- called from TaskManager when a new phase begins
     // -------------------------------------------------------------------------
     public void UnlockNextStage()
     {
@@ -145,24 +174,43 @@ public class ScientistNPCDialogue : NetworkBehaviour
     }
 
     // -------------------------------------------------------------------------
-    // Called by ScientistNPCController whenever the local player enters/exits
-    // the NPC's interaction radius. Runs on every client for their own player.
+    // Kill NPC -- synced to all clients via NetworkVariable
+    // Always call this instead of calling KillNPC() on the controller directly
+    // -------------------------------------------------------------------------
+    public void SyncKillNPC()
+    {
+        if (!IsServer)
+        {
+            Debug.LogWarning("[ScientistNPCDialogue] SyncKillNPC called on client -- ignored.");
+            return;
+        }
+        if (_isDead.Value) return;
+
+        _isDead.Value = true; // triggers OnValueChanged on all clients
+
+        // Also kill locally on server immediately
+        var controller = GetComponent<ScientistNPCController>();
+        if (controller != null) controller.KillNPC();
+
+        Debug.Log($"[ScientistNPCDialogue] {gameObject.name} death synced to all clients.");
+    }
+
+    // -------------------------------------------------------------------------
+    // Proximity UI
     // -------------------------------------------------------------------------
     public void SetPlayerNearby(bool nearby)
     {
         if (NPCDialogueUI.Instance == null) return;
+        if (_isDead.Value) return; // dead NPC shows no UI
 
         NPCDialogueUI.Instance.IsNearNPC = nearby;
 
         if (nearby)
         {
             if (!_isTalking.Value)
-            {
                 NPCDialogueUI.Instance.ShowInteractHint();
-            }
             else
             {
-                // Dialogue is already running -- show the current line immediately
                 int s = _currentStage.Value;
                 int l = _currentLine.Value;
                 if (s < stages.Length && l < stages[s].lines.Length)
@@ -176,7 +224,7 @@ public class ScientistNPCDialogue : NetworkBehaviour
     }
 
     // -------------------------------------------------------------------------
-    // Server coroutine -- single source of truth for all timing
+    // Server coroutine -- single source of truth for dialogue timing
     // -------------------------------------------------------------------------
     private IEnumerator RunDialogue()
     {
@@ -186,8 +234,6 @@ public class ScientistNPCDialogue : NetworkBehaviour
         DialogueStage stage = stages[stageIdx];
         if (stage.lines == null || stage.lines.Length == 0) yield break;
 
-        // Setting _isTalking triggers OnValueChanged on ALL clients,
-        // setting animator.SetBool(talkingBool, true) everywhere
         _isTalking.Value = true;
 
         var controller = GetComponent<ScientistNPCController>();
@@ -206,7 +252,6 @@ public class ScientistNPCDialogue : NetworkBehaviour
             yield return new WaitForSeconds(stage.secondsPerLine);
         }
 
-        // Setting false triggers OnValueChanged everywhere, turning animation off
         _isTalking.Value = false;
         _currentLine.Value = 0;
         HideDialogueClientRpc();
@@ -214,10 +259,11 @@ public class ScientistNPCDialogue : NetworkBehaviour
         if (controller != null) controller.StopTalking();
 
         _dialogueCoroutine = null;
+
+        // Notify TaskManager -- server only
+        OnStageCompleted?.Invoke(stageIdx);
     }
 
-    // -------------------------------------------------------------------------
-    // ClientRpcs -- UI only, animation handled by NetworkVariable callbacks
     // -------------------------------------------------------------------------
     [ClientRpc]
     private void ShowLineClientRpc(string line)
@@ -234,4 +280,5 @@ public class ScientistNPCDialogue : NetworkBehaviour
     }
 
     public bool IsTalking => _isTalking.Value;
+    public bool IsDead => _isDead.Value;
 }

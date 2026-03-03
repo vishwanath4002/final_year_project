@@ -5,7 +5,7 @@ using UnityEngine.AI;
 using Unity.Netcode;
 using StarterAssets;
 
-public enum ScientistState { Idle, Patrol, Talk }
+public enum ScientistState { Idle, Patrol, Talk, Dead }
 
 public class ScientistNPCController : MonoBehaviour
 {
@@ -23,6 +23,8 @@ public class ScientistNPCController : MonoBehaviour
     [Header("Animation")]
     public Animator animator;
     public string speedParam = "Speed";
+    [Tooltip("Optional: Trigger parameter name in the Animator for death.")]
+    public string dieParam = "Die";
 
     NavMeshAgent agent;
     ScientistState state = ScientistState.Idle;
@@ -33,6 +35,9 @@ public class ScientistNPCController : MonoBehaviour
 
     private ScientistNPCDialogue _dialogue;
     private bool _playerWasNearby = false;
+    private bool isDead = false;
+
+    public bool IsDead => isDead;
 
     void Start()
     {
@@ -50,10 +55,10 @@ public class ScientistNPCController : MonoBehaviour
 
     void Update()
     {
-        // Proximity check always runs so UI stays accurate on all clients
+        if (isDead) return;
+
         CheckForPlayerProximity();
 
-        // Interact input only checked when not talking
         if (!(_dialogue != null && _dialogue.IsTalking))
             CheckForInteractPress();
 
@@ -64,7 +69,6 @@ public class ScientistNPCController : MonoBehaviour
             case ScientistState.Talk: UpdateTalk(); break;
         }
 
-        // Only the server drives speed -- NetworkVariable syncs it to all clients
         bool isServer = NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer;
         if (isServer)
         {
@@ -74,7 +78,9 @@ public class ScientistNPCController : MonoBehaviour
         }
     }
 
-    // Runs every frame on every client -- keeps IsNearNPC and UI hint accurate
+    // -------------------------------------------------------------------------
+    // Proximity check -- runs on every client to keep UI hint accurate
+    // -------------------------------------------------------------------------
     void CheckForPlayerProximity()
     {
         Collider[] nearby = Physics.OverlapSphere(transform.position, interactionRange);
@@ -111,40 +117,41 @@ public class ScientistNPCController : MonoBehaviour
         }
     }
 
-    // Runs every frame only when not talking -- handles E / interact press
+    // -------------------------------------------------------------------------
+    // Interact press -- only checks the LOCAL player on each client
+    // Prevents two clients both firing RequestInteractServerRpc simultaneously
+    // -------------------------------------------------------------------------
     void CheckForInteractPress()
     {
         Collider[] nearby = Physics.OverlapSphere(transform.position, interactionRange);
 
-        GameObject closestPlayer = null;
-        float closestDist = interactionRange;
-
         foreach (Collider col in nearby)
         {
             if (!col.CompareTag("Player")) continue;
+
+            // Only care about the local player on this client
+            var netObj = col.GetComponent<NetworkObject>();
+            if (netObj == null || !netObj.IsOwner) continue;
+
             float dist = Vector3.Distance(transform.position, col.transform.position);
-            if (dist < closestDist)
+            if (dist > interactionRange) continue;
+
+            StarterAssetsInputs playerInput = col.GetComponent<StarterAssetsInputs>();
+            if (playerInput != null && playerInput.interact)
             {
-                closestDist = dist;
-                closestPlayer = col.gameObject;
+                playerInput.interact = false;
+
+                if (_dialogue != null)
+                    _dialogue.RequestInteractFromController(netObj.OwnerClientId);
+
+                StartTalking(col.transform);
             }
-        }
 
-        if (closestPlayer == null) return;
-
-        StarterAssetsInputs playerInput = closestPlayer.GetComponent<StarterAssetsInputs>();
-        if (playerInput != null && playerInput.interact)
-        {
-            playerInput.interact = false;
-
-            var netObj = closestPlayer.GetComponent<NetworkObject>();
-            if (_dialogue != null && netObj != null)
-                _dialogue.RequestInteractFromController(netObj.OwnerClientId);
-
-            StartTalking(closestPlayer.transform);
+            break; // found local player, no need to continue
         }
     }
 
+    // -------------------------------------------------------------------------
     void UpdatePatrol()
     {
         if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance + 0.1f)
@@ -183,7 +190,7 @@ public class ScientistNPCController : MonoBehaviour
 
     public void StartTalking(Transform player)
     {
-        if (isTalking) return;
+        if (isTalking || isDead) return;
 
         isTalking = true;
         talkingToPlayer = player;
@@ -216,7 +223,7 @@ public class ScientistNPCController : MonoBehaviour
 
     public void StopTalking()
     {
-        if (!isTalking) return;
+        if (!isTalking || isDead) return;
 
         isTalking = false;
         talkingToPlayer = null;
@@ -225,10 +232,43 @@ public class ScientistNPCController : MonoBehaviour
         agent.speed = patrolSpeed;
         SetRandomPatrolDestination();
 
-        // Reset so proximity check re-evaluates cleanly next frame
         _playerWasNearby = false;
     }
 
+    // -------------------------------------------------------------------------
+    // Death -- called locally on every client via ScientistNPCDialogue._isDead
+    // Do NOT call this directly from TaskManager -- use npc1Dialogue.SyncKillNPC()
+    // -------------------------------------------------------------------------
+    public void KillNPC()
+    {
+        if (isDead) return;
+        isDead = true;
+        state = ScientistState.Dead;
+
+        isTalking = false;
+        talkingToPlayer = null;
+
+        if (agent != null)
+        {
+            agent.isStopped = true;
+            agent.velocity = Vector3.zero;
+            agent.enabled = false;
+        }
+
+        if (animator != null && !string.IsNullOrEmpty(dieParam))
+            animator.SetTrigger(dieParam);
+
+        if (_dialogue != null)
+            _dialogue.SetPlayerNearby(false);
+
+        if (NPCDialogueUI.Instance != null)
+            NPCDialogueUI.Instance.HideDialogue();
+
+        enabled = false;
+        Debug.Log($"[ScientistNPCController] {gameObject.name} is dead.");
+    }
+
+    // -------------------------------------------------------------------------
     void UpdateAnimationFromAgent()
     {
         if (animator == null) return;
