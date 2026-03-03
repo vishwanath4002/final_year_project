@@ -49621,6 +49621,55 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 498234, guid: d42b314579688ac45a9ba43cf3b4e760, type: 3}
   m_PrefabInstance: {fileID: 398766273}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &398837171
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 398837172}
+  - component: {fileID: 398837173}
+  m_Layer: 0
+  m_Name: palyer spawn manager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &398837172
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 398837171}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 490.24796, y: 17.458427, z: 151.92395}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &398837173
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 398837171}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7debbc86a27cb5b4f897bea55ad4be38, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  spawnPositions:
+  - {x: 457, y: 28, z: 156}
+  - {x: 457, y: 28, z: 160}
+  - {x: 457, y: 28, z: 164}
+  - {x: 457, y: 28, z: 168}
 --- !u!1001 &399014026
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -75767,7 +75816,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &620647176
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -181858,7 +181907,7 @@ PrefabInstance:
         cognitive function. Higher than human, we think. It did not lose the ability
         to reason -- it lost the ability to care.
 
-        
+
 
 '
       objectReference: {fileID: 0}
@@ -275954,3 +276003,4 @@ SceneRoots:
   - {fileID: 2139008038}
   - {fileID: 309538817}
   - {fileID: 2101326445}
+  - {fileID: 398837172}

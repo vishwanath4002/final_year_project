@@ -4,26 +4,29 @@ using UnityEngine.UI;
 
 public class AuthenticateUI : MonoBehaviour
 {
-
-    [SerializeField] private TMP_InputField usernameInput; // Reference to your input field
-    [SerializeField] private Button playButton;           // Reference to your Play Game button
+    [SerializeField] private TMP_InputField usernameInput;
+    [SerializeField] private Button playButton;
 
     private void Awake()
     {
-        // We add a listener so that when the button is clicked, this code runs
         playButton.onClick.AddListener(() =>
         {
-            string playerName = usernameInput.text;
+            string playerName = usernameInput.text.Trim();
 
-            if (!string.IsNullOrEmpty(playerName))
+            if (string.IsNullOrEmpty(playerName))
             {
-                // This triggers the authentication and scene change in LobbyManager
-                LobbyManager.Instance.Authenticate(playerName);
+                Debug.LogWarning("[AuthenticateUI] Username cannot be empty.");
+                return;
             }
-            else
+
+            if (LobbyManager.Instance == null)
             {
-                Debug.LogWarning("Username cannot be empty!");
+                Debug.LogError("[AuthenticateUI] LobbyManager.Instance is null! Add LobbyManager to the LoginScene.");
+                return;
             }
+
+            playButton.interactable = false; // prevent double click
+            LobbyManager.Instance.Authenticate(playerName);
         });
     }
 }
