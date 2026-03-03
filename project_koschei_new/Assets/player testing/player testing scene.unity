@@ -997,6 +997,18 @@ PrefabInstance:
       propertyPath: m_IsActive
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 4124281389854557173, guid: c26648bdae40af847afda5907b9cd5d9, type: 3}
+      propertyPath: vfxHitRed
+      value: 
+      objectReference: {fileID: 238988826293623110, guid: 82eacf9159853a24898b277da512e7c7, type: 3}
+    - target: {fileID: 4124281389854557173, guid: c26648bdae40af847afda5907b9cd5d9, type: 3}
+      propertyPath: vfxHitGreen
+      value: 
+      objectReference: {fileID: 5750949564298601908, guid: e3765759529011a45aa7e3bce0d7ae48, type: 3}
+    - target: {fileID: 4124281389854557173, guid: c26648bdae40af847afda5907b9cd5d9, type: 3}
+      propertyPath: reloadVolume
+      value: 0.6
+      objectReference: {fileID: 0}
     - target: {fileID: 8690771684101472489, guid: c26648bdae40af847afda5907b9cd5d9, type: 3}
       propertyPath: m_LocalPosition.x
       value: -0.74135625
