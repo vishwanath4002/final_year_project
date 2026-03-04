@@ -9,6 +9,10 @@ namespace Koshcei
     {
         public static LobbyUI Instance { get; private set; }
 
+        [Header("Game Settings")]
+        [Tooltip("Minimum players required before the host can start the game.")]
+        [SerializeField] private int minPlayersToStart = 2;
+
         [Header("UI References")]
         [SerializeField] private TextMeshProUGUI lobbyIdText;
         [SerializeField] private TextMeshProUGUI timerText;
@@ -107,13 +111,13 @@ namespace Koshcei
 
             if (LobbyManager.Instance.IsLobbyHost())
             {
-                bool ready = lobby.Players.Count >= 2; // lower threshold for testing
+                bool ready = lobby.Players.Count >= minPlayersToStart;
                 startGameButton.interactable = ready;
 
                 if (btnText)
                     btnText.text = ready
                         ? "Start Game"
-                        : $"Waiting… ({lobby.Players.Count}/4)";
+                        : $"Waiting… ({lobby.Players.Count}/{minPlayersToStart})";
             }
             else
             {

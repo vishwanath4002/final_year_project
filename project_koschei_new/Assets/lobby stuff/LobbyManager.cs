@@ -57,6 +57,7 @@ namespace Koshcei
         private int relayConnectAttempts = 0;
         private const int k_maxRelayConnectAttempts = 3;
 
+
         // -----------------------------------------------------------------------
         // Constants
         // -----------------------------------------------------------------------
@@ -153,6 +154,7 @@ namespace Koshcei
             isJoiningRelay = false;
             relayConnectAttempts = 0;
             joinedLobby = null;
+
 
             // Unsubscribe BEFORE Shutdown so NGO callbacks don't fire during teardown
             if (NetworkManager.Singleton != null)
@@ -312,6 +314,7 @@ namespace Koshcei
 
                 Debug.Log($"[LobbyManager] Created lobby: {lobby.Name}");
                 OnJoinedLobby?.Invoke(this, new LobbyEventArgs { lobby = lobby });
+
             }
             catch (LobbyServiceException e)
             {
@@ -609,6 +612,14 @@ namespace Koshcei
         // -----------------------------------------------------------------------
         private void HandleLobbyTimer()
         {
+            // Once everyone is in the game scene the lobby timer is no longer needed.
+            // Stop it immediately so it can never kick the host out mid-game.
+            if (SceneManager.GetActiveScene().name == SCENE_NAME_GAME)
+            {
+                currentLobbyTimer = 0f;
+                return;
+            }
+
             if (joinedLobby?.Data == null ||
                 !joinedLobby.Data.ContainsKey(KEY_START_TIME)) return;
 
