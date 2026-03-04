@@ -89,9 +89,12 @@ namespace Koshcei
 
         private void Start()
         {
-            // Subscribe to disconnect so we can log the reason and clean up
-            // instead of silently failing with "Failed to connect to server"
+            // OnClientDisconnectCallback fires when a connected client loses the server.
+            // OnClientStopped fires when the local client stops for ANY reason including
+            // failed connection attempts (the "Failed to connect to server" UTP error).
+            // Both are needed to cover all disconnection paths.
             NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
+            NetworkManager.Singleton.OnClientStopped += OnClientStopped;
         }
 
         private void Update()
@@ -104,7 +107,10 @@ namespace Koshcei
         private void OnDestroy()
         {
             if (NetworkManager.Singleton != null)
+            {
                 NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientDisconnected;
+                NetworkManager.Singleton.OnClientStopped -= OnClientStopped;
+            }
         }
 
         // -----------------------------------------------------------------------
@@ -173,7 +179,28 @@ namespace Koshcei
             yield return null;
             _returningToMenu = false;
             if (NetworkManager.Singleton != null)
+            {
                 NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
+                NetworkManager.Singleton.OnClientStopped += OnClientStopped;
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // Fired when the local client stops for ANY reason — including UTP-level
+        // "Failed to connect to server" errors that never reach OnClientDisconnected.
+        // The bool parameter is true if the stop was locally initiated (e.g. Shutdown).
+        // -----------------------------------------------------------------------
+        private void OnClientStopped(bool wasHost)
+        {
+            // If we called Shutdown ourselves (ReturnToMenuCleanly sets _returningToMenu
+            // before shutting down), this is an expected stop — ignore it.
+            if (_returningToMenu) return;
+
+            // If we are the host/server this fires for other reasons (clients leaving) — ignore.
+            if (wasHost) return;
+
+            Debug.Log("[LobbyManager] Client stopped unexpectedly (failed connection or transport error). Returning to menu.");
+            ReturnToMenuCleanly();
         }
 
         // -----------------------------------------------------------------------
