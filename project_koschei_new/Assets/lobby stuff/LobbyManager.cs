@@ -52,6 +52,7 @@ namespace Koshcei
         private float lobbyTimerMax = 300f;
         private float currentLobbyTimer;
         private string playerName = "Player";
+        public string PlayerName => playerName;
         private bool isJoiningRelay = false;
         private int relayConnectAttempts = 0;
         private const int k_maxRelayConnectAttempts = 3;
