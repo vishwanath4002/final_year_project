@@ -13,374 +13,539 @@ using Unity.Services.Relay.Models;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-public class LobbyManager : MonoBehaviour
+namespace Koshcei
 {
-    public static LobbyManager Instance { get; private set; }
-
-    public event EventHandler<LobbyEventArgs> OnJoinedLobby;
-    public event EventHandler<LobbyEventArgs> OnLobbyUpdate;
-    public event EventHandler OnKickedFromLobby;
-
-    public class LobbyEventArgs : EventArgs { public Lobby lobby; }
-
-    private Lobby joinedLobby;
-    private float heartbeatTimer;
-    private float lobbyPollTimer;
-    private float lobbyTimerMax = 300f;
-    private float currentLobbyTimer;
-    private string playerName = "Player";
-    private bool isJoiningRelay = false;
-
-    private const string KEY_RELAY_CODE = "RelayCode";
-    private const string KEY_START_TIME = "StartTime";
-    private const string SCENE_NAME_GAME = "Scene_A";
-    private const string SCENE_NAME_MENU = "LoginScene";
-
-    private void Awake()
+    [System.Serializable]
+    public enum EncryptionType
     {
-        if (Instance == null)
-        {
-            Instance = this;
-            DontDestroyOnLoad(gameObject);
-        }
-        else
-        {
-            Destroy(gameObject);
-        }
+        DTLS, // Datagram Transport Layer Security  (standalone / mobile)
+        WSS   // Web Socket Secure                  (WebGL builds)
     }
 
-    private void Update()
+    public class LobbyManager : MonoBehaviour
     {
-        HandleLobbyHeartbeat();
-        HandleLobbyPolling();
-        HandleLobbyTimer();
-    }
+        // -----------------------------------------------------------------------
+        // Inspector
+        // -----------------------------------------------------------------------
+        [SerializeField] private EncryptionType encryption = EncryptionType.DTLS;
 
-    // ----------------------------------------------------------------
-    // Authenticate
-    // ----------------------------------------------------------------
+        // -----------------------------------------------------------------------
+        // Singleton
+        // -----------------------------------------------------------------------
+        public static LobbyManager Instance { get; private set; }
 
-    public async void Authenticate(string playerName)
-    {
-        this.playerName = playerName;
-        InitializationOptions options = new InitializationOptions();
-        options.SetProfile(playerName);
+        // -----------------------------------------------------------------------
+        // Events
+        // -----------------------------------------------------------------------
+        public event EventHandler<LobbyEventArgs> OnJoinedLobby;
+        public event EventHandler<LobbyEventArgs> OnLobbyUpdate;
+        public event EventHandler OnKickedFromLobby;
 
-        try
+        public class LobbyEventArgs : EventArgs { public Lobby lobby; }
+
+        // -----------------------------------------------------------------------
+        // Private state
+        // -----------------------------------------------------------------------
+        private Lobby joinedLobby;
+        private float heartbeatTimer;
+        private float lobbyPollTimer;
+        private float lobbyTimerMax = 300f;
+        private float currentLobbyTimer;
+        private string playerName = "Player";
+        private bool isJoiningRelay = false;
+        private int relayConnectAttempts = 0;
+        private const int k_maxRelayConnectAttempts = 3;
+
+        // -----------------------------------------------------------------------
+        // Constants
+        // -----------------------------------------------------------------------
+        private const string k_dtlsEncryption = "dtls";
+        private const string k_wssEncryption = "wss";
+        private const string KEY_RELAY_CODE = "RelayCode";
+        private const string KEY_START_TIME = "StartTime";
+        private const string SCENE_NAME_GAME = "Scene_A";
+        private const string SCENE_NAME_MENU = "LoginScene";
+
+        private string ConnectionType =>
+            encryption == EncryptionType.DTLS ? k_dtlsEncryption : k_wssEncryption;
+
+        // -----------------------------------------------------------------------
+        // Unity lifecycle
+        // -----------------------------------------------------------------------
+        private void Awake()
         {
-            if (UnityServices.State == ServicesInitializationState.Uninitialized)
-                await UnityServices.InitializeAsync(options);
-
-            if (!AuthenticationService.Instance.IsSignedIn)
-                await AuthenticationService.Instance.SignInAnonymouslyAsync();
-
-            Debug.Log($"[LobbyManager] Signed in as {AuthenticationService.Instance.PlayerId}");
-            SceneManager.LoadScene("LobbyScene");
+            if (Instance == null)
+            {
+                Instance = this;
+                DontDestroyOnLoad(gameObject);
+            }
+            else
+            {
+                Destroy(gameObject);
+                return;
+            }
         }
-        catch (Exception e)
+
+        private void Start()
         {
-            Debug.LogError("[LobbyManager] Authentication failed: " + e);
+            // Subscribe to disconnect so we can log the reason and clean up
+            // instead of silently failing with "Failed to connect to server"
+            NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
         }
-    }
 
-    // ----------------------------------------------------------------
-    // Quick Join or Create
-    // ----------------------------------------------------------------
+        private void Update()
+        {
+            HandleLobbyHeartbeat();
+            HandleLobbyPolling();
+            HandleLobbyTimer();
+        }
 
-    public async void QuickJoinOrCreate()
-    {
-        int maxRetries = 3;
-        int currentTry = 0;
+        private void OnDestroy()
+        {
+            if (NetworkManager.Singleton != null)
+                NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientDisconnected;
+        }
 
-        while (currentTry < maxRetries)
+        // -----------------------------------------------------------------------
+        // Disconnect handler
+        // -----------------------------------------------------------------------
+        private void OnClientDisconnected(ulong clientId)
+        {
+            // clientId == LocalClientId when this machine lost the server
+            if (!NetworkManager.Singleton.IsServer &&
+                clientId == NetworkManager.Singleton.LocalClientId)
+            {
+                string reason = NetworkManager.Singleton.DisconnectReason;
+                Debug.LogError("[LobbyManager] Disconnected from server. Reason: " +
+                               (string.IsNullOrEmpty(reason) ? "(none / transport timeout)" : reason));
+
+                isJoiningRelay = false;
+                if (LobbyUI.Instance != null)
+                    LobbyUI.Instance.SetUIInteractable(true);
+
+                SceneManager.LoadScene(SCENE_NAME_MENU);
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // Authentication
+        // -----------------------------------------------------------------------
+        public async void Authenticate(string name)
+        {
+            playerName = name;
+
+            try
+            {
+                if (UnityServices.State == ServicesInitializationState.Uninitialized)
+                {
+                    InitializationOptions options = new InitializationOptions();
+                    options.SetProfile(playerName);
+                    await UnityServices.InitializeAsync(options);
+                }
+
+                AuthenticationService.Instance.SignedIn += () =>
+                    Debug.Log($"[LobbyManager] Signed in as {AuthenticationService.Instance.PlayerId}");
+
+                if (!AuthenticationService.Instance.IsSignedIn)
+                    await AuthenticationService.Instance.SignInAnonymouslyAsync();
+
+                SceneManager.LoadScene("LobbyScene");
+            }
+            catch (Exception e)
+            {
+                Debug.LogError("[LobbyManager] Authentication failed: " + e);
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // Quick Join or Create
+        // -----------------------------------------------------------------------
+        public async void QuickJoinOrCreate()
+        {
+            const int maxRetries = 3;
+            int attempt = 0;
+
+            while (attempt < maxRetries)
+            {
+                try
+                {
+                    Debug.Log($"[LobbyManager] QuickJoin attempt {attempt + 1}/{maxRetries}...");
+
+                    QuickJoinLobbyOptions options = new QuickJoinLobbyOptions
+                    {
+                        Filter = new List<QueryFilter>
+                        {
+                            new QueryFilter(
+                                field: QueryFilter.FieldOptions.S1,
+                                op:    QueryFilter.OpOptions.EQ,
+                                value: "India")
+                        },
+                        Player = GetPlayer()
+                    };
+
+                    joinedLobby = await LobbyService.Instance.QuickJoinLobbyAsync(options);
+                    isJoiningRelay = false;
+
+                    Debug.Log($"[LobbyManager] Joined lobby: {joinedLobby.Name}");
+                    OnJoinedLobby?.Invoke(this, new LobbyEventArgs { lobby = joinedLobby });
+                    return;
+                }
+                catch (LobbyServiceException e)
+                {
+                    if (e.Reason == LobbyExceptionReason.NoOpenLobbies)
+                    {
+                        Debug.Log("[LobbyManager] No open lobbies – retrying...");
+                        attempt++;
+                        await Task.Delay(2000);
+                    }
+                    else
+                    {
+                        Debug.LogWarning("[LobbyManager] QuickJoin failed: " + e.Message);
+                        break;
+                    }
+                }
+            }
+
+            Debug.Log("[LobbyManager] Retries exhausted – creating new lobby.");
+            CreateLobby("Public_Match", false);
+        }
+
+        // -----------------------------------------------------------------------
+        // Create Lobby
+        // -----------------------------------------------------------------------
+        public async void CreateLobby(string lobbyName, bool isPrivate)
         {
             try
             {
-                Debug.Log($"[LobbyManager] QuickJoin attempt {currentTry + 1}/{maxRetries}...");
-
-                QuickJoinLobbyOptions options = new QuickJoinLobbyOptions
+                CreateLobbyOptions options = new CreateLobbyOptions
                 {
-                    Filter = new List<QueryFilter>
+                    IsPrivate = isPrivate,
+                    Player = GetPlayer(),
+                    Data = new Dictionary<string, DataObject>
                     {
-                        new QueryFilter(
-                            field: QueryFilter.FieldOptions.S1,
-                            op: QueryFilter.OpOptions.EQ,
-                            value: "India")
-                    },
-                    Player = GetPlayer()
+                        { KEY_START_TIME, new DataObject(DataObject.VisibilityOptions.Member,
+                            DateTime.UtcNow.Ticks.ToString()) },
+                        { "GameRegion",   new DataObject(DataObject.VisibilityOptions.Public,
+                            "India", DataObject.IndexOptions.S1) }
+                    }
                 };
 
-                joinedLobby = await LobbyService.Instance.QuickJoinLobbyAsync(options);
-
-                Debug.Log($"[LobbyManager] Joined lobby: {joinedLobby.Name}");
+                Lobby lobby = await LobbyService.Instance.CreateLobbyAsync(lobbyName, 4, options);
+                joinedLobby = lobby;
                 isJoiningRelay = false;
-                OnJoinedLobby?.Invoke(this, new LobbyEventArgs { lobby = joinedLobby });
-                return;
+
+                Debug.Log($"[LobbyManager] Created lobby: {lobby.Name}");
+                OnJoinedLobby?.Invoke(this, new LobbyEventArgs { lobby = lobby });
             }
             catch (LobbyServiceException e)
             {
-                if (e.Reason == LobbyExceptionReason.NoOpenLobbies)
-                {
-                    Debug.Log("[LobbyManager] No open lobbies. Retrying...");
-                    currentTry++;
-                    await Task.Delay(2000);
-                }
-                else
-                {
-                    Debug.LogWarning("[LobbyManager] QuickJoin failed: " + e.Message);
-                    break;
-                }
+                Debug.LogError("[LobbyManager] CreateLobby failed: " + e);
             }
         }
 
-        Debug.Log("[LobbyManager] Retries exhausted -- creating new lobby.");
-        CreateLobby("Public_Match", false);
-    }
-
-    // ----------------------------------------------------------------
-    // Create Lobby
-    // ----------------------------------------------------------------
-
-    public async void CreateLobby(string lobbyName, bool isPrivate)
-    {
-        try
+        // -----------------------------------------------------------------------
+        // Start Game  (host only)
+        // -----------------------------------------------------------------------
+        public async void StartGame()
         {
-            CreateLobbyOptions options = new CreateLobbyOptions
-            {
-                IsPrivate = isPrivate,
-                Player = GetPlayer(),
-                Data = new Dictionary<string, DataObject>
-                {
-                    { KEY_START_TIME, new DataObject(DataObject.VisibilityOptions.Member, DateTime.UtcNow.Ticks.ToString()) },
-                    { "GameRegion", new DataObject(DataObject.VisibilityOptions.Public, "India", DataObject.IndexOptions.S1) }
-                }
-            };
-
-            Lobby lobby = await LobbyService.Instance.CreateLobbyAsync(lobbyName, 4, options);
-            joinedLobby = lobby;
-            isJoiningRelay = false;
-
-            Debug.Log($"[LobbyManager] Created lobby: {lobby.Name}");
-            OnJoinedLobby?.Invoke(this, new LobbyEventArgs { lobby = lobby });
-        }
-        catch (LobbyServiceException e)
-        {
-            Debug.LogError("[LobbyManager] CreateLobby failed: " + e);
-        }
-    }
-
-    // ----------------------------------------------------------------
-    // Start Game (Host only)
-    // ----------------------------------------------------------------
-
-    public async void StartGame()
-    {
-        if (!IsLobbyHost()) return;
-
-        try
-        {
-            Debug.Log("[LobbyManager] Host starting game...");
-
-            if (LobbyUI.Instance != null)
-                LobbyUI.Instance.SetUIInteractable(false);
-
-            // 1. Create Relay allocation
-            Allocation allocation = await RelayService.Instance.CreateAllocationAsync(3);
-            string relayCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
-
-            Debug.Log($"[LobbyManager] Relay code: {relayCode}");
-
-            // 2. Setup transport
-            var relayServerData = new RelayServerData(allocation, "dtls");
-            NetworkManager.Singleton.GetComponent<UnityTransport>().SetRelayServerData(relayServerData);
-
-            // 3. FIX: Set a temporary approval callback BEFORE StartHost()
-            //    so the host's own connection approval doesn't hit a null callback.
-            //    SpawnManager in the game scene will override this with proper spawn logic.
-            NetworkManager.Singleton.ConnectionApprovalCallback = (request, response) =>
-            {
-                response.Approved = true;
-                response.CreatePlayerObject = true;
-                response.Pending = false;
-                Debug.Log("[LobbyManager] Temporary approval callback -- SpawnManager not loaded yet.");
-            };
-
-            // 4. Start host
-            bool isHostStarted = NetworkManager.Singleton.StartHost();
-            if (!isHostStarted)
-            {
-                Debug.LogError("[LobbyManager] StartHost() failed!");
-                NetworkManager.Singleton.ConnectionApprovalCallback = null;
-                if (LobbyUI.Instance != null)
-                    LobbyUI.Instance.SetUIInteractable(true);
-                LeaveLobby();
-                return;
-            }
-
-            // 5. Push relay code to lobby IMMEDIATELY so clients can
-            //    start joining while the scene is loading -- reduces relay timeout risk
-            UpdateLobbyOptions updateOptions = new UpdateLobbyOptions
-            {
-                IsLocked = true,
-                Data = new Dictionary<string, DataObject>
-                {
-                    { KEY_RELAY_CODE, new DataObject(DataObject.VisibilityOptions.Member, relayCode) }
-                }
-            };
-            await Lobbies.Instance.UpdateLobbyAsync(joinedLobby.Id, updateOptions);
-
-            Debug.Log("[LobbyManager] Relay code pushed to lobby. Loading game scene...");
-
-            // 6. Load scene -- SpawnManager.Awake() in the game scene will
-            //    immediately override the temporary approval callback above
-            NetworkManager.Singleton.SceneManager.LoadScene(SCENE_NAME_GAME, LoadSceneMode.Single);
-        }
-        catch (Exception e)
-        {
-            Debug.LogError("[LobbyManager] StartGame failed: " + e);
-            NetworkManager.Singleton.ConnectionApprovalCallback = null;
-            if (LobbyUI.Instance != null)
-                LobbyUI.Instance.SetUIInteractable(true);
-            LeaveLobby();
-        }
-    }
-
-    // ----------------------------------------------------------------
-    // Join Relay (Client only)
-    // ----------------------------------------------------------------
-
-    private async void JoinRelay(string relayCode)
-    {
-        if (isJoiningRelay) return;
-        isJoiningRelay = true;
-
-        try
-        {
-            Debug.Log($"[LobbyManager] Client joining relay: {relayCode}");
-
-            if (LobbyUI.Instance != null)
-                LobbyUI.Instance.SetUIInteractable(false);
-
-            JoinAllocation joinAllocation = await RelayService.Instance.JoinAllocationAsync(relayCode);
-
-            var relayServerData = new RelayServerData(joinAllocation, "dtls");
-            NetworkManager.Singleton.GetComponent<UnityTransport>().SetRelayServerData(relayServerData);
-
-            bool success = NetworkManager.Singleton.StartClient();
-
-            if (!success)
-            {
-                Debug.LogError("[LobbyManager] StartClient() failed!");
-                isJoiningRelay = false;
-                if (LobbyUI.Instance != null)
-                    LobbyUI.Instance.SetUIInteractable(true);
-                LeaveLobby();
-            }
-        }
-        catch (Exception e)
-        {
-            Debug.LogError("[LobbyManager] JoinRelay failed: " + e);
-            isJoiningRelay = false;
-            if (LobbyUI.Instance != null)
-                LobbyUI.Instance.SetUIInteractable(true);
-            LeaveLobby();
-        }
-    }
-
-    // ----------------------------------------------------------------
-    // Heartbeat
-    // ----------------------------------------------------------------
-
-    private async void HandleLobbyHeartbeat()
-    {
-        if (joinedLobby != null && IsLobbyHost())
-        {
-            heartbeatTimer -= Time.deltaTime;
-            if (heartbeatTimer < 0f)
-            {
-                heartbeatTimer = 15f;
-                try
-                {
-                    await LobbyService.Instance.SendHeartbeatPingAsync(joinedLobby.Id);
-                }
-                catch (Exception e)
-                {
-                    Debug.LogWarning("[LobbyManager] Heartbeat failed: " + e.Message);
-                }
-            }
-        }
-    }
-
-    // ----------------------------------------------------------------
-    // Polling
-    // ----------------------------------------------------------------
-
-    private async void HandleLobbyPolling()
-    {
-        if (joinedLobby == null) return;
-        if (isJoiningRelay) return;
-
-        lobbyPollTimer -= Time.deltaTime;
-        if (lobbyPollTimer > 0f) return;
-
-        lobbyPollTimer = 1.5f; // poll faster (1.5s) to catch relay code quickly and reduce timeout risk
-
-        try
-        {
-            Lobby lobby = await LobbyService.Instance.GetLobbyAsync(joinedLobby.Id);
-            joinedLobby = lobby;
+            if (!IsLobbyHost()) return;
 
             try
             {
-                OnLobbyUpdate?.Invoke(this, new LobbyEventArgs { lobby = joinedLobby });
+                Debug.Log("[LobbyManager] Host starting game...");
+
+                if (LobbyUI.Instance != null)
+                    LobbyUI.Instance.SetUIInteractable(false);
+
+                Allocation allocation = await AllocateRelay();
+                if (allocation.AllocationId == Guid.Empty)
+                {
+                    Debug.LogError("[LobbyManager] Relay allocation returned empty – aborting.");
+                    if (LobbyUI.Instance != null) LobbyUI.Instance.SetUIInteractable(true);
+                    return;
+                }
+
+                string relayCode = await GetRelayJoinCode(allocation);
+                if (string.IsNullOrEmpty(relayCode))
+                {
+                    Debug.LogError("[LobbyManager] Relay join code is empty – aborting.");
+                    if (LobbyUI.Instance != null) LobbyUI.Instance.SetUIInteractable(true);
+                    return;
+                }
+
+                Debug.Log($"[LobbyManager] Relay code: {relayCode}");
+
+                // Set transport relay data BEFORE StartHost
+                NetworkManager.Singleton
+                    .GetComponent<UnityTransport>()
+                    .SetRelayServerData(new RelayServerData(allocation, ConnectionType));
+
+                // Temporary approval callback – just approves the connection.
+                // CreatePlayerObject MUST be false here. If it were true and a client
+                // connected before the game scene finished loading, NGO would send the
+                // spawn message before the client was in the right scene, causing the
+                // "Deferred messages … trigger not received within 10s" error and players
+                // not appearing. SpawnManager.OnSceneLoadEventCompleted handles all spawning
+                // once every client has confirmed the scene is loaded.
+                NetworkManager.Singleton.ConnectionApprovalCallback = (request, response) =>
+                {
+                    response.Approved = true;
+                    response.CreatePlayerObject = false;
+                    response.Pending = false;
+                    Debug.Log("[LobbyManager] Temp approval – player spawn deferred to SpawnManager.");
+                };
+
+                bool started = NetworkManager.Singleton.StartHost();
+                if (!started)
+                {
+                    Debug.LogError("[LobbyManager] StartHost() returned false!");
+                    NetworkManager.Singleton.ConnectionApprovalCallback = null;
+                    if (LobbyUI.Instance != null) LobbyUI.Instance.SetUIInteractable(true);
+                    LeaveLobby();
+                    return;
+                }
+
+                Debug.Log("[LobbyManager] Host started. Pushing relay code to lobby...");
+
+                // Push relay code so clients can start joining during scene load
+                await LobbyService.Instance.UpdateLobbyAsync(joinedLobby.Id, new UpdateLobbyOptions
+                {
+                    IsLocked = true,
+                    Data = new Dictionary<string, DataObject>
+                    {
+                        { KEY_RELAY_CODE, new DataObject(DataObject.VisibilityOptions.Member, relayCode) }
+                    }
+                });
+
+                Debug.Log("[LobbyManager] Relay code pushed. Loading game scene...");
+                NetworkManager.Singleton.SceneManager.LoadScene(SCENE_NAME_GAME, LoadSceneMode.Single);
             }
-            catch (Exception uiEx)
+            catch (Exception e)
             {
-                Debug.LogWarning("[LobbyManager] UI update failed, keeping network alive: " + uiEx);
+                Debug.LogError("[LobbyManager] StartGame failed: " + e);
+                NetworkManager.Singleton.ConnectionApprovalCallback = null;
+                if (LobbyUI.Instance != null) LobbyUI.Instance.SetUIInteractable(true);
+                LeaveLobby();
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // Leave Lobby
+        // -----------------------------------------------------------------------
+        public async void LeaveLobby()
+        {
+            if (joinedLobby != null)
+            {
+                try
+                {
+                    await LobbyService.Instance.RemovePlayerAsync(
+                        joinedLobby.Id,
+                        AuthenticationService.Instance.PlayerId);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning("[LobbyManager] LeaveLobby cleanup: " + e.Message);
+                }
+
+                joinedLobby = null;
             }
 
-            // Check if host has pushed relay code
-            if (joinedLobby.Data != null &&
-                joinedLobby.Data.ContainsKey(KEY_RELAY_CODE) &&
-                !string.IsNullOrEmpty(joinedLobby.Data[KEY_RELAY_CODE].Value))
+            isJoiningRelay = false;
+            relayConnectAttempts = 0;
+
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+                NetworkManager.Singleton.Shutdown();
+
+            SceneManager.LoadScene(SCENE_NAME_MENU);
+        }
+
+        // -----------------------------------------------------------------------
+        // Relay allocation helpers
+        // -----------------------------------------------------------------------
+        private async Task<Allocation> AllocateRelay()
+        {
+            try
             {
-                if (!IsLobbyHost())
+                Allocation allocation = await RelayService.Instance.CreateAllocationAsync(3);
+                return allocation;
+            }
+            catch (RelayServiceException e)
+            {
+                Debug.LogError("[LobbyManager] AllocateRelay failed: " + e.Message);
+                return default;
+            }
+        }
+
+        private async Task<string> GetRelayJoinCode(Allocation allocation)
+        {
+            try
+            {
+                return await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
+            }
+            catch (RelayServiceException e)
+            {
+                Debug.LogError("[LobbyManager] GetRelayJoinCode failed: " + e.Message);
+                return default;
+            }
+        }
+
+        private async Task<JoinAllocation> JoinRelayAllocation(string relayCode)
+        {
+            try
+            {
+                return await RelayService.Instance.JoinAllocationAsync(relayCode);
+            }
+            catch (RelayServiceException e)
+            {
+                Debug.LogError("[LobbyManager] JoinRelayAllocation failed: " + e.Message);
+                return default;
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // Client relay join – called from polling when relay code appears
+        // -----------------------------------------------------------------------
+        private async void JoinRelay(string relayCode)
+        {
+            if (isJoiningRelay) return;
+            isJoiningRelay = true;
+
+            try
+            {
+                Debug.Log($"[LobbyManager] Client joining relay (attempt {relayConnectAttempts + 1}): {relayCode}");
+
+                if (LobbyUI.Instance != null)
+                    LobbyUI.Instance.SetUIInteractable(false);
+
+                JoinAllocation joinAllocation = await JoinRelayAllocation(relayCode);
+                if (joinAllocation == null)
+                {
+                    Debug.LogError("[LobbyManager] JoinAllocation returned null.");
+                    isJoiningRelay = false;
+                    if (LobbyUI.Instance != null) LobbyUI.Instance.SetUIInteractable(true);
+                    return;
+                }
+
+                // -----------------------------------------------------------------
+                // KEY FIX: Set relay server data on the transport, then yield one
+                // frame so UTP's internal NetworkDriver can process the endpoint
+                // configuration before StartClient fires its first handshake packet.
+                //
+                // Without this yield, UTP may send the initial DTLS/connect packet
+                // before the relay endpoint is committed inside the driver, which is
+                // what causes "Failed to connect to server" in ProcessEvent/Update.
+                // -----------------------------------------------------------------
+                NetworkManager.Singleton
+                    .GetComponent<UnityTransport>()
+                    .SetRelayServerData(new RelayServerData(joinAllocation, ConnectionType));
+
+                await Task.Yield(); // one engine frame – lets UTP commit relay config
+
+                bool success = NetworkManager.Singleton.StartClient();
+                if (!success)
+                {
+                    Debug.LogError("[LobbyManager] StartClient() returned false.");
+                    isJoiningRelay = false;
+                    if (LobbyUI.Instance != null) LobbyUI.Instance.SetUIInteractable(true);
+                    LeaveLobby();
+                }
+                else
+                {
+                    relayConnectAttempts++;
+                    Debug.Log("[LobbyManager] StartClient() succeeded – awaiting server handshake...");
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError("[LobbyManager] JoinRelay failed: " + e);
+                isJoiningRelay = false;
+                if (LobbyUI.Instance != null) LobbyUI.Instance.SetUIInteractable(true);
+                LeaveLobby();
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // Heartbeat
+        // -----------------------------------------------------------------------
+        private async void HandleLobbyHeartbeat()
+        {
+            if (joinedLobby == null || !IsLobbyHost()) return;
+
+            heartbeatTimer -= Time.deltaTime;
+            if (heartbeatTimer > 0f) return;
+
+            heartbeatTimer = 15f;
+            try
+            {
+                await LobbyService.Instance.SendHeartbeatPingAsync(joinedLobby.Id);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[LobbyManager] Heartbeat failed: " + e.Message);
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // Polling
+        // -----------------------------------------------------------------------
+        private async void HandleLobbyPolling()
+        {
+            if (joinedLobby == null || isJoiningRelay) return;
+
+            lobbyPollTimer -= Time.deltaTime;
+            if (lobbyPollTimer > 0f) return;
+
+            lobbyPollTimer = 1.5f;
+
+            try
+            {
+                Lobby lobby = await LobbyService.Instance.GetLobbyAsync(joinedLobby.Id);
+                joinedLobby = lobby;
+
+                try { OnLobbyUpdate?.Invoke(this, new LobbyEventArgs { lobby = joinedLobby }); }
+                catch (Exception uiEx)
+                {
+                    Debug.LogWarning("[LobbyManager] UI update error (network intact): " + uiEx);
+                }
+
+                // Non-host: check for relay code pushed by host
+                if (!IsLobbyHost() &&
+                    joinedLobby.Data != null &&
+                    joinedLobby.Data.ContainsKey(KEY_RELAY_CODE) &&
+                    !string.IsNullOrEmpty(joinedLobby.Data[KEY_RELAY_CODE].Value))
                 {
                     string relayCode = joinedLobby.Data[KEY_RELAY_CODE].Value;
-                    joinedLobby = null; // clear BEFORE JoinRelay to stop further polls
+                    joinedLobby = null; // clear BEFORE async relay join to stop further polls
                     JoinRelay(relayCode);
                 }
             }
-        }
-        catch (LobbyServiceException e)
-        {
-            if (e.Reason == LobbyExceptionReason.RateLimited)
+            catch (LobbyServiceException e)
             {
-                Debug.LogWarning("[LobbyManager] Rate limited -- backing off.");
-                lobbyPollTimer = 5f;
-                return;
+                if (e.Reason == LobbyExceptionReason.RateLimited)
+                {
+                    Debug.LogWarning("[LobbyManager] Rate limited – backing off.");
+                    lobbyPollTimer = 5f;
+                    return;
+                }
+
+                Debug.LogError("[LobbyManager] Lobby lost: " + e.Message);
+                joinedLobby = null;
+                SceneManager.LoadScene(SCENE_NAME_MENU);
             }
-
-            Debug.LogError("[LobbyManager] Lobby lost: " + e.Message);
-            joinedLobby = null;
-            SceneManager.LoadScene(SCENE_NAME_MENU);
         }
-    }
 
-    // ----------------------------------------------------------------
-    // Lobby Timer
-    // ----------------------------------------------------------------
-
-    private void HandleLobbyTimer()
-    {
-        if (joinedLobby != null &&
-            joinedLobby.Data != null &&
-            joinedLobby.Data.ContainsKey(KEY_START_TIME))
+        // -----------------------------------------------------------------------
+        // Lobby countdown timer
+        // -----------------------------------------------------------------------
+        private void HandleLobbyTimer()
         {
-            long startTimeTicks = long.Parse(joinedLobby.Data[KEY_START_TIME].Value);
-            DateTime startTime = new DateTime(startTimeTicks, DateTimeKind.Utc);
-            float secondsPassed = (float)(DateTime.UtcNow - startTime).TotalSeconds;
-            currentLobbyTimer = lobbyTimerMax - secondsPassed;
+            if (joinedLobby?.Data == null ||
+                !joinedLobby.Data.ContainsKey(KEY_START_TIME)) return;
+
+            long ticks = long.Parse(joinedLobby.Data[KEY_START_TIME].Value);
+            DateTime startTime = new DateTime(ticks, DateTimeKind.Utc);
+            float elapsed = (float)(DateTime.UtcNow - startTime).TotalSeconds;
+            currentLobbyTimer = lobbyTimerMax - elapsed;
 
             if (currentLobbyTimer <= 0f)
             {
@@ -388,53 +553,19 @@ public class LobbyManager : MonoBehaviour
                 LeaveLobby();
             }
         }
-    }
 
-    // ----------------------------------------------------------------
-    // Leave Lobby
-    // ----------------------------------------------------------------
+        // -----------------------------------------------------------------------
+        // Public helpers
+        // -----------------------------------------------------------------------
+        public bool IsLobbyHost() =>
+            joinedLobby != null &&
+            AuthenticationService.Instance.IsSignedIn &&
+            joinedLobby.HostId == AuthenticationService.Instance.PlayerId;
 
-    public async void LeaveLobby()
-    {
-        if (joinedLobby != null)
-        {
-            try
-            {
-                await LobbyService.Instance.RemovePlayerAsync(
-                    joinedLobby.Id,
-                    AuthenticationService.Instance.PlayerId);
-            }
-            catch (Exception e)
-            {
-                Debug.LogWarning("[LobbyManager] LeaveLobby cleanup: " + e.Message);
-            }
+        public float GetLobbyTimer() => currentLobbyTimer;
+        public Lobby GetJoinedLobby() => joinedLobby;
 
-            joinedLobby = null;
-        }
-
-        isJoiningRelay = false;
-
-        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
-            NetworkManager.Singleton.Shutdown();
-
-        SceneManager.LoadScene(SCENE_NAME_MENU);
-    }
-
-    // ----------------------------------------------------------------
-    // Helpers
-    // ----------------------------------------------------------------
-
-    public bool IsLobbyHost() =>
-        joinedLobby != null &&
-        AuthenticationService.Instance.IsSignedIn &&
-        joinedLobby.HostId == AuthenticationService.Instance.PlayerId;
-
-    public float GetLobbyTimer() => currentLobbyTimer;
-    public Lobby GetJoinedLobby() => joinedLobby;
-
-    private Player GetPlayer()
-    {
-        return new Player
+        private Player GetPlayer() => new Player
         {
             Data = new Dictionary<string, PlayerDataObject>
             {

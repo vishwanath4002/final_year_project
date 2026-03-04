@@ -2,31 +2,35 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
-public class AuthenticateUI : MonoBehaviour
+namespace Koshcei
 {
-    [SerializeField] private TMP_InputField usernameInput;
-    [SerializeField] private Button playButton;
-
-    private void Awake()
+    public class AuthenticateUI : MonoBehaviour
     {
-        playButton.onClick.AddListener(() =>
+        [SerializeField] private TMP_InputField usernameInput;
+        [SerializeField] private Button playButton;
+
+        private void Awake()
         {
-            string playerName = usernameInput.text.Trim();
-
-            if (string.IsNullOrEmpty(playerName))
+            playButton.onClick.AddListener(() =>
             {
-                Debug.LogWarning("[AuthenticateUI] Username cannot be empty.");
-                return;
-            }
+                string name = usernameInput.text.Trim();
 
-            if (LobbyManager.Instance == null)
-            {
-                Debug.LogError("[AuthenticateUI] LobbyManager.Instance is null! Add LobbyManager to the LoginScene.");
-                return;
-            }
+                if (string.IsNullOrEmpty(name))
+                {
+                    Debug.LogWarning("[AuthenticateUI] Username cannot be empty.");
+                    return;
+                }
 
-            playButton.interactable = false; // prevent double click
-            LobbyManager.Instance.Authenticate(playerName);
-        });
+                if (LobbyManager.Instance == null)
+                {
+                    Debug.LogError("[AuthenticateUI] LobbyManager.Instance is null! " +
+                                   "Add LobbyManager to the LoginScene.");
+                    return;
+                }
+
+                playButton.interactable = false; // prevent double-click
+                LobbyManager.Instance.Authenticate(name);
+            });
+        }
     }
 }

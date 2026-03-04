@@ -49665,6 +49665,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7debbc86a27cb5b4f897bea55ad4be38, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  playerPrefab: {fileID: -3000401027358400848, guid: c26648bdae40af847afda5907b9cd5d9, type: 3}
   spawnPositions:
   - {x: 457, y: 28, z: 156}
   - {x: 457, y: 28, z: 160}
@@ -75933,6 +75934,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7debbc86a27cb5b4f897bea55ad4be38, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  playerPrefab: {fileID: 0}
   spawnPositions:
   - {x: 457, y: 28, z: 156}
   - {x: 457, y: 28, z: 160}
