@@ -1,4 +1,5 @@
-# fastapi_chat.py - V3.0 ULTRA-OPTIMIZED + CONVERSATION SUMMARY
+# fastapi_chat.py - V4.0 STRATEGIC DECEPTIVE IMPOSTOR
+# Complete integration with player profiling, suspicion tracking, and deception strategy
 
 from fastapi import FastAPI, Body
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,8 +9,15 @@ import random
 from datetime import datetime, timezone
 from collections import deque
 import uvicorn
+
+# Import our new modules
+from player_profiling import PlayerProfileManager, PlayerProfile
+from suspicion_tracker import SuspicionTracker
+from deception_strategy import DeceptionStrategy, DeceptionMode
+
+# Import existing modules
 from chromatesting import (
-    generate_npc_reply_fast,  # Use optimized version
+    generate_npc_reply_fast,
     add_player_message_with_group,
     query_collection,
     player_messages,
@@ -26,8 +34,14 @@ app.add_middleware(
 
 # ========== GLOBAL STATE ==========
 
-# Per-player recent messages (for stylometry - max 20 messages)
-recent_history: Dict[str, deque] = {}  # player_id -> deque of recent messages
+# Player profiling system
+profile_manager = PlayerProfileManager()
+
+# Suspicion tracking system
+suspicion_tracker = SuspicionTracker()
+
+# Per-player recent messages (for LLM style imitation)
+recent_history: Dict[str, deque] = {}
 
 # All active players
 active_players: set[str] = set()
@@ -37,23 +51,26 @@ current_groups: Dict[str, Dict] = {}
 last_group_update_time: float = 0.0
 
 # Global summary for match events
-global_message_buffer: deque = deque(maxlen=40)  # Last 40 messages from everyone
+global_message_buffer: deque = deque(maxlen=40)
 global_summary: str = "Match just started. Players are exploring."
 
 # ========== CONVERSATION STATE ==========
 
 class ConversationState:
-    """Represents an active conversation between impostor and player(s)"""
+    """Enhanced conversation state with strategic intelligence"""
     
     def __init__(self, group_id: str, disguise_player_id: str):
         self.group_id = group_id
         self.disguise_player_id = disguise_player_id
         
-        # Conversation buffer (priority context - last 20 turns)
+        # Conversation buffer (last 20 turns)
         self.buffer: deque = deque(maxlen=20)
         
-        # Style summary (cached at conversation start, never changes)
+        # Style summary (cached)
         self.style_summary: Optional[str] = None
+        
+        # ✅ NEW: Deception strategy engine
+        self.strategy = DeceptionStrategy(disguise_player_id)
         
         # Timing
         self.started_at: float = time.time()
@@ -65,10 +82,15 @@ class ConversationState:
         self.message_count = 0
         self.impostor_message_count = 0
         self.max_messages = 30
-        self.idle_timeout = 90  # seconds
+        self.idle_timeout = 90
+        
+        # ✅ NEW: Track conversation facts
+        self.facts_learned = 0
+        self.questions_asked = 0
+        self.accusations_made = 0
         
     def add_message(self, player_id: str, message: str, is_impostor: bool):
-        """Add message to conversation buffer"""
+        """Add message and analyze it"""
         self.buffer.append({
             "player_id": player_id,
             "message": message,
@@ -80,71 +102,44 @@ class ConversationState:
         if is_impostor:
             self.impostor_message_count += 1
             self.last_impostor_response = time.time()
-    
-    def get_buffer_text(self) -> str:
-        """Format buffer as conversation text"""
-        if not self.buffer:
-            return "(conversation just started)"
         
-        lines = []
-        for msg in self.buffer:
-            lines.append(f"{msg['player_id']}: {msg['message']}")
-        return "\n".join(lines)
-    
-    def get_conversation_summary(self) -> str:
-        """Generate a summary of the conversation so far"""
-        if not self.buffer:
-            return "No messages yet"
+        # ✅ NEW: Analyze message for strategic info
+        msg_lower = message.lower()
         
-        players = set()
-        topics = []
+        # Track facts learned
+        if any(word in msg_lower for word in ['was at', 'went to', 'saw', 'found']):
+            self.facts_learned += 1
         
-        for msg in self.buffer:
-            players.add(msg['player_id'])
-            text = msg['message'].lower()
-            
-            # Extract topics
-            if 'mushroom' in text:
-                topics.append('mushrooms')
-            if 'wood' in text or 'fire' in text:
-                topics.append('wood/fire')
-            if 'alien' in text or 'monster' in text:
-                topics.append('aliens')
-            if 'scared' in text or 'afraid' in text:
-                topics.append('feeling scared')
-            if any(loc.lower() in text for loc in ['church', 'mansion', 'pavilion', 'greenhouse', 'sheds']):
-                topics.append('locations')
-        
-        unique_topics = list(set(topics))
-        
-        summary_parts = [
-            f"📊 CONVERSATION SUMMARY",
-            f"   Duration: {self.get_duration():.0f}s",
-            f"   Messages: {self.message_count} ({self.impostor_message_count} from impostor)",
-            f"   Participants: {', '.join(players)}",
-        ]
-        
-        if unique_topics:
-            summary_parts.append(f"   Topics: {', '.join(unique_topics[:3])}")
-        
-        return "\n".join(summary_parts)
+        # Track accusations
+        if any(word in msg_lower for word in ['suspicious', 'lying', 'impostor']):
+            if not is_impostor:  # Player accused someone
+                self.accusations_made += 1
+                
+                # Update suspicion tracker
+                if self.disguise_player_id.lower() in msg_lower:
+                    # We're being accused!
+                    suspicion_tracker.add_accusation(
+                        accuser=player_id,
+                        accused=self.disguise_player_id,
+                        reason=message[:50],
+                        weight=3.0
+                    )
+                    self.strategy.has_been_accused = True
+                    self.strategy.accusation_count += 1
     
     def should_respond(self, last_msg_player_id: str) -> Tuple[bool, str]:
-        """
-        ✅ RULE COMPLIANT: Determine if impostor should respond
+        """Determine if impostor should respond - STRATEGIC VERSION"""
         
-        Returns: (should_respond, reason)
-        """
         # Don't respond to ourselves
         if last_msg_player_id == self.disguise_player_id:
-            return False, "don't respond to self"
+            return False, "self"
         
-        # Check cooldown (minimum 5s between impostor messages)
+        # Check cooldown
         time_since_last = time.time() - self.last_impostor_response
         if self.last_impostor_response > 0 and time_since_last < 5.0:
-            return False, f"cooldown {time_since_last:.1f}s/5s"
+            return False, f"cooldown {time_since_last:.1f}s"
         
-        # Count unique human players in conversation
+        # Count humans in conversation
         human_players = set()
         for msg in self.buffer:
             if not msg['is_impostor']:
@@ -152,45 +147,78 @@ class ConversationState:
         
         num_humans = len(human_players)
         
-        # ✅ RULE: If 1-on-1, ALWAYS respond (100%)
+        # ✅ NEW: Strategic override - ALWAYS respond if accused
+        if self.strategy.has_been_accused:
+            return True, "MUST DEFEND (accused!)"
+        
+        # ✅ NEW: Check if we should respond strategically
+        last_message = list(self.buffer)[-1]['message'] if self.buffer else ""
+        should_respond, response_type = self.strategy.should_respond_to_message(
+            last_message,
+            {'num_humans': num_humans, 'facts_learned': self.facts_learned}
+        )
+        
+        if response_type == "defend":
+            return True, "defending accusation"
+        elif response_type == "answer_question":
+            return True, "answering question"
+        elif response_type == "seed_doubt":
+            return True, "seeding doubt (strategic)"
+        
+        # Original logic for non-strategic responses
         if num_humans == 1:
             return True, "1-on-1 (100%)"
-        
-        # ✅ RULE: If 2 players, respond frequently (70%)
-        if num_humans == 2:
+        elif num_humans == 2:
             if random.random() < 0.7:
                 return True, "2 players (70%)"
             else:
                 return False, "2 players (skip)"
-        
-        # ✅ RULE: If 3+ players, respond moderately (40%)
-        if random.random() < 0.4:
-            return True, f"{num_humans} players (40%)"
         else:
-            return False, f"{num_humans} players (skip)"
+            if random.random() < 0.4:
+                return True, f"{num_humans} players (40%)"
+            else:
+                return False, f"{num_humans} players (skip)"
     
     def is_finished(self) -> Tuple[bool, str]:
-        """✅ RULE COMPLIANT: Check if conversation should end"""
-        
+        """Check if conversation should end"""
         if self.goodbye_detected:
-            return True, "goodbye detected"
-        
+            return True, "goodbye"
         if self.message_count >= self.max_messages:
-            return True, f"max messages ({self.max_messages})"
+            return True, f"max messages"
         
         idle_time = time.time() - self.last_activity
         if idle_time > self.idle_timeout:
-            return True, f"idle timeout ({idle_time:.1f}s)"
-        
+            return True, f"idle {idle_time:.0f}s"
         if self.impostor_message_count >= 10:
-            return True, f"impostor spoke enough ({self.impostor_message_count})"
+            return True, f"impostor done"
         
         return False, "active"
     
-    def get_duration(self) -> float:
-        return time.time() - self.started_at
+    def get_buffer_text(self) -> str:
+        if not self.buffer:
+            return "(conversation just started)"
+        lines = []
+        for msg in self.buffer:
+            lines.append(f"{msg['player_id']}: {msg['message']}")
+        return "\n".join(lines)
+    
+    def get_conversation_summary(self) -> str:
+        """Generate conversation summary"""
+        players = set(msg['player_id'] for msg in self.buffer)
+        
+        summary_parts = [
+            f"📊 CONVERSATION SUMMARY",
+            f"   Duration: {time.time() - self.started_at:.0f}s",
+            f"   Messages: {self.message_count} ({self.impostor_message_count} impostor)",
+            f"   Participants: {', '.join(players)}",
+            f"   Facts learned: {self.facts_learned}",
+            f"   Questions asked: {self.questions_asked}",
+            f"   Accusations made: {self.accusations_made}",
+        ]
+        
+        return "\n".join(summary_parts)
 
-# Active conversations (one per group with impostor)
+# Active conversations
 active_conversations: Dict[str, ConversationState] = {}
 
 # ========== IMPOSTOR STATE ==========
@@ -200,8 +228,12 @@ class ImpostorState:
         self.disguised_as: Optional[str] = None
         self.is_active: bool = False
         self.target_group_id: Optional[str] = None
+        # Bug 3 fix: remember last group so we never re-pick it immediately
+        self.last_visited_group_id: Optional[str] = None
 
     def reset(self):
+        # Preserve last_visited_group_id across resets so next spawn avoids it
+        self.last_visited_group_id = self.target_group_id
         self.disguised_as = None
         self.is_active = False
         self.target_group_id = None
@@ -217,16 +249,10 @@ class ImpostorSpawnControl:
     def should_spawn_now(self) -> bool:
         if impostor.is_active:
             return False
-        
         elapsed = time.time() - self.last_spawn_time
         if elapsed < self.spawn_interval:
             return False
-        
-        valid_groups = [
-            g for g in current_groups.values()
-            if g.get('size', 0) >= self.min_group_size
-        ]
-        
+        valid_groups = [g for g in current_groups.values() if g.get('size', 0) >= self.min_group_size]
         return len(valid_groups) > 0
 
     def record_spawn(self):
@@ -256,76 +282,123 @@ def is_valid_player_id(pid) -> bool:
     return True
 
 def update_player_history(player_id: str, message: str):
-    """✅ RULE: Update per-player recent message history (max 20)"""
+    """Update per-player recent message history"""
     if player_id not in recent_history:
         recent_history[player_id] = deque(maxlen=20)
     recent_history[player_id].append(message)
 
 def update_global_summary():
-    """
-    ✅ RULE: Update global summary every 5 messages
-    Tracks recent match events for impostor context
-    """
+    """Update global summary every 5 messages using an LLM rewrite step."""
     global global_summary
-    
+
     if len(global_message_buffer) < 5:
         return
-    
+
     recent_msgs = list(global_message_buffer)[-20:]
-    
-    players_mentioned = set()
-    locations_mentioned = set()
-    actions_mentioned = []
-    
-    VALID_LOCATIONS = ["Pavillion", "Church", "Mansion", "Greenhouse", "Sheds"]
-    
+
+    # Build a plain transcript for the LLM to summarise
+    transcript_lines = []
     for msg in recent_msgs:
         pid = msg.get('player_id', '')
-        text = msg.get('message', '').lower()
-        
-        if not pid.startswith('impostor_'):
-            players_mentioned.add(pid)
-        
-        for loc in VALID_LOCATIONS:
-            if loc.lower() in text:
-                locations_mentioned.add(loc)
-        
-        if 'collected' in text or 'collecting' in text:
-            actions_mentioned.append('collecting')
-        if 'fight' in text or 'fighting' in text:
-            actions_mentioned.append('fighting')
-    
-    parts = []
-    if players_mentioned:
-        parts.append(f"Players: {', '.join(list(players_mentioned)[:2])}")
-    if locations_mentioned:
-        parts.append(f"at {', '.join(list(locations_mentioned)[:2])}")
-    if actions_mentioned:
-        parts.append(f"{list(set(actions_mentioned))[0]}")
-    
-    if parts:
-        global_summary = ". ".join(parts)
-    else:
-        global_summary = "Players exploring"
+        text = msg.get('message', '')
+        if pid.startswith('impostor_'):
+            continue          # hide the impostor's identity
+        transcript_lines.append(f"{pid}: {text}")
+
+    transcript = "\n".join(transcript_lines)
+
+    prompt = f"""You are summarising a multiplayer Chernobyl survival game chat for an AI NPC.
+
+Recent player messages:
+{transcript}
+
+Write ONE concise sentence (max 20 words) describing what the players are doing and where they are.
+Only mention locations and actions from the game: Sheds, Barns, Greenhouse, Church, Pavilion, collecting wood/mushrooms, taking cans, shooting aliens.
+Do NOT mention day/night, knives, or anything outside the game rules.
+Reply with ONLY the summary sentence."""
+
+    try:
+        from langchain_ollama import ChatOllama
+        _summary_llm = ChatOllama(
+            model="llama3.2:3b",
+            temperature=0.3,
+            base_url="http://127.0.0.1:11434",
+            num_ctx=256,
+            num_predict=40,
+        )
+        response = _summary_llm.invoke(prompt)
+        candidate = (response.content or "").strip().split("\n")[0].strip()
+        if len(candidate) > 10:
+            global_summary = candidate
+            print(f"   📝 Global summary updated: {global_summary}")
+        else:
+            raise ValueError("Empty summary")
+    except Exception as e:
+        print(f"   ⚠️ Summary LLM failed ({e}), falling back to keyword summary")
+        # Keyword fallback (original logic, kept as safety net)
+        players_mentioned: set = set()
+        locations_mentioned: set = set()
+        VALID_LOCATIONS = ["Church", "Greenhouse", "Sheds", "Barns", "Pavilion"]
+        for msg in recent_msgs:
+            pid = msg.get('player_id', '')
+            text = msg.get('message', '').lower()
+            if not pid.startswith('impostor_'):
+                players_mentioned.add(pid)
+            for loc in VALID_LOCATIONS:
+                if loc.lower() in text:
+                    locations_mentioned.add(loc)
+        parts = []
+        if players_mentioned:
+            parts.append(f"Players active: {', '.join(list(players_mentioned)[:3])}")
+        if locations_mentioned:
+            parts.append(f"Locations mentioned: {', '.join(list(locations_mentioned)[:2])}")
+        global_summary = ". ".join(parts) if parts else "Players exploring the area."
 
 def choose_target_group() -> Optional[Dict]:
-    """✅ RULE: Choose smallest group for impostor (priority to smaller groups)"""
+    """
+    Choose the target group for the impostor using a composite score:
+        score = distance_from_all_others - size_penalty
+    This implements the rule: "farthest group, with priority for smaller groups."
+    Bug 3 fix: never pick the same group the impostor most recently visited.
+    """
     if len(current_groups) < 2:
         return None
-    
+
     valid_groups = [
         g for g in current_groups.values()
         if g['size'] >= spawn_control.min_group_size
+        # Bug 3 fix: exclude the last visited group
+        and g['group_id'] != impostor.last_visited_group_id
     ]
-    
+
+    if not valid_groups:
+        # If excluding last group leaves nothing, relax the constraint
+        valid_groups = [
+            g for g in current_groups.values()
+            if g['size'] >= spawn_control.min_group_size
+        ]
     if not valid_groups:
         return None
-    
-    smallest = min(valid_groups, key=lambda g: g['size'])
-    return smallest
+
+    def group_score(g: Dict) -> float:
+        pos = g.get('center_position', [0, 0, 0])
+        # Sum of distances to all OTHER groups (higher = more isolated / farther away)
+        total_dist = 0.0
+        for other in current_groups.values():
+            if other['group_id'] == g['group_id']:
+                continue
+            other_pos = other.get('center_position', [0, 0, 0])
+            dist = ((pos[0] - other_pos[0]) ** 2 + (pos[2] - other_pos[2]) ** 2) ** 0.5
+            total_dist += dist
+        # Bug 2 fix: smaller groups are preferred — subtract a size penalty
+        # Each extra player above 1 costs 5 units of distance-score
+        size_penalty = (g['size'] - 1) * 5.0
+        return total_dist - size_penalty
+
+    return max(valid_groups, key=group_score)
 
 def choose_impostor_disguise(target_group_id: Optional[str] = None) -> Optional[str]:
-    """✅ RULE: Choose player from FARTHEST group from target group"""
+    """Choose player from farthest group"""
     try:
         target_members = set()
         target_group_position = None
@@ -366,7 +439,6 @@ def choose_impostor_disguise(target_group_id: Optional[str] = None) -> Optional[
         if not candidate_players_with_distance:
             return "Player_Default"
         
-        # Pick farthest
         candidate_players_with_distance.sort(key=lambda x: x['distance'], reverse=True)
         chosen_data = candidate_players_with_distance[0]
         
@@ -377,73 +449,112 @@ def choose_impostor_disguise(target_group_id: Optional[str] = None) -> Optional[
         return "Player_Default"
 
 def generate_style_summary(player_id: str) -> str:
-    """✅ RULE: Generate style summary ONCE from player's recent 20 messages"""
+    """
+    Generate a real LLM-based style summary from the player's last 20 messages.
+    Bug 5 fix: delegates to stylometric.summarize_player_style() instead of
+    returning a word-count heuristic string.
+    Falls back to a safe default if the player has fewer than 3 messages.
+    """
     msgs = list(recent_history.get(player_id, []))
-    
+
     if not msgs or len(msgs) < 3:
-        return "Casual gamer"
-    
-    avg_length = sum(len(m.split()) for m in msgs) / len(msgs)
-    
-    if avg_length < 4:
-        return "Very short messages"
-    elif avg_length < 8:
-        return "Brief casual chat"
-    else:
-        return "Longer messages"
+        return "Casual gamer, short responses, friendly tone."
+
+    try:
+        from stylometric import summarize_player_style
+        summary = summarize_player_style(player_id, msgs)
+        print(f"   🖊️ Style for {player_id}: {summary[:80]}...")
+        return summary
+    except Exception as e:
+        print(f"   ⚠️ Style LLM failed ({e}), using word-count fallback")
+        avg_length = sum(len(m.split()) for m in msgs) / len(msgs)
+        if avg_length < 4:
+            return "Very short messages, minimal punctuation, blunt tone."
+        elif avg_length < 8:
+            return "Brief casual chat, informal, uses short sentences."
+        else:
+            return "Longer detailed messages, explains actions clearly."
 
 def generate_impostor_message(conv: ConversationState) -> Optional[str]:
     """
-    ✅ RULE COMPLIANT: Generate impostor reply with proper context
+    ✅ NEW: Generate STRATEGIC impostor reply
     
-    Context structure (as per rules):
-    1. Style summary (cached, generated once)
-    2. Global summary (recent match events)
-    3. Conversation buffer (last 20 messages - priority)
-    4. Optional retrieved snippets (not implemented yet - for "remember when..." queries)
+    Uses deception strategy to decide what to say
     """
     
     print(f"\n{'─'*50}")
-    print(f"🤖 GENERATING REPLY")
+    print(f"🤖 GENERATING STRATEGIC REPLY")
     print(f"{'─'*50}")
     
-    # ✅ RULE: Cache style summary (only generate once per conversation)
+    # Cache style summary
     if conv.style_summary is None:
         conv.style_summary = generate_style_summary(conv.disguise_player_id)
     
-    # ✅ RULE: Use conversation buffer as priority context
     conversation_text = conv.get_buffer_text()
     
-    # Get recent messages for style imitation
+    # ✅ NEW: Get all player profiles for strategic decision-making
+    profiles = {
+        pid: profile.to_dict()
+        for pid, profile in profile_manager.profiles.items()
+    }
+    
+    # Get recent messages
     recent_msgs = list(recent_history.get(conv.disguise_player_id, []))
+    
+    # Get last message from conversation
+    last_message = list(conv.buffer)[-1]['message'] if conv.buffer else ""
+    conversation_history = [msg['message'] for msg in list(conv.buffer)[-10:]]
     
     print(f"   Style: {conv.style_summary}")
     print(f"   Buffer: {len(conv.buffer)} messages")
-    print(f"   Global: {global_summary[:40]}...")
+    print(f"   Facts: {conv.facts_learned}")
+    print(f"   Mode: {conv.strategy.current_mode.value}")
     
-    t0 = time.time()
+    # ✅ NEW: Use deception strategy to generate response
+    try:
+        strategic_response = conv.strategy.get_response_strategy(
+            message=last_message,
+            profiles=profiles,
+            suspicion_tracker=suspicion_tracker,
+            conversation_history=conversation_history
+        )
+
+        if strategic_response:
+            print(f"   🎭 Strategic: {strategic_response[:60]}...")
+        else:
+            print(f"   🎭 No strategic response — using casual generation")
+
+        t0 = time.time()
+
+        # Bug 1 fix: pass strategic_response AND strategy_mode into the LLM call
+        # so the prompt becomes "Say this but in your natural style: <strategic_response>"
+        reply = generate_npc_reply_fast(
+            disguise_name=conv.disguise_player_id,
+            style_summary=conv.style_summary,
+            global_context=global_summary,
+            conversation=conversation_text,
+            recent_msgs=recent_msgs,
+            strategy_mode=conv.strategy.current_mode.value,
+            strategic_response=strategic_response,
+        )
+
+        t1 = time.time()
+        print(f"   ⏱️ {t1-t0:.2f}s")
+        print(f"   💬 {reply}")
     
-    # ✅ RULE: Compose prompt with proper structure
-    reply = generate_npc_reply_fast(
-        disguise_name=conv.disguise_player_id,
-        style_summary=conv.style_summary,
-        global_context=global_summary,
-        conversation=conversation_text,
-        recent_msgs=recent_msgs,
-    )
+    except Exception as e:
+        print(f"   ❌ Strategy failed: {e}")
+        import traceback
+        traceback.print_exc()
+        reply = "Not sure."
     
-    t1 = time.time()
-    print(f"   ⏱️ {t1-t0:.2f}s")
-    print(f"   💬 {reply}")
     print(f"{'─'*50}\n")
     
     return reply
 
 def detect_goodbye(message: str) -> bool:
-    """✅ RULE: Detect goodbye signals"""
     goodbye_keywords = ["bye", "goodbye", "see ya", "later", "gotta go", "gtg", "brb", "afk"]
-    msg_lower = message.lower()
-    return any(keyword in msg_lower for keyword in goodbye_keywords)
+    return any(keyword in message.lower() for keyword in goodbye_keywords)
 
 # ========== API ENDPOINTS ==========
 
@@ -453,7 +564,7 @@ def receive_message(
     message: str = Body(..., embed=True),
     group_id: str = Body("solo", embed=True),
 ):
-    """Handle incoming chat message"""
+    """Enhanced chat endpoint with strategic analysis"""
     
     player_id = player_id.strip()
     message = message.strip()
@@ -472,7 +583,13 @@ def receive_message(
         if impostor.target_group_id in active_conversations:
             del active_conversations[impostor.target_group_id]
     
-    # ✅ RULE: Store in database with group_id
+    # ✅ NEW: Analyze message and update player profile
+    statement = profile_manager.analyze_message(player_id, message, location=group_id)
+    print(f"   📝 Category: {statement.category}")
+    if statement.mentioned_players:
+        print(f"   👥 Mentioned: {', '.join(statement.mentioned_players)}")
+    
+    # Store in database
     try:
         add_player_message_with_group(
             text=message,
@@ -485,20 +602,17 @@ def receive_message(
     except Exception as e:
         print(f"⚠️ DB store failed: {e}")
     
-    # ✅ RULE: Update per-player recent messages (max 20)
+    # Update histories
     update_player_history(player_id, message)
-    
-    # ✅ RULE: Update global message buffer
     global_message_buffer.append({
         'player_id': player_id,
         'message': message,
         'timestamp': timestamp
     })
     
-    # ✅ RULE: Update global summary every 5 messages
+    # Update global summary every 5 messages
     if len(global_message_buffer) % 5 == 0:
         update_global_summary()
-        print(f"🌍 Global summary updated: {global_summary}")
     
     response_data = {
         "player_id": player_id,
@@ -513,15 +627,14 @@ def receive_message(
         conv = active_conversations.get(group_id)
         
         if not conv:
-            # ✅ RULE: Create conversation with cached style
             conv = ConversationState(group_id, impostor.disguised_as)
             active_conversations[group_id] = conv
             print(f"🆕 Conversation started")
         
-        # ✅ RULE: Add to conversation buffer
+        # Add message to buffer
         conv.add_message(player_id, message, is_impostor=False)
         
-        # ✅ RULE: Detect goodbye
+        # Check for goodbye
         if detect_goodbye(message):
             conv.goodbye_detected = True
             print(f"👋 Goodbye detected")
@@ -538,7 +651,7 @@ def receive_message(
                 if impostor_msg:
                     impostor_timestamp = datetime.now(timezone.utc).isoformat()
                     
-                    # ✅ RULE: Store impostor message with special ID
+                    # Store impostor message
                     add_player_message_with_group(
                         text=impostor_msg,
                         player_id=f"impostor_{impostor.disguised_as}",
@@ -548,7 +661,7 @@ def receive_message(
                         timestamp=impostor_timestamp,
                     )
                     
-                    # ✅ RULE: Add to conversation buffer
+                    # Add to buffer
                     conv.add_message(impostor.disguised_as, impostor_msg, is_impostor=True)
                     
                     global_message_buffer.append({
@@ -574,6 +687,7 @@ def receive_message(
         finished, finish_reason = conv.is_finished()
         if finished:
             print(f"\n{conv.get_conversation_summary()}")
+            print(f"\n{suspicion_tracker.get_suspicion_summary()}")
             print(f"🏁 Ended: {finish_reason}\n")
             del active_conversations[group_id]
             impostor.reset()
@@ -602,7 +716,7 @@ def sync_groups(groups: List[Dict] = Body(..., embed=True), timestamp: str = Bod
 
 @app.get("/impostor/check_spawn")
 def check_impostor_spawn():
-    """✅ RULE COMPLIANT: Check if impostor should spawn"""
+    """Check if impostor should spawn"""
     
     if impostor.is_active and impostor.target_group_id:
         conv = active_conversations.get(impostor.target_group_id)
@@ -699,17 +813,23 @@ def impostor_status():
         "active_conversations": list(active_conversations.keys()),
     }
 
-@app.get("/conversation/summary")
-def get_conversation_summary():
-    """Get summary of current conversation"""
-    if not active_conversations:
-        return {"summary": "No active conversations"}
-    
-    summaries = {}
-    for group_id, conv in active_conversations.items():
-        summaries[group_id] = conv.get_conversation_summary()
-    
-    return {"summaries": summaries}
+@app.get("/profiles")
+def get_profiles():
+    """Get all player profiles"""
+    return {
+        "profiles": {
+            pid: profile.to_dict()
+            for pid, profile in profile_manager.profiles.items()
+        }
+    }
+
+@app.get("/suspicions")
+def get_suspicions():
+    """Get suspicion summary"""
+    return {
+        "summary": suspicion_tracker.get_suspicion_summary(),
+        "most_suspected": suspicion_tracker.get_most_suspected(5)
+    }
 
 @app.post("/session/reset")
 def reset_session():
@@ -718,6 +838,8 @@ def reset_session():
     active_conversations.clear()
     global_message_buffer.clear()
     impostor.reset()
+    profile_manager.profiles.clear()
+    suspicion_tracker.suspicion_matrix.clear()
     
     print("🗑️ Session reset")
     
@@ -727,32 +849,27 @@ def reset_session():
 def root():
     return {
         "status": "online",
-        "message": "Impostor Chat Server - V3.0",
+        "message": "Impostor Chat Server - V4.0 STRATEGIC DECEPTION",
         "impostor_active": impostor.is_active,
         "tracked_groups": len(current_groups),
-        "version": "3.0 - Ultra-optimized + conversation summary",
-        "rules_compliant": True
+        "tracked_players": len(profile_manager.profiles),
+        "version": "4.0 - Strategic deceptive impostor with profiling & suspicion tracking"
     }
 
 if __name__ == "__main__":
-    print("🚀 Impostor Chat Server V3.0 - ULTRA-OPTIMIZED")
+    print("🚀 Impostor Chat Server V4.0 - STRATEGIC DECEPTION")
     print("📍 Port: 8000")
-    print("\n✅ RULE COMPLIANCE:")
-    print("   [✓] Conversation buffer (last 20 messages)")
-    print("   [✓] Style summary (cached once)")
-    print("   [✓] Global summary (every 5 messages)")
-    print("   [✓] 1-on-1: 100% response")
-    print("   [✓] 2 players: 70% response")
-    print("   [✓] 3+ players: 40% response")
-    print("   [✓] 5s cooldown")
-    print("   [✓] Goodbye detection")
-    print("   [✓] Farthest group disguise selection")
-    print("   [✓] Store with impostor_PlayerName")
-    print("   [✓] Per-player 20 message history")
-    print("\n✅ OPTIMIZATIONS:")
-    print("   [✓] Ultra-fast LLM generation")
-    print("   [✓] Minimal context for speed")
-    print("   [✓] Conversation summary endpoint")
+    print("\n✅ NEW FEATURES:")
+    print("   [✓] Player profiling (tracks behavior, statements, locations)")
+    print("   [✓] Suspicion tracking (scores who suspects whom)")
+    print("   [✓] Deception strategy engine (decides when to lie/accuse/defend)")
+    print("   [✓] Strategic question asking (gathers intel)")
+    print("   [✓] Smart accusation targeting (picks best targets)")
+    print("   [✓] Defense generation (uses alibis from memory)")
+    print("   [✓] Doubt seeding (plants subtle suspicion)")
+    print("\n✅ API ENDPOINTS:")
+    print("   GET  /profiles     - View all player profiles")
+    print("   GET  /suspicions   - View suspicion matrix")
     print("\n✅ Server ready!\n")
     
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning")

@@ -47,6 +47,10 @@ PrefabInstance:
       propertyPath: m_TagString
       value: Untagged
       objectReference: {fileID: 0}
+    - target: {fileID: 8846675723123607631, guid: d80e51052c2e484418101ea685069034, type: 3}
+      propertyPath: m_Controller
+      value: 
+      objectReference: {fileID: 9100000, guid: f73e4fc7c74a7bf479a0808444f5b835, type: 2}
     - target: {fileID: 9029450963586887590, guid: d80e51052c2e484418101ea685069034, type: 3}
       propertyPath: m_RootOrder
       value: 0
@@ -241,28 +245,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c7692ac9faa06ab48908091926b67b76, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  TransitionStateInfoList:
-  - IsCrossFadeExit: 0
-    Layer: 0
-    OriginatingState: -2089788878
-    DestinationState: -391498677
-    TransitionDuration: 0.25
-    TriggerNameHash: -1520575955
-    TransitionIndex: 0
-  - IsCrossFadeExit: 0
-    Layer: 0
-    OriginatingState: -2089788878
-    DestinationState: -1061319648
-    TransitionDuration: 0.25
-    TriggerNameHash: -1525363869
-    TransitionIndex: 2
-  - IsCrossFadeExit: 0
-    Layer: 0
-    OriginatingState: -1028387845
-    DestinationState: -2089788878
-    TransitionDuration: 0.25
-    TriggerNameHash: 1654612129
-    TransitionIndex: 0
+  TransitionStateInfoList: []
   m_Animator: {fileID: 2246263788724259814}
 --- !u!143 &6468367885193676428
 CharacterController:
@@ -305,8 +288,6 @@ MonoBehaviour:
   walkSpeed: 5
   runSpeed: 10
   acceleration: 5
-  gravity: -9.81
-  groundedGravity: -5
   detectionRadius: 25
   approachDistance: 15
   conversationDistance: 2.5
@@ -319,6 +300,11 @@ MonoBehaviour:
   farWanderRadius: 15
   arrivalThreshold: 1.5
   stopMovingThreshold: 0.3
+  groupArrivalDistance: 10
+  groupFollowUpdateInterval: 1
+  lookAtSpeed: 3
+  lookAtDistance: 5
+  leaveDistance: 90
   groundCheck: {fileID: 31565408505645507}
   groundMask:
     serializedVersion: 2
@@ -329,7 +315,6 @@ MonoBehaviour:
     m_Bits: 0
   obstacleCheckDistance: 1
   showDebugInfo: 0
-  verboseLogging: 0
 --- !u!114 &2190302715862219602
 MonoBehaviour:
   m_ObjectHideFlags: 0

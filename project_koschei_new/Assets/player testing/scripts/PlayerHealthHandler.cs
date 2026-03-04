@@ -1,7 +1,9 @@
+using System.Collections;
 using UnityEngine;
 using StarterAssets;
+using Unity.Netcode;
 
-public class PlayerHealthHandler : MonoBehaviour
+public class PlayerHealthHandler : NetworkBehaviour
 {
     [Header("References")]
     [SerializeField] private Health healthComponent;
@@ -20,12 +22,15 @@ public class PlayerHealthHandler : MonoBehaviour
     private ThirdPersonController thirdPersonController;
     private ThirdPersonShooterController shooterController;
     private CharacterController characterController;
+    private StarterAssetsInputs starterAssetsInputs;
 
     private float lastHealth;
-    private bool isDead = false;
+    private bool hasHandledDeath = false;
 
-    private void Start()
+    public override void OnNetworkSpawn()
     {
+        base.OnNetworkSpawn();
+
         // Auto-find Health component if not assigned
         if (healthComponent == null)
             healthComponent = GetComponent<Health>();
@@ -35,56 +40,103 @@ public class PlayerHealthHandler : MonoBehaviour
         thirdPersonController = GetComponent<ThirdPersonController>();
         shooterController = GetComponent<ThirdPersonShooterController>();
         characterController = GetComponent<CharacterController>();
+        starterAssetsInputs = GetComponent<StarterAssetsInputs>();
 
         // Initialize health tracking
         if (healthComponent != null)
             lastHealth = healthComponent.GetCurrentHealth();
+
+        Debug.Log($"[PlayerHealthHandler] Spawned - IsOwner: {IsOwner}, Health: {(healthComponent != null ? "Found" : "NULL")}");
     }
 
     private void Update()
     {
         if (healthComponent == null) return;
 
-        // DEBUG: Test damage
-        if (enableDebugDamage)
+        // DEBUG: Test damage (only for owner)
+        if (IsOwner && enableDebugDamage && !healthComponent.IsDead())
         {
             if (Input.GetKeyDown(debugDamageKey))
             {
-                Debug.Log($"[DEBUG] Applying {debugDamageAmount} damage to player");
-                healthComponent.TakeDamage(debugDamageAmount);
+                Debug.Log($"[DEBUG] Requesting {debugDamageAmount} damage to player");
+                RequestDamageServerRpc(debugDamageAmount);
             }
 
             if (Input.GetKeyDown(debugKillKey))
             {
-                Debug.Log($"[DEBUG] Instantly killing player");
-                healthComponent.TakeDamage(999f);
+                Debug.Log($"[DEBUG] Requesting instant kill");
+                RequestDamageServerRpc(999f);
+            }
+
+            // Debug state check
+            if (Input.GetKeyDown(KeyCode.H))
+            {
+                Debug.Log($"[DEBUG] Health: {healthComponent.GetCurrentHealth()}, " +
+                          $"IsDead: {healthComponent.IsDead()}, " +
+                          $"HasHandledDeath: {hasHandledDeath}, " +
+                          $"Layer1: {(animator != null ? animator.GetLayerWeight(1) : -1)}, " +
+                          $"Layer2: {(animator != null ? animator.GetLayerWeight(2) : -1)}");
             }
         }
 
-        if (isDead) return;
-
-        float currentHealth = healthComponent.GetCurrentHealth();
-
-        // Check if health decreased (player took damage)
-        if (currentHealth < lastHealth)
-        {
-            OnPlayerTookDamage(lastHealth - currentHealth);
-        }
-
-        // Check if player died
-        if (currentHealth <= 0 && !isDead)
+        // Check if player is dead (synced across network)
+        if (healthComponent.IsDead() && !hasHandledDeath)
         {
             OnPlayerDeath();
+            return;
         }
 
-        lastHealth = currentHealth;
+        // Block all gameplay inputs if dead (only for owner)
+        if (IsOwner && healthComponent.IsDead())
+        {
+            BlockAllInputs();
+        }
+
+        // Continuously force layer weights to 0 if dead
+        if (healthComponent.IsDead() && animator != null)
+        {
+            animator.SetLayerWeight(1, 0f);
+            animator.SetLayerWeight(2, 0f);
+        }
+
+        // Only track health changes for owner
+        if (IsOwner && !healthComponent.IsDead())
+        {
+            float currentHealth = healthComponent.GetCurrentHealth();
+
+            // Check if health decreased (player took damage)
+            if (currentHealth < lastHealth && currentHealth > 0)
+            {
+                OnPlayerTookDamage(lastHealth - currentHealth);
+            }
+
+            lastHealth = currentHealth;
+        }
+    }
+
+    [ServerRpc]
+    private void RequestDamageServerRpc(float damage)
+    {
+        if (healthComponent != null)
+        {
+            healthComponent.TakeDamage(damage);
+        }
     }
 
     private void OnPlayerTookDamage(float damageAmount)
     {
-        Debug.Log($"Player took {damageAmount} damage! Current HP: {healthComponent.GetCurrentHealth()}");
+        Debug.Log($"[PlayerHealthHandler] Player took {damageAmount} damage! Current HP: {healthComponent.GetCurrentHealth()}");
 
-        // Play hit animation
+        // Play hit animation - sync to all clients
+        if (animator != null)
+        {
+            PlayHitAnimationClientRpc();
+        }
+    }
+
+    [ClientRpc]
+    private void PlayHitAnimationClientRpc()
+    {
         if (animator != null)
         {
             animator.SetTrigger(hitTriggerName);
@@ -93,33 +145,87 @@ public class PlayerHealthHandler : MonoBehaviour
 
     private void OnPlayerDeath()
     {
-        isDead = true;
-        Debug.Log("Player died!");
+        hasHandledDeath = true;
+        Debug.Log($"[PlayerHealthHandler] Player died! IsOwner: {IsOwner}");
 
-        // Disable player controls
-        if (thirdPersonController != null)
-            thirdPersonController.enabled = false;
-
-        if (shooterController != null)
-            shooterController.enabled = false;
-
-        // Disable character controller
-        if (characterController != null)
-            characterController.enabled = false;
-
-        // Play death animation
-        if (animator != null)
+        // Disable controllers FIRST to prevent movement warnings
+        if (IsOwner)
         {
-            animator.SetLayerWeight(1, Mathf.Lerp(animator.GetLayerWeight(2), 0f, Time.deltaTime * 100f));
-            animator.SetLayerWeight(2, Mathf.Lerp(animator.GetLayerWeight(2), 0f, Time.deltaTime * 100f));
-            animator.SetTrigger(dieTriggerName);
+            // Disable the scripts that control movement
+            if (thirdPersonController != null)
+            {
+                thirdPersonController.enabled = false;
+                Debug.Log("[PlayerHealthHandler] ThirdPersonController disabled");
+            }
+
+            if (shooterController != null)
+            {
+                shooterController.enabled = false;
+                Debug.Log("[PlayerHealthHandler] ShooterController disabled");
+            }
+
+            // Block all inputs
+            BlockAllInputs();
         }
 
-        // Optional: Add respawn logic here or call game manager
+        // Play death animation on ALL clients
+        PlayDeathAnimationClientRpc();
+
+        // Disable colliders after animation starts
+        StartCoroutine(DisableCollidersDelayed(0.5f));
     }
 
-    // Public methods if needed
-    public bool IsDead() => isDead;
+    [ClientRpc]
+    private void PlayDeathAnimationClientRpc()
+    {
+        Debug.Log($"[PlayerHealthHandler] Playing death animation on client");
+
+        if (animator != null)
+        {
+            // IMMEDIATELY reset animation layers (not lerp)
+            animator.SetLayerWeight(1, 0f); // Disable aiming layer
+            animator.SetLayerWeight(2, 0f); // Disable gun stance layer
+
+            Debug.Log($"[PlayerHealthHandler] Animation layers reset - Layer1: {animator.GetLayerWeight(1)}, Layer2: {animator.GetLayerWeight(2)}");
+
+            // Trigger death animation
+            animator.SetTrigger(dieTriggerName);
+            Debug.Log($"[PlayerHealthHandler] Death animation triggered: {dieTriggerName}");
+        }
+    }
+
+    private void BlockAllInputs()
+    {
+        if (starterAssetsInputs == null) return;
+
+        // Block all movement and action inputs
+        starterAssetsInputs.move = Vector2.zero;
+        starterAssetsInputs.look = Vector2.zero;
+        starterAssetsInputs.jump = false;
+        starterAssetsInputs.sprint = false;
+        starterAssetsInputs.aim = false;
+        starterAssetsInputs.shoot = false;
+        starterAssetsInputs.reload = false;
+        starterAssetsInputs.interact = false;
+        starterAssetsInputs.drop = false;
+    }
+
+    private IEnumerator DisableCollidersDelayed(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+
+        // Disable colliders so other players can walk through the corpse
+        Collider[] colliders = GetComponentsInChildren<Collider>();
+        foreach (Collider col in colliders)
+        {
+            col.enabled = false;
+        }
+
+        Debug.Log("[PlayerHealthHandler] Colliders disabled - players can walk through corpse");
+    }
+
+    // Public methods
+    public bool IsDead() => healthComponent != null && healthComponent.IsDead();
 
     public float GetCurrentHealth()
     {

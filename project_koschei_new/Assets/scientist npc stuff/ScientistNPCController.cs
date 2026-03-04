@@ -2,9 +2,10 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
+using Unity.Netcode;
 using StarterAssets;
 
-public enum ScientistState { Idle, Patrol, Talk }
+public enum ScientistState { Idle, Patrol, Talk, Dead }
 
 public class ScientistNPCController : MonoBehaviour
 {
@@ -13,32 +14,36 @@ public class ScientistNPCController : MonoBehaviour
 
     [Header("Idle / Talk")]
     public float idleTimeAtPatrolPoint = 2f;
-    public float interactionRange = 3f;  // player must be within this range to press E
-    public float talkDuration = 5f;      // how long the talk animation plays
-    public float facePlayerSpeed = 5f;   // how fast NPC rotates to face player while talking
+    public float interactionRange = 3f;
+    public float facePlayerSpeed = 5f;
 
     [Header("Random Patrol")]
     public float patrolRadius = 20f;
 
     [Header("Animation")]
     public Animator animator;
-    public string speedParam = "Speed";       // float for walk blend
-    public string talkingParam = "IsTalking"; // bool for talk layer
-
-    [Header("Interaction Prompt")]
-    //public GameObject interactionPrompt;  // UI hint (optional, e.g., "Press E")
+    public string speedParam = "Speed";
+    [Tooltip("Optional: Trigger parameter name in the Animator for death.")]
+    public string dieParam = "Die";
 
     NavMeshAgent agent;
     ScientistState state = ScientistState.Idle;
     float stateTimer = 0f;
     Vector3 homePosition;
     bool isTalking = false;
-    float talkTimer = 0f;
-    Transform talkingToPlayer;  // Reference to player we're talking to
+    Transform talkingToPlayer;
+
+    private ScientistNPCDialogue _dialogue;
+    private bool _playerWasNearby = false;
+    private bool isDead = false;
+
+    public bool IsDead => isDead;
 
     void Start()
     {
         agent = GetComponent<NavMeshAgent>();
+        _dialogue = GetComponent<ScientistNPCDialogue>();
+
         if (animator == null)
             animator = GetComponentInChildren<Animator>();
 
@@ -46,80 +51,107 @@ public class ScientistNPCController : MonoBehaviour
         state = ScientistState.Patrol;
         agent.speed = patrolSpeed;
         SetRandomPatrolDestination();
-
-        //if (interactionPrompt != null)
-            //interactionPrompt.SetActive(false);
     }
 
     void Update()
     {
-        // Check for player interaction if not talking
-        if (!isTalking)
-        {
-            CheckForPlayerInteraction();
-        }
+        if (isDead) return;
 
-        // State machine
+        CheckForPlayerProximity();
+
+        if (!(_dialogue != null && _dialogue.IsTalking))
+            CheckForInteractPress();
+
         switch (state)
         {
-            case ScientistState.Patrol:
-                UpdatePatrol();
-                break;
-            case ScientistState.Idle:
-                UpdateIdle();
-                break;
-            case ScientistState.Talk:
-                UpdateTalk();
-                break;
+            case ScientistState.Patrol: UpdatePatrol(); break;
+            case ScientistState.Idle: UpdateIdle(); break;
+            case ScientistState.Talk: UpdateTalk(); break;
         }
 
-        UpdateAnimationFromAgent();
+        bool isServer = NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer;
+        if (isServer)
+        {
+            float speed = isTalking ? 0f : agent.velocity.magnitude;
+            if (_dialogue != null) _dialogue.ServerUpdateSpeed(speed);
+            UpdateAnimationFromAgent();
+        }
     }
 
-    // ========== Player Interaction Detection ==========
-    void CheckForPlayerInteraction()
+    // -------------------------------------------------------------------------
+    // Proximity check -- runs on every client to keep UI hint accurate
+    // -------------------------------------------------------------------------
+    void CheckForPlayerProximity()
     {
-        // Find all nearby colliders with Player tag
-        Collider[] nearbyPlayers = Physics.OverlapSphere(transform.position, interactionRange);
+        Collider[] nearby = Physics.OverlapSphere(transform.position, interactionRange);
 
-        GameObject closestPlayer = null;
-        float closestDist = interactionRange;
-
-        foreach (Collider col in nearbyPlayers)
+        GameObject localPlayer = null;
+        foreach (Collider col in nearby)
         {
-            if (col.CompareTag("Player"))
+            if (!col.CompareTag("Player")) continue;
+            var netObj = col.GetComponent<NetworkObject>();
+            if (netObj != null && netObj.IsOwner)
             {
-                float dist = Vector3.Distance(transform.position, col.transform.position);
-                if (dist < closestDist)
-                {
-                    closestDist = dist;
-                    closestPlayer = col.gameObject;
-                }
+                localPlayer = col.gameObject;
+                break;
             }
         }
 
-        // Show/hide prompt based on nearby player
-        if (closestPlayer != null)
+        if (localPlayer != null)
         {
-            //if (interactionPrompt != null)
-                //interactionPrompt.SetActive(true);
-
-            // Check if player pressed E
-            StarterAssetsInputs playerInput = closestPlayer.GetComponent<StarterAssetsInputs>();
-            if (playerInput != null && playerInput.interact)
+            if (!_playerWasNearby)
             {
-                playerInput.interact = false;  // consume input
-                StartTalking(closestPlayer.transform);
+                _playerWasNearby = true;
+                if (_dialogue != null)
+                    _dialogue.SetPlayerNearby(true);
             }
         }
         else
         {
-            //if (interactionPrompt != null)
-                //interactionPrompt.SetActive(false);
+            if (_playerWasNearby)
+            {
+                _playerWasNearby = false;
+                if (_dialogue != null)
+                    _dialogue.SetPlayerNearby(false);
+            }
         }
     }
 
-    // ========== Random Patrol ==========
+    // -------------------------------------------------------------------------
+    // Interact press -- only checks the LOCAL player on each client
+    // Prevents two clients both firing RequestInteractServerRpc simultaneously
+    // -------------------------------------------------------------------------
+    void CheckForInteractPress()
+    {
+        Collider[] nearby = Physics.OverlapSphere(transform.position, interactionRange);
+
+        foreach (Collider col in nearby)
+        {
+            if (!col.CompareTag("Player")) continue;
+
+            // Only care about the local player on this client
+            var netObj = col.GetComponent<NetworkObject>();
+            if (netObj == null || !netObj.IsOwner) continue;
+
+            float dist = Vector3.Distance(transform.position, col.transform.position);
+            if (dist > interactionRange) continue;
+
+            StarterAssetsInputs playerInput = col.GetComponent<StarterAssetsInputs>();
+            if (playerInput != null && playerInput.interact)
+            {
+                playerInput.interact = false;
+
+                if (_dialogue != null)
+                    _dialogue.RequestInteractFromController(netObj.OwnerClientId);
+
+                StartTalking(col.transform);
+            }
+
+            break; // found local player, no need to continue
+        }
+    }
+
+    // -------------------------------------------------------------------------
     void UpdatePatrol()
     {
         if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance + 0.1f)
@@ -143,11 +175,10 @@ public class ScientistNPCController : MonoBehaviour
         agent.isStopped = false;
     }
 
-    // ========== Idle ==========
     void UpdateIdle()
     {
         stateTimer -= Time.deltaTime;
-        transform.Rotate(Vector3.up, 30f * Time.deltaTime);  // look around
+        transform.Rotate(Vector3.up, 30f * Time.deltaTime);
 
         if (stateTimer <= 0f)
         {
@@ -157,97 +188,98 @@ public class ScientistNPCController : MonoBehaviour
         }
     }
 
-    // ========== Talk State ==========
-    void StartTalking(Transform player)
+    public void StartTalking(Transform player)
     {
-        if (isTalking) return;
+        if (isTalking || isDead) return;
 
         isTalking = true;
-        talkingToPlayer = player;  // Store reference to player
+        talkingToPlayer = player;
         state = ScientistState.Talk;
-        talkTimer = talkDuration;
         agent.isStopped = true;
         agent.velocity = Vector3.zero;
-
-        //if (interactionPrompt != null)
-            //interactionPrompt.SetActive(false);
-
-        Debug.Log("[Scientist] Started talking");
-
-        // Trigger your dialogue system here:
-        // DialogueManager.Instance.StartConversation(this);
     }
 
     void UpdateTalk()
     {
-        // LOCKED: cannot move while talking
         agent.isStopped = true;
         agent.velocity = Vector3.zero;
 
-        // Face the player while talking
         if (talkingToPlayer != null)
-        {
             FaceTarget(talkingToPlayer);
-        }
-
-        // Count down talk timer
-        talkTimer -= Time.deltaTime;
-
-        if (talkTimer <= 0f)
-        {
-            // 5 seconds passed - stop talking automatically
-            StopTalking();
-        }
     }
 
     void FaceTarget(Transform target)
     {
         Vector3 direction = target.position - transform.position;
-        direction.y = 0f;  // Keep rotation only on Y axis (don't tilt up/down)
+        direction.y = 0f;
 
         if (direction.sqrMagnitude > 0.001f)
         {
             Quaternion targetRotation = Quaternion.LookRotation(direction);
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.deltaTime * facePlayerSpeed);
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation,
+                Time.deltaTime * facePlayerSpeed);
         }
     }
 
     public void StopTalking()
     {
-        if (!isTalking) return;
+        if (!isTalking || isDead) return;
 
         isTalking = false;
-        talkTimer = 0f;
-        talkingToPlayer = null;  // Clear player reference
+        talkingToPlayer = null;
         agent.isStopped = false;
         state = ScientistState.Patrol;
         agent.speed = patrolSpeed;
         SetRandomPatrolDestination();
 
-        Debug.Log("[Scientist] Stopped talking");
+        _playerWasNearby = false;
     }
 
-    // ========== Animation from NavMeshAgent velocity ==========
+    // -------------------------------------------------------------------------
+    // Death -- called locally on every client via ScientistNPCDialogue._isDead
+    // Do NOT call this directly from TaskManager -- use npc1Dialogue.SyncKillNPC()
+    // -------------------------------------------------------------------------
+    public void KillNPC()
+    {
+        if (isDead) return;
+        isDead = true;
+        state = ScientistState.Dead;
+
+        isTalking = false;
+        talkingToPlayer = null;
+
+        if (agent != null)
+        {
+            agent.isStopped = true;
+            agent.velocity = Vector3.zero;
+            agent.enabled = false;
+        }
+
+        if (animator != null && !string.IsNullOrEmpty(dieParam))
+            animator.SetTrigger(dieParam);
+
+        if (_dialogue != null)
+            _dialogue.SetPlayerNearby(false);
+
+        if (NPCDialogueUI.Instance != null)
+            NPCDialogueUI.Instance.HideDialogue();
+
+        enabled = false;
+        Debug.Log($"[ScientistNPCController] {gameObject.name} is dead.");
+    }
+
+    // -------------------------------------------------------------------------
     void UpdateAnimationFromAgent()
     {
         if (animator == null) return;
-
-        // Speed parameter (0 = idle, >0 = walking)
         float speed = isTalking ? 0f : agent.velocity.magnitude;
         animator.SetFloat(speedParam, speed);
-
-        // Talking parameter (bool for talk animation layer)
-        animator.SetBool(talkingParam, isTalking);
     }
 
-    // ========== Gizmos ==========
     void OnDrawGizmosSelected()
     {
-        // Interaction range (cyan)
         Gizmos.color = Color.cyan;
         Gizmos.DrawWireSphere(transform.position, interactionRange);
-
-        // Patrol area (yellow)
         Gizmos.color = Color.yellow;
         Vector3 home = Application.isPlaying ? homePosition : transform.position;
         Gizmos.DrawWireSphere(home, patrolRadius);

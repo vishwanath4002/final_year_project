@@ -1,15 +1,16 @@
-# chromatesting.py - ULTRA-OPTIMIZED FOR SPEED
+# chromatesting.py - OPTIMIZED WITH GAME CONTEXT (ORIGINAL MEMORY SETTINGS)
 import chromadb
 import time
 from uuid import uuid4
 from datetime import datetime
 
 from langchain_ollama import OllamaEmbeddings, ChatOllama
+from game_context import get_game_context_prompt, get_response_templates, validate_response, get_contextual_facts
 
 # --- Ollama base URL (set explicitly) ---
 OLLAMA_BASE = "http://127.0.0.1:11434"
 
-# 🔹 Wrapper to make Ollama embeddings Chroma-compatible
+# 📍 Wrapper to make Ollama embeddings Chroma-compatible
 class OllamaWrapper:
     def __init__(self, model_name: str):
         self.embedder = OllamaEmbeddings(model=model_name, base_url=OLLAMA_BASE)
@@ -21,13 +22,13 @@ class OllamaWrapper:
         return "ollama"
 
 
-# 🔹 Start ChromaDB client (persistent store)
+# 📍 Start ChromaDB client (persistent store)
 client = chromadb.PersistentClient(path="./chroma")
 
-# 🔹 Embedding function
+# 📍 Embedding function
 embed = OllamaWrapper("snowflake-arctic-embed")
 
-# 🔹 Collections (create or get)
+# 📍 Collections (create or get)
 def safe_get_collection(name, embedding_function):
     names = [c.name for c in client.list_collections()]
     if name in names:
@@ -72,19 +73,19 @@ def query_collection(collection, query, k=3, filters=None):
         return collection.query(query_texts=[query], n_results=k)
 
 
-# --- ULTRA-FAST LLM with maximum optimization ---
+# --- MEMORY-FRIENDLY LLM (ORIGINAL SETTINGS THAT WORKED) ---
 llm = ChatOllama(
     model="llama3.2:3b",
-    temperature=0.8,  # Higher for more natural variation
+    temperature=0.8,
     base_url=OLLAMA_BASE,
-    num_ctx=256,  # ⚡ REDUCED from 512 to 256 for speed
-    num_predict=30,  # ⚡ STRICT LIMIT: Only 30 tokens (~1-2 sentences)
+    num_ctx=256,      # ⚡ BACK TO 256 (was 512 - too much!)
+    num_predict=30,   # ⚡ BACK TO 30 (was 40)
     top_p=0.9,
-    top_k=20,  # ⚡ Limit sampling for speed
+    top_k=20,
 )
 
-VALID_LOCATIONS = ["Pavillion", "Church", "Mansion", "Greenhouse", "Sheds"]
-VALID_TASKS = ["collecting mushrooms", "collecting wood", "fighting aliens", "burning mushrooms"]
+VALID_LOCATIONS = ["Pavilion", "Church", "Mansion", "Greenhouse", "Sheds", "Barns"]
+VALID_TASKS = ["collecting mushrooms", "collecting wood", "fighting aliens", "burning mushrooms", "burning wood", "bringing food cans"]
 
 
 def generate_npc_reply_fast(
@@ -92,52 +93,84 @@ def generate_npc_reply_fast(
     style_summary: str,
     global_context: str,
     conversation: str,
-    recent_msgs: list
+    recent_msgs: list,
+    strategy_mode: str = "casual",
+    strategic_response: str = None
 ) -> str:
     """
-    ⚡ ULTRA-FAST generation with minimal prompt
-    
-    NO STYLOMETRIC ANALYSIS - too slow!
-    Uses simple rules-based approach instead.
+    ⚡ FAST generation with GAME CONTEXT + MEMORY-FRIENDLY settings
+
+    Bug 1 fix: when a strategic_response is provided, it is injected into the
+    prompt as a directive ("Say this but in your natural style: …") so the LLM
+    actually follows the deception strategy instead of ignoring it.
     """
-    
-    # Quick style analysis from recent messages
-    style_hint = ""
-    if recent_msgs:
-        avg_len = sum(len(m.split()) for m in recent_msgs) / len(recent_msgs)
-        if avg_len < 5:
-            style_hint = "Very brief."
-        elif avg_len < 10:
-            style_hint = "Short casual."
-        else:
-            style_hint = "Conversational."
-    
-    # MINIMAL PROMPT for maximum speed
-    prompt = f"""You are {disguise_name}. {style_summary} {style_hint}
 
-Recent: {global_context}
+    if strategic_response and strategy_mode != "casual":
+        # Bug 1 fix: strategic intent is now the centrepiece of the prompt.
+        # The LLM is asked to rephrase it in the player's voice, not ignore it.
+        prompt = f"""You are {disguise_name} in a Chernobyl survival game. {style_summary}
 
-{conversation}
+Game locations: Sheds, Barns, Greenhouse, Church, Pavilion.
+Actions: collecting wood/mushrooms, taking cans, shooting aliens. Limited ammo.
+NEVER mention: day/night, knives, caves, inventory, upgrades.
 
-Reply in 1 short sentence as {disguise_name}:"""
+Recent chat:
+{conversation[-200:]}
+
+Rephrase this in {disguise_name}'s casual style (1 sentence, sound like a real player):
+{strategic_response}
+
+Reply:"""
+
+    else:
+        # Generate from scratch with compact game context
+        context_facts = get_contextual_facts(recent_msgs, {})
+
+        prompt = f"""You're {disguise_name} in survival game.
+Locations: Sheds, Church, Greenhouse, Pavilion
+Actions: collecting wood/mushrooms, shooting aliens
+Gun has limited ammo. Hold ONE item.
+NO: day/night, knives, caves
+
+{context_facts}
+
+{conversation[-100:]}
+
+Reply 1 sentence as {disguise_name}:"""
     
     try:
         response = llm.invoke(prompt)
         reply = (response.content or "").strip()
         
-        # Force brevity
-        if '. ' in reply:
-            reply = reply.split('. ')[0] + '.'
-        
+        # Clean up response
         # Remove any preamble
         if ':' in reply and reply.index(':') < 20:
             reply = reply.split(':', 1)[1].strip()
+        
+        # Force brevity - max 2 sentences
+        sentences = reply.split('. ')
+        if len(sentences) > 2:
+            reply = '. '.join(sentences[:2])
+            if not reply.endswith('.'):
+                reply += '.'
+        
+        # Validate response follows game rules
+        is_valid, error = validate_response(reply)
+        if not is_valid:
+            print(f"   ⚠️ Invalid response ({error}), using template")
+            # Fall back to template
+            templates = get_response_templates(strategy_mode)
+            import random
+            reply = random.choice(templates)
         
         return reply
         
     except Exception as e:
         print(f"   ❌ LLM error: {e}")
-        return "Yeah."
+        # Fall back to appropriate template based on strategy
+        templates = get_response_templates(strategy_mode)
+        import random
+        return random.choice(templates)
 
 
 # Fallback for old code
@@ -148,5 +181,6 @@ def generate_npc_reply(player_text, round_id="r1", imitate_player_id=None, recen
         style_summary="Casual gamer",
         global_context="Game in progress",
         conversation=player_text,
-        recent_msgs=recent_msgs or []
+        recent_msgs=recent_msgs or [],
+        strategy_mode="casual"
     )
