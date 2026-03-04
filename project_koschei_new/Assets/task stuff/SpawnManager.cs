@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
@@ -27,12 +28,10 @@ namespace Koshcei
         // Private
         // -----------------------------------------------------------------------
         private int nextSpawnIndex = 0;
-
-        // Prevents double-spawning if both triggers somehow fire for the same client
         private readonly HashSet<ulong> spawnedClients = new HashSet<ulong>();
 
         // -----------------------------------------------------------------------
-        // Awake – server/host only setup
+        // Awake – server only
         // -----------------------------------------------------------------------
         private void Awake()
         {
@@ -44,37 +43,36 @@ namespace Koshcei
 
             if (!NetworkManager.Singleton.IsServer) return;
 
-            // Never auto-spawn at approval time — we control all spawning below
+            // Never auto-spawn at approval — we control all spawning below
             NetworkManager.Singleton.ConnectionApprovalCallback = (request, response) =>
             {
                 response.Approved = true;
                 response.CreatePlayerObject = false;
                 response.Pending = false;
-                Debug.Log($"[SpawnManager] Client {request.ClientNetworkId} approved (manual spawn).");
+                Debug.Log($"[SpawnManager] Client {request.ClientNetworkId} approved.");
             };
 
             // ---------------------------------------------------------------
-            // TWO triggers cover both connection timings:
+            // SPAWN STRATEGY
             //
-            // TRIGGER 1 — OnLoadEventCompleted
-            //   NGO fires this after all clients that received the original
-            //   SceneManager.LoadScene() call have finished loading. This
-            //   covers clients who were already connected (via StartClient)
-            //   BEFORE or DURING the host's LoadScene call.
+            // There are two connection timings to handle:
             //
-            // TRIGGER 2 — OnSceneEvent / SynchronizeComplete
-            //   When a client connects AFTER the host already loaded the scene,
-            //   NGO sends it a Synchronize packet (not a Load packet), so
-            //   OnLoadEventCompleted never fires for that client.
-            //   SynchronizeComplete fires on the SERVER once that specific
-            //   late-joining client has finished loading the synchronized scene
-            //   and is fully ready. This is the only safe moment to spawn
-            //   for late joiners — any earlier and the spawn message arrives
-            //   while the client is still loading, gets deferred, and after
-            //   10 seconds gets purged (the "Deferred messages" warning).
+            // CASE 1 — Client was connected BEFORE or DURING host's LoadScene call
+            //   NGO sends the client a LoadScene message. OnLoadEventCompleted fires
+            //   on the server once all such clients confirm they finished loading.
+            //   We spawn everyone listed in clientsCompleted here.
+            //
+            // CASE 2 — Client connects AFTER the host already finished loading Scene_A
+            //   (the common lobby case — relay code takes 1.5s+ poll to reach client)
+            //   NGO sends a full-state Synchronize message instead of LoadScene.
+            //   OnLoadEventCompleted never fires for this client.
+            //   OnClientConnectedCallback IS reliable here because NGO only fires it
+            //   after the client has been added to ConnectedClients, which only happens
+            //   after full scene synchronization is complete on that client.
+            //   We spawn the late joiner in a coroutine from this callback.
             // ---------------------------------------------------------------
             NetworkManager.Singleton.SceneManager.OnLoadEventCompleted += OnSceneLoadComplete;
-            NetworkManager.Singleton.SceneManager.OnSceneEvent += OnSceneEvent;
+            NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
 
             Debug.Log("[SpawnManager] Server hooks registered.");
         }
@@ -87,16 +85,13 @@ namespace Koshcei
             NetworkManager.Singleton.ConnectionApprovalCallback = null;
 
             if (NetworkManager.Singleton.SceneManager != null)
-            {
                 NetworkManager.Singleton.SceneManager.OnLoadEventCompleted -= OnSceneLoadComplete;
-                NetworkManager.Singleton.SceneManager.OnSceneEvent -= OnSceneEvent;
-            }
+
+            NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
         }
 
         // -----------------------------------------------------------------------
-        // TRIGGER 1 — fires on server when all clients that received the original
-        // LoadScene message have confirmed they finished loading.
-        // Covers: host + any clients that were already connected during LoadScene.
+        // CASE 1 — fires on server after all LoadScene recipients have loaded
         // -----------------------------------------------------------------------
         private void OnSceneLoadComplete(
             string sceneName,
@@ -109,27 +104,52 @@ namespace Koshcei
             if (clientsTimedOut.Count > 0)
                 Debug.LogWarning($"[SpawnManager] {clientsTimedOut.Count} client(s) timed out on scene load.");
 
-            Debug.Log($"[SpawnManager] OnLoadEventCompleted – spawning for {clientsCompleted.Count} client(s).");
+            Debug.Log($"[SpawnManager] OnLoadEventCompleted – {clientsCompleted.Count} client(s): [{string.Join(", ", clientsCompleted)}]");
 
             foreach (ulong clientId in clientsCompleted)
                 TrySpawnPlayer(clientId);
         }
 
         // -----------------------------------------------------------------------
-        // TRIGGER 2 — fires for every scene event on the server.
-        // We filter for SynchronizeComplete, which is what NGO sends when a
-        // LATE-JOINING client has finished loading the already-active scene.
-        // At this point the client is fully in the scene and can receive spawn
-        // messages immediately — no deferral risk.
+        // CASE 2 — fires on server when any client finishes full connection+sync.
+        // NGO only adds a client to ConnectedClients (and fires this callback) after
+        // scene synchronization is complete, so it is safe to spawn immediately.
+        //
+        // We still guard with a one-frame coroutine to let NGO finish any final
+        // internal state updates before we call SpawnAsPlayerObject.
         // -----------------------------------------------------------------------
-        private void OnSceneEvent(SceneEvent sceneEvent)
+        private void OnClientConnected(ulong clientId)
         {
-            // Only care about late-joiner sync finishing, only on the server
-            if (sceneEvent.SceneEventType != SceneEventType.SynchronizeComplete) return;
-            if (sceneEvent.SceneName != "Scene_A") return;
+            // If OnLoadEventCompleted already handled this client, skip
+            if (spawnedClients.Contains(clientId))
+            {
+                Debug.Log($"[SpawnManager] OnClientConnected: client {clientId} already spawned via LoadEvent – skipping.");
+                return;
+            }
 
-            ulong clientId = sceneEvent.ClientId;
-            Debug.Log($"[SpawnManager] SynchronizeComplete for late-joining client {clientId} – spawning.");
+            // Only spawn if we're in the game scene
+            if (SceneManager.GetActiveScene().name != "Scene_A")
+            {
+                Debug.Log($"[SpawnManager] OnClientConnected: client {clientId} connected but not in game scene yet – skipping.");
+                return;
+            }
+
+            Debug.Log($"[SpawnManager] OnClientConnected: late-joining client {clientId} – spawning via coroutine.");
+            StartCoroutine(SpawnAfterOneFrame(clientId));
+        }
+
+        private IEnumerator SpawnAfterOneFrame(ulong clientId)
+        {
+            // One frame lets NGO finalize any internal synchronization bookkeeping
+            yield return null;
+
+            // Double-check the client is still connected (they might have disconnected)
+            if (!NetworkManager.Singleton.ConnectedClients.ContainsKey(clientId))
+            {
+                Debug.LogWarning($"[SpawnManager] Client {clientId} disconnected before spawn coroutine ran.");
+                yield break;
+            }
+
             TrySpawnPlayer(clientId);
         }
 
@@ -140,7 +160,7 @@ namespace Koshcei
         {
             if (spawnedClients.Contains(clientId))
             {
-                Debug.Log($"[SpawnManager] Client {clientId} already spawned – skipping.");
+                Debug.Log($"[SpawnManager] Client {clientId} already has a player – skipping.");
                 return;
             }
 
@@ -159,9 +179,9 @@ namespace Koshcei
             Vector3 spawnPos = GetNextSpawnPosition();
             NetworkObject instance = Instantiate(playerPrefab, spawnPos, Quaternion.identity);
 
-            // SpawnAsPlayerObject assigns ownership to clientId and registers it
-            // as ConnectedClients[clientId].PlayerObject on the server.
-            // Every already-connected client receives a spawn message immediately.
+            // SpawnAsPlayerObject assigns ownership to clientId, marks it as
+            // ConnectedClients[clientId].PlayerObject, and replicates it to
+            // all connected clients automatically.
             instance.SpawnAsPlayerObject(clientId, destroyWithScene: true);
 
             Debug.Log($"[SpawnManager] Spawned player for client {clientId} at {spawnPos}");
