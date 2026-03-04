@@ -8,9 +8,20 @@ namespace Koshcei
     {
         [SerializeField] private TMP_InputField usernameInput;
         [SerializeField] private Button playButton;
+        [SerializeField] private Button quitButton;
 
         private void Awake()
         {
+            if (quitButton != null)
+                quitButton.onClick.AddListener(() =>
+                {
+#if UNITY_EDITOR
+                    UnityEditor.EditorApplication.isPlaying = false;
+#else
+                    Application.Quit();
+#endif
+                });
+
             playButton.onClick.AddListener(() =>
             {
                 string name = usernameInput.text.Trim();
