@@ -99,30 +99,34 @@ def generate_npc_reply_fast(
 ) -> str:
     """
     ⚡ FAST generation with GAME CONTEXT + MEMORY-FRIENDLY settings
-    
-    Now includes game world rules to keep responses in-context
-    """
-    
-    # If strategy provided a specific response, use it (with slight variation)
-    if strategic_response and strategy_mode != "casual":
-        # Use strategic response as a template, let LLM vary it slightly
-        # BUT keep prompt SMALL for memory
-        game_prompt = get_game_context_prompt(disguise_name, style_summary, strategy_mode)
-        
-        # COMPACT prompt to fit in 256 context
-        prompt = f"""{disguise_name} in Chernobyl game. Reply casual (1 sentence):
 
-Context: {strategic_response}
+    Bug 1 fix: when a strategic_response is provided, it is injected into the
+    prompt as a directive ("Say this but in your natural style: …") so the LLM
+    actually follows the deception strategy instead of ignoring it.
+    """
+
+    if strategic_response and strategy_mode != "casual":
+        # Bug 1 fix: strategic intent is now the centrepiece of the prompt.
+        # The LLM is asked to rephrase it in the player's voice, not ignore it.
+        prompt = f"""You are {disguise_name} in a Chernobyl survival game. {style_summary}
+
+Game locations: Sheds, Barns, Greenhouse, Church, Pavilion.
+Actions: collecting wood/mushrooms, taking cans, shooting aliens. Limited ammo.
+NEVER mention: day/night, knives, caves, inventory, upgrades.
+
+Recent chat:
+{conversation[-200:]}
+
+Rephrase this in {disguise_name}'s casual style (1 sentence, sound like a real player):
+{strategic_response}
 
 Reply:"""
-    
+
     else:
         # Generate from scratch with compact game context
-        # Extract contextual facts from conversation
         context_facts = get_contextual_facts(recent_msgs, {})
-        
-        # COMPACT game rules for 256 context limit
-        compact_rules = f"""You're {disguise_name} in survival game.
+
+        prompt = f"""You're {disguise_name} in survival game.
 Locations: Sheds, Church, Greenhouse, Pavilion
 Actions: collecting wood/mushrooms, shooting aliens
 Gun has limited ammo. Hold ONE item.
@@ -133,8 +137,6 @@ NO: day/night, knives, caves
 {conversation[-100:]}
 
 Reply 1 sentence as {disguise_name}:"""
-        
-        prompt = compact_rules
     
     try:
         response = llm.invoke(prompt)

@@ -1,9 +1,19 @@
 using System.Collections;
 using System.Collections.Generic;
+using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.AI;
 
-public class PenaltyScavengerSpawner : MonoBehaviour
+/// <summary>
+/// Server-only penalty alien spawner.
+/// Aliens are spawned via NetworkObject.Spawn() so they replicate to all clients.
+///
+/// Requirements:
+///   • This script must be on a NetworkObject in the scene (or on the NetworkManager GO).
+///   • The alien prefab MUST have a NetworkObject component and be registered in
+///     NetworkManager -> NetworkPrefabs list.
+/// </summary>
+public class PenaltyScavengerSpawner : NetworkBehaviour
 {
     [Header("Alien")]
     public GameObject alienPrefab;
@@ -19,22 +29,44 @@ public class PenaltyScavengerSpawner : MonoBehaviour
     public float spawnRadiusJitter = 3f;
     public string playerTag = "Player";
 
-    readonly List<GameObject> spawnedAliens = new();
+    // Track spawned NetworkObjects so we can despawn them on StopSpawning
+    readonly List<NetworkObject> spawnedAliens = new();
     bool isSpawning = false;
     Coroutine spawnCoroutine;
 
+    // -----------------------------------------------------------------------
+    // Public API
+    // -----------------------------------------------------------------------
+
     public void StartSpawning()
     {
+        // Spawning must only run on the server — clients never call Spawn()
+        if (!IsServer)
+        {
+            Debug.LogWarning("[PenaltySpawner] StartSpawning ignored — not the server.");
+            return;
+        }
+
         if (alienPrefab == null)
         {
-            Debug.LogError("[PenaltySpawner] Alien Prefab is not assigned! Cannot spawn.");
+            Debug.LogError("[PenaltySpawner] Alien Prefab is not assigned!");
             return;
         }
+
+        // Confirm the prefab has a NetworkObject component
+        if (alienPrefab.GetComponent<NetworkObject>() == null)
+        {
+            Debug.LogError("[PenaltySpawner] Alien prefab has no NetworkObject component! " +
+                           "Add one and register it in NetworkManager's NetworkPrefabs list.");
+            return;
+        }
+
         if (isSpawning)
         {
-            Debug.LogWarning("[PenaltySpawner] StartSpawning called but already spawning.");
+            Debug.LogWarning("[PenaltySpawner] Already spawning.");
             return;
         }
+
         isSpawning = true;
         spawnCoroutine = StartCoroutine(SpawnWavesRoutine());
         Debug.Log("[PenaltySpawner] Penalty spawning STARTED.");
@@ -42,16 +74,23 @@ public class PenaltyScavengerSpawner : MonoBehaviour
 
     public void StopSpawning()
     {
+        if (!IsServer) return;
+
         if (!isSpawning)
         {
             Debug.LogWarning("[PenaltySpawner] StopSpawning called but not currently spawning.");
             return;
         }
+
         isSpawning = false;
         if (spawnCoroutine != null) { StopCoroutine(spawnCoroutine); spawnCoroutine = null; }
         ClearAliens();
         Debug.Log("[PenaltySpawner] Penalty spawning STOPPED and aliens cleared.");
     }
+
+    // -----------------------------------------------------------------------
+    // Wave loop (server only)
+    // -----------------------------------------------------------------------
 
     IEnumerator SpawnWavesRoutine()
     {
@@ -59,12 +98,17 @@ public class PenaltyScavengerSpawner : MonoBehaviour
         while (isSpawning)
         {
             wave++;
-            spawnedAliens.RemoveAll(a => a == null);
+
+            // Purge entries for aliens that were killed/despawned
+            spawnedAliens.RemoveAll(a => a == null || !a.IsSpawned);
+
             int toSpawn = Mathf.Min(aliensPerWave, maxLiveAliens - spawnedAliens.Count);
 
             if (toSpawn > 0)
             {
-                Debug.Log($"[PenaltySpawner] Wave {wave} -- spawning {toSpawn} penalty aliens. Live: {spawnedAliens.Count}/{maxLiveAliens}");
+                Debug.Log($"[PenaltySpawner] Wave {wave} — spawning {toSpawn} aliens. " +
+                          $"Live: {spawnedAliens.Count}/{maxLiveAliens}");
+
                 for (int i = 0; i < toSpawn; i++)
                 {
                     if (!isSpawning) yield break;
@@ -74,13 +118,18 @@ public class PenaltyScavengerSpawner : MonoBehaviour
             }
             else
             {
-                Debug.Log($"[PenaltySpawner] Wave {wave} skipped -- live alien cap reached ({spawnedAliens.Count}/{maxLiveAliens}). Waiting for kills.");
+                Debug.Log($"[PenaltySpawner] Wave {wave} skipped — cap reached " +
+                          $"({spawnedAliens.Count}/{maxLiveAliens}).");
             }
 
-            Debug.Log($"[PenaltySpawner] Next penalty wave in {timeBetweenWaves}s.");
+            Debug.Log($"[PenaltySpawner] Next wave in {timeBetweenWaves}s.");
             yield return new WaitForSeconds(timeBetweenWaves);
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Spawn one alien — SERVER ONLY
+    // -----------------------------------------------------------------------
 
     void SpawnAlienNearPlayer()
     {
@@ -93,28 +142,61 @@ public class PenaltyScavengerSpawner : MonoBehaviour
 
         GameObject target = players[Random.Range(0, players.Length)];
         Vector3 spawnPos = GetNavMeshPointNear(target.transform.position);
-        GameObject alien = Instantiate(alienPrefab, spawnPos, Quaternion.identity);
 
-        AlienMovement movement = alien.GetComponent<AlienMovement>();
+        // Instantiate locally on the server, then Spawn() — this replicates the
+        // object to all connected clients automatically.
+        GameObject alienGO = Instantiate(alienPrefab, spawnPos, Quaternion.identity);
+        NetworkObject netObj = alienGO.GetComponent<NetworkObject>();
+
+        // Spawn with destroyWithScene=true so aliens are cleaned up on scene unload
+        netObj.Spawn(destroyWithScene: true);
+
+        // Configure AlienMovement AFTER spawning (component exists on all clients
+        // but only the server drives AI logic)
+        AlienMovement movement = alienGO.GetComponent<AlienMovement>();
         if (movement != null)
         {
             movement.scientistTarget = null;
-            Debug.Log($"[PenaltySpawner] Alien spawned near player '{target.name}' at {spawnPos}. Scientist target: null.");
+            Debug.Log($"[PenaltySpawner] Alien spawned near '{target.name}' at {spawnPos}.");
         }
         else
         {
-            Debug.LogWarning("[PenaltySpawner] Spawned alien has no AlienMovement component!");
+            Debug.LogWarning("[PenaltySpawner] Spawned alien has no AlienMovement component.");
         }
 
-        AlienDeathNotifier notifier = alien.AddComponent<AlienDeathNotifier>();
+        // Track with a death notifier so we remove it from the list when killed
+        AlienDeathNotifier notifier = alienGO.GetComponent<AlienDeathNotifier>()
+                                   ?? alienGO.AddComponent<AlienDeathNotifier>();
+
+        NetworkObject capturedRef = netObj;
         notifier.OnDied += () =>
         {
-            spawnedAliens.Remove(alien);
-            Debug.Log($"[PenaltySpawner] Penalty alien killed. Remaining live: {spawnedAliens.Count}");
+            spawnedAliens.Remove(capturedRef);
+            Debug.Log($"[PenaltySpawner] Alien killed. Remaining: {spawnedAliens.Count}");
         };
 
-        spawnedAliens.Add(alien);
+        spawnedAliens.Add(netObj);
     }
+
+    // -----------------------------------------------------------------------
+    // Despawn all tracked aliens (server only)
+    // -----------------------------------------------------------------------
+
+    void ClearAliens()
+    {
+        int count = spawnedAliens.Count;
+        foreach (var netObj in spawnedAliens)
+        {
+            if (netObj != null && netObj.IsSpawned)
+                netObj.Despawn(destroy: true);
+        }
+        spawnedAliens.Clear();
+        Debug.Log($"[PenaltySpawner] Cleared {count} penalty aliens.");
+    }
+
+    // -----------------------------------------------------------------------
+    // NavMesh helper
+    // -----------------------------------------------------------------------
 
     Vector3 GetNavMeshPointNear(Vector3 center)
     {
@@ -125,16 +207,7 @@ public class PenaltyScavengerSpawner : MonoBehaviour
         if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 6f, NavMesh.AllAreas))
             return hit.position;
 
-        Debug.LogWarning($"[PenaltySpawner] NavMesh sample failed near {center} -- using raw position.");
+        Debug.LogWarning($"[PenaltySpawner] NavMesh sample failed near {center} — using raw position.");
         return candidate;
-    }
-
-    void ClearAliens()
-    {
-        int count = spawnedAliens.Count;
-        foreach (var alien in spawnedAliens)
-            if (alien != null) Destroy(alien);
-        spawnedAliens.Clear();
-        Debug.Log($"[PenaltySpawner] Cleared {count} penalty aliens.");
     }
 }
