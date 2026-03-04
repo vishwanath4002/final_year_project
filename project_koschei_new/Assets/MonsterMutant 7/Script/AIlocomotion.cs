@@ -22,7 +22,6 @@ public class AILocomotion : MonoBehaviour
     public LayerMask targetMask;     // Player layer
     public LayerMask obstacleMask;   // Walls / Environment
 
-
     [Header("Search")]
     bool seesPlayer;
     Vector3 lastSeenPlayerPos;
@@ -86,22 +85,11 @@ public class AILocomotion : MonoBehaviour
     public string speedParam = "Speed";
     Animator animator;
 
-    // [Header("Model Variants")]
-    // public GameObject[] modelPrefabs;   // drag your 4 prefabs here
-    // public Transform modelHolder;       // assign ModelHolder
-    // public bool randomizeModel = true;
+    [Header("Regeneration")]
+    public bool enableRegen = true;
+    public float regenPerSecond = 1f;
 
-    // [Header("Health Based Models")]
-    // public Health health;  // assign in inspector
-    // private float maxHealth;
-
-	// public HealthBar healthBar;
-
-    // [Range(0f, 1f)] public float stage2Threshold = 0.75f;
-    // [Range(0f, 1f)] public float stage3Threshold = 0.5f;
-    // [Range(0f, 1f)] public float stage4Threshold = 0.25f;
-
-    // int currentModelStage = -1;
+    private Health health;
 
     [Header("Debug Gizmos")]
 
@@ -154,6 +142,7 @@ public class AILocomotion : MonoBehaviour
         agent.angularSpeed = agentAngularSpeed;
         agent.stoppingDistance = agentStoppingDistance;
 
+        health = GetComponent<Health>();
     }
     
     // ===================== BRAIN =====================
@@ -181,6 +170,8 @@ public class AILocomotion : MonoBehaviour
 
         HandlePhysicalMovement();
         HandleRotation();
+
+        HandleRegeneration();
     }
 
     void UpdateState()
@@ -348,6 +339,31 @@ public class AILocomotion : MonoBehaviour
         isAttacking = false;
     }
 
+    void HandleRegeneration()
+    {
+        if (!enableRegen) return;
+        if (health == null) return;
+        if (health.IsDead()) return;
+
+        // Only heal if NOT chasing
+        if (state == AIState.Chase)
+            return;
+
+        // IMPORTANT: Heal only on server
+        if (!Unity.Netcode.NetworkManager.Singleton.IsServer)
+            return;
+
+        float current = health.GetCurrentHealth();
+        float max = health.GetMaxHealth();
+
+        if (current >= max)
+            return;
+
+        float healAmount = regenPerSecond * Time.deltaTime;
+
+        // Negative damage = heal (clean reuse of your system)
+        health.TakeDamage(-healAmount);
+    }
 
     void TryDealDamage()
     {
