@@ -144,6 +144,15 @@ namespace StarterAssets
         {
             base.OnNetworkSpawn();
 
+            // ---------------------------------------------------------------
+            // AudioListener — Unity throws a warning if more than one is active.
+            // Every player prefab has its own AudioListener; only the local
+            // owner's should be enabled. All remote copies are disabled here.
+            // ---------------------------------------------------------------
+            var audioListener = GetComponentInChildren<AudioListener>();
+            if (audioListener != null)
+                audioListener.enabled = IsOwner;
+
             if (!IsOwner)
             {
                 var playerInput = GetComponent<PlayerInput>();

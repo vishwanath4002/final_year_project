@@ -112,20 +112,68 @@ namespace Koshcei
         // -----------------------------------------------------------------------
         private void OnClientDisconnected(ulong clientId)
         {
-            // clientId == LocalClientId when this machine lost the server
+            // Fired on the server when a CLIENT leaves — clean up but don't redirect
+            if (NetworkManager.Singleton.IsServer && clientId != NetworkManager.Singleton.LocalClientId)
+            {
+                Debug.Log($"[LobbyManager] Client {clientId} disconnected from server.");
+                return;
+            }
+
+            // Fired on a client when IT loses connection.
+            // LocalClientId check handles both:
+            //   • Host leaves  -> server shuts down -> client gets disconnect with id=0 or its own id
+            //   • Transport timeout / host crash -> same path
             if (!NetworkManager.Singleton.IsServer &&
                 clientId == NetworkManager.Singleton.LocalClientId)
             {
                 string reason = NetworkManager.Singleton.DisconnectReason;
-                Debug.LogError("[LobbyManager] Disconnected from server. Reason: " +
-                               (string.IsNullOrEmpty(reason) ? "(none / transport timeout)" : reason));
+                Debug.Log($"[LobbyManager] Lost connection to host. Reason: " +
+                          (string.IsNullOrEmpty(reason) ? "Host left or connection lost" : reason));
 
-                isJoiningRelay = false;
-                if (LobbyUI.Instance != null)
-                    LobbyUI.Instance.SetUIInteractable(true);
-
-                SceneManager.LoadScene(SCENE_NAME_MENU);
+                ReturnToMenuCleanly();
             }
+        }
+
+        /// <summary>
+        /// Safely tears down networking and lobby state then loads the login scene.
+        /// Safe to call from any context (host or client, any scene).
+        /// </summary>
+        private void ReturnToMenuCleanly()
+        {
+            // Prevent re-entry if already cleaning up
+            if (_returningToMenu) return;
+            _returningToMenu = true;
+
+            isJoiningRelay = false;
+            relayConnectAttempts = 0;
+            joinedLobby = null;
+
+            // Unsubscribe BEFORE Shutdown so NGO callbacks don't fire during teardown
+            if (NetworkManager.Singleton != null)
+            {
+                NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientDisconnected;
+
+                if (NetworkManager.Singleton.IsListening)
+                    NetworkManager.Singleton.Shutdown();
+            }
+
+            if (LobbyUI.Instance != null)
+                LobbyUI.Instance.SetUIInteractable(true);
+
+            // Re-subscribe after a frame so the next session works
+            StartCoroutine(ResubscribeAfterFrame());
+
+            SceneManager.LoadScene(SCENE_NAME_MENU);
+        }
+
+        private bool _returningToMenu = false;
+
+        private System.Collections.IEnumerator ResubscribeAfterFrame()
+        {
+            yield return null;
+            _returningToMenu = false;
+            if (NetworkManager.Singleton != null)
+                NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
         }
 
         // -----------------------------------------------------------------------
@@ -351,13 +399,7 @@ namespace Koshcei
                 joinedLobby = null;
             }
 
-            isJoiningRelay = false;
-            relayConnectAttempts = 0;
-
-            if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
-                NetworkManager.Singleton.Shutdown();
-
-            SceneManager.LoadScene(SCENE_NAME_MENU);
+            ReturnToMenuCleanly();
         }
 
         // -----------------------------------------------------------------------

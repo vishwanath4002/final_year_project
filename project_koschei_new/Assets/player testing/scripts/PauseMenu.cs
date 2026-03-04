@@ -36,7 +36,6 @@ namespace Koshcei
         private bool isPaused = false;
 
         // Component references cached on spawn
-        private PlayerInput playerInput;
         private StarterAssetsInputs starterInputs;
 
         // -----------------------------------------------------------------------
@@ -55,7 +54,6 @@ namespace Koshcei
             }
 
             // Cache components
-            playerInput = GetComponent<PlayerInput>();
             starterInputs = GetComponent<StarterAssetsInputs>();
 
             // Wire up buttons
@@ -155,15 +153,10 @@ namespace Koshcei
         /// </summary>
         private void SetControlsEnabled(bool controlsEnabled)
         {
-            // Switch action maps instead of disabling PlayerInput entirely.
-            // Disabling PlayerInput would also cut off the mouse position feed
-            // to the EventSystem, making UI buttons unclickable in the pause menu.
-            // "Player" map = gameplay inputs active, "UI" map = only UI/mouse active.
-            if (playerInput != null)
-            {
-                playerInput.SwitchCurrentActionMap(controlsEnabled ? "Player" : "UI");
-            }
-
+            // Disable StarterAssetsInputs to stop all gameplay input callbacks.
+            // PlayerInput is intentionally left enabled — the EventSystem's
+            // InputSystemUIInputModule reads directly from the Input System,
+            // not through PlayerInput, so UI button clicks work fine either way.
             if (starterInputs != null) starterInputs.enabled = controlsEnabled;
 
             // Zero out any latched gameplay values so the character doesn't drift
