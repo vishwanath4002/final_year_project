@@ -79,7 +79,7 @@ Transform:
   m_GameObject: {fileID: 2268259686157900073}
   serializedVersion: 2
   m_LocalRotation: {x: -0.051017717, y: 0.12727316, z: -0.15917382, w: 0.9776822}
-  m_LocalPosition: {x: -0.101, y: 0.109, z: 0.004}
+  m_LocalPosition: {x: -0.121, y: 0.031, z: 0.066}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -526,10 +526,6 @@ GameObject:
   - component: {fileID: 8584613353675355}
   - component: {fileID: -4513983875665858923}
   - component: {fileID: 5432239567387797999}
-  - component: {fileID: 4557117186385430017}
-  - component: {fileID: 1858672038431072560}
-  - component: {fileID: 8111432883556733091}
-  - component: {fileID: 5534546985295410297}
   m_Layer: 0
   m_Name: monster_scavenger_Skin_Gray
   m_TagString: Untagged
@@ -738,72 +734,6 @@ MonoBehaviour:
   damageColliders:
   - {fileID: 4781568250146556557}
   - {fileID: 4047240363025703824}
---- !u!114 &4557117186385430017
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8070923430143094911}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 95e81cd10c021b14899b4dc5f948402c, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
---- !u!114 &1858672038431072560
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8070923430143094911}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f4ba725ba35a7034ea319233c81265c3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  maxHealth: 100
-  defence: 15
-  destroyAfterSeconds: 0
-  healthBar: {fileID: 0}
-  enableDebugDamage: 0
-  debugDamageAmount: 25
-  debugDamageKey: 108
---- !u!136 &8111432883556733091
-CapsuleCollider:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8070923430143094911}
-  m_Material: {fileID: 0}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_LayerOverridePriority: 0
-  m_IsTrigger: 0
-  m_ProvidesContacts: 0
-  m_Enabled: 1
-  serializedVersion: 2
-  m_Radius: 0.3
-  m_Height: 1.6
-  m_Direction: 1
-  m_Center: {x: 0.1, y: 0.8, z: 0.1}
---- !u!114 &5534546985295410297
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8070923430143094911}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 95e81cd10c021b14899b4dc5f948402c, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!1 &8197547816176235731
 GameObject:
   m_ObjectHideFlags: 0
