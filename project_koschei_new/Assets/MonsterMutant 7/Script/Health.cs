@@ -111,8 +111,16 @@ public class Health : NetworkBehaviour
             return;
         }
 
-        damage = Mathf.Max(damage - defence, 0f);
-        currentHealth.Value -= damage;
+        if (damage > 0)
+        {
+            damage = Mathf.Max(damage - defence, 0f);
+            currentHealth.Value -= damage;
+        }
+        else
+        {
+            // Healing (negative damage)
+            currentHealth.Value -= damage;
+        }
 
         Debug.Log($"[Health] {gameObject.name} took {damage} damage. Remaining HP: {currentHealth.Value}");
 
@@ -130,7 +138,15 @@ public class Health : NetworkBehaviour
         if (healthBar != null)
         {
             healthBar.SetHealth(newValue);
+        }
+
+        
+        HealthMaterialChanger changer = GetComponent<HealthMaterialChanger>();
+        if (changer != null)
+        {
+            changer.UpdateMaterial();
         }   
+        
     }
 
     public float GetCurrentHealth()
@@ -141,6 +157,12 @@ public class Health : NetworkBehaviour
     public float GetMaxHealth()
     {
         return maxHealth;
+    }
+
+    public float GetHealthPercent()
+    {
+        if (maxHealth <= 0f) return 0f;
+        return currentHealth.Value / maxHealth;
     }
 
     public bool IsDead()
