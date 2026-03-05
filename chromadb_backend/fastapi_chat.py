@@ -228,48 +228,31 @@ class ImpostorState:
         self.disguised_as: Optional[str] = None
         self.is_active: bool = False
         self.target_group_id: Optional[str] = None
-        # Track ALL previously visited groups so the impostor cycles through them
-        self.visited_group_ids: list = []
 
     def reset(self):
-        # Record the group we just left before clearing state
-        if self.target_group_id and self.target_group_id not in self.visited_group_ids:
-            self.visited_group_ids.append(self.target_group_id)
-        # Keep history capped at last 10 groups (avoids memory growing forever)
-        if len(self.visited_group_ids) > 10:
-            self.visited_group_ids = self.visited_group_ids[-10:]
         self.disguised_as = None
         self.is_active = False
         self.target_group_id = None
-
-    @property
-    def last_visited_group_id(self) -> Optional[str]:
-        """Backward-compatible property — returns most recently visited group."""
-        return self.visited_group_ids[-1] if self.visited_group_ids else None
 
 impostor = ImpostorState()
 
 class ImpostorSpawnControl:
     def __init__(self):
-        self.spawn_interval: float = 60.0  # 1 minute minimum between despawn and next spawn
-        self.last_despawn_time: float = 0.0  # track despawn time, not spawn time
+        self.spawn_interval: float = 10.0
+        self.last_spawn_time: float = time.time()
         self.min_group_size: int = 1
 
     def should_spawn_now(self) -> bool:
         if impostor.is_active:
             return False
-        # Enforce delay from last DESPAWN, not last spawn
-        if self.last_despawn_time > 0:
-            elapsed = time.time() - self.last_despawn_time
-            if elapsed < self.spawn_interval:
-                remaining = self.spawn_interval - elapsed
-                return False
+        elapsed = time.time() - self.last_spawn_time
+        if elapsed < self.spawn_interval:
+            return False
         valid_groups = [g for g in current_groups.values() if g.get('size', 0) >= self.min_group_size]
         return len(valid_groups) > 0
 
-    def record_despawn(self):
-        """Call this when the impostor despawns to start the cooldown timer."""
-        self.last_despawn_time = time.time()
+    def record_spawn(self):
+        self.last_spawn_time = time.time()
 
 spawn_control = ImpostorSpawnControl()
 
@@ -301,123 +284,49 @@ def update_player_history(player_id: str, message: str):
     recent_history[player_id].append(message)
 
 def update_global_summary():
-    """Update global summary every 5 messages using an LLM rewrite step."""
+    """Update global summary every 5 messages"""
     global global_summary
-
+    
     if len(global_message_buffer) < 5:
         return
-
+    
     recent_msgs = list(global_message_buffer)[-20:]
-
-    # Build a plain transcript for the LLM to summarise
-    transcript_lines = []
+    
+    players_mentioned = set()
+    locations_mentioned = set()
+    
+    VALID_LOCATIONS = ["Pavillion", "Church", "Mansion", "Greenhouse", "Sheds"]
+    
     for msg in recent_msgs:
         pid = msg.get('player_id', '')
-        text = msg.get('message', '')
-        if pid.startswith('impostor_'):
-            continue          # hide the impostor's identity
-        transcript_lines.append(f"{pid}: {text}")
-
-    transcript = "\n".join(transcript_lines)
-
-    prompt = f"""You are summarising a multiplayer Chernobyl survival game chat for an AI NPC.
-
-Recent player messages:
-{transcript}
-
-Write ONE concise sentence (max 20 words) describing what the players are doing and where they are.
-Only mention locations and actions from the game: Sheds, Barns, Greenhouse, Church, Pavilion, collecting wood/mushrooms, taking cans, shooting aliens.
-Do NOT mention day/night, knives, or anything outside the game rules.
-Reply with ONLY the summary sentence."""
-
-    try:
-        from langchain_ollama import ChatOllama
-        _summary_llm = ChatOllama(
-            model="llama3.2:3b",
-            temperature=0.3,
-            base_url="http://127.0.0.1:11434",
-            num_ctx=256,
-            num_predict=40,
-        )
-        response = _summary_llm.invoke(prompt)
-        candidate = (response.content or "").strip().split("\n")[0].strip()
-        if len(candidate) > 10:
-            global_summary = candidate
-            print(f"   📝 Global summary updated: {global_summary}")
-        else:
-            raise ValueError("Empty summary")
-    except Exception as e:
-        print(f"   ⚠️ Summary LLM failed ({e}), falling back to keyword summary")
-        # Keyword fallback (original logic, kept as safety net)
-        players_mentioned: set = set()
-        locations_mentioned: set = set()
-        VALID_LOCATIONS = ["Church", "Greenhouse", "Sheds", "Barns", "Pavilion"]
-        for msg in recent_msgs:
-            pid = msg.get('player_id', '')
-            text = msg.get('message', '').lower()
-            if not pid.startswith('impostor_'):
-                players_mentioned.add(pid)
-            for loc in VALID_LOCATIONS:
-                if loc.lower() in text:
-                    locations_mentioned.add(loc)
-        parts = []
-        if players_mentioned:
-            parts.append(f"Players active: {', '.join(list(players_mentioned)[:3])}")
-        if locations_mentioned:
-            parts.append(f"Locations mentioned: {', '.join(list(locations_mentioned)[:2])}")
-        global_summary = ". ".join(parts) if parts else "Players exploring the area."
+        text = msg.get('message', '').lower()
+        
+        if not pid.startswith('impostor_'):
+            players_mentioned.add(pid)
+        
+        for loc in VALID_LOCATIONS:
+            if loc.lower() in text:
+                locations_mentioned.add(loc)
+    
+    parts = []
+    if players_mentioned:
+        parts.append(f"Players: {', '.join(list(players_mentioned)[:2])}")
+    if locations_mentioned:
+        parts.append(f"at {', '.join(list(locations_mentioned)[:2])}")
+    
+    if parts:
+        global_summary = ". ".join(parts)
+    else:
+        global_summary = "Players exploring"
 
 def choose_target_group() -> Optional[Dict]:
-    """
-    Choose the target group for the impostor using a composite score:
-        score = distance_from_all_others - size_penalty
-    This implements the rule: "farthest group, with priority for smaller groups."
-    Bug 3 fix: never pick the same group the impostor most recently visited.
-    """
+    """Choose smallest group"""
     if len(current_groups) < 2:
         return None
-
-    # Exclude all previously visited groups so the impostor cycles through different ones
-    valid_groups = [
-        g for g in current_groups.values()
-        if g['size'] >= spawn_control.min_group_size
-        and g['group_id'] not in impostor.visited_group_ids
-    ]
-
-    if not valid_groups:
-        # All groups have been visited — reset history and start a new cycle,
-        # but still avoid the most recent one if possible
-        print("   ♻️  All groups visited — resetting group history for new cycle")
-        impostor.visited_group_ids.clear()
-        valid_groups = [
-            g for g in current_groups.values()
-            if g['size'] >= spawn_control.min_group_size
-            and g['group_id'] != impostor.last_visited_group_id
-        ]
-    if not valid_groups:
-        valid_groups = [
-            g for g in current_groups.values()
-            if g['size'] >= spawn_control.min_group_size
-        ]
+    valid_groups = [g for g in current_groups.values() if g['size'] >= spawn_control.min_group_size]
     if not valid_groups:
         return None
-
-    def group_score(g: Dict) -> float:
-        pos = g.get('center_position', [0, 0, 0])
-        # Sum of distances to all OTHER groups (higher = more isolated / farther away)
-        total_dist = 0.0
-        for other in current_groups.values():
-            if other['group_id'] == g['group_id']:
-                continue
-            other_pos = other.get('center_position', [0, 0, 0])
-            dist = ((pos[0] - other_pos[0]) ** 2 + (pos[2] - other_pos[2]) ** 2) ** 0.5
-            total_dist += dist
-        # Bug 2 fix: smaller groups are preferred — subtract a size penalty
-        # Each extra player above 1 costs 5 units of distance-score
-        size_penalty = (g['size'] - 1) * 5.0
-        return total_dist - size_penalty
-
-    return max(valid_groups, key=group_score)
+    return min(valid_groups, key=lambda g: g['size'])
 
 def choose_impostor_disguise(target_group_id: Optional[str] = None) -> Optional[str]:
     """Choose player from farthest group"""
@@ -471,31 +380,20 @@ def choose_impostor_disguise(target_group_id: Optional[str] = None) -> Optional[
         return "Player_Default"
 
 def generate_style_summary(player_id: str) -> str:
-    """
-    Generate a real LLM-based style summary from the player's last 20 messages.
-    Bug 5 fix: delegates to stylometric.summarize_player_style() instead of
-    returning a word-count heuristic string.
-    Falls back to a safe default if the player has fewer than 3 messages.
-    """
+    """Generate style summary from recent messages"""
     msgs = list(recent_history.get(player_id, []))
-
+    
     if not msgs or len(msgs) < 3:
-        return "Casual gamer, short responses, friendly tone."
-
-    try:
-        from stylometric import summarize_player_style
-        summary = summarize_player_style(player_id, msgs)
-        print(f"   🖊️ Style for {player_id}: {summary[:80]}...")
-        return summary
-    except Exception as e:
-        print(f"   ⚠️ Style LLM failed ({e}), using word-count fallback")
-        avg_length = sum(len(m.split()) for m in msgs) / len(msgs)
-        if avg_length < 4:
-            return "Very short messages, minimal punctuation, blunt tone."
-        elif avg_length < 8:
-            return "Brief casual chat, informal, uses short sentences."
-        else:
-            return "Longer detailed messages, explains actions clearly."
+        return "Casual gamer"
+    
+    avg_length = sum(len(m.split()) for m in msgs) / len(msgs)
+    
+    if avg_length < 4:
+        return "Very short messages"
+    elif avg_length < 8:
+        return "Brief casual chat"
+    else:
+        return "Longer messages"
 
 def generate_impostor_message(conv: ConversationState) -> Optional[str]:
     """
@@ -540,29 +438,37 @@ def generate_impostor_message(conv: ConversationState) -> Optional[str]:
             suspicion_tracker=suspicion_tracker,
             conversation_history=conversation_history
         )
-
+        
         if strategic_response:
             print(f"   🎭 Strategic: {strategic_response[:60]}...")
+            t0 = time.time()
+            
+            # Optionally refine with LLM (make it sound natural)
+            prompt = f"""You are {conv.disguise_player_id}. {conv.style_summary}
+
+Recent: {global_summary}
+
+{conversation_text}
+
+Say this but in your natural style: {strategic_response}
+
+Reply (1 sentence):"""
+            
+            reply = generate_npc_reply_fast(
+                disguise_name=conv.disguise_player_id,
+                style_summary=conv.style_summary,
+                global_context=global_summary,
+                conversation=conversation_text,
+                recent_msgs=recent_msgs,
+            )
+            
+            t1 = time.time()
+            print(f"   ⏱️ {t1-t0:.2f}s")
+            print(f"   💬 {reply}")
+            
         else:
-            print(f"   🎭 No strategic response — using casual generation")
-
-        t0 = time.time()
-
-        # Bug 1 fix: pass strategic_response AND strategy_mode into the LLM call
-        # so the prompt becomes "Say this but in your natural style: <strategic_response>"
-        reply = generate_npc_reply_fast(
-            disguise_name=conv.disguise_player_id,
-            style_summary=conv.style_summary,
-            global_context=global_summary,
-            conversation=conversation_text,
-            recent_msgs=recent_msgs,
-            strategy_mode=conv.strategy.current_mode.value,
-            strategic_response=strategic_response,
-        )
-
-        t1 = time.time()
-        print(f"   ⏱️ {t1-t0:.2f}s")
-        print(f"   💬 {reply}")
+            # No strategic response - use generic reply
+            reply = "Yeah."
     
     except Exception as e:
         print(f"   ❌ Strategy failed: {e}")
@@ -770,6 +676,8 @@ def check_impostor_spawn():
         if target_group:
             disguise_player = choose_impostor_disguise(target_group['group_id'])
             
+            spawn_control.record_spawn()
+            
             return {
                 'should_spawn': True,
                 'should_despawn': False,
@@ -815,13 +723,11 @@ def activate_impostor(
 @app.post("/impostor/deactivate")
 def deactivate_impostor():
     old_disguise = impostor.disguised_as
-    old_group = impostor.target_group_id
     impostor.reset()
-    spawn_control.record_despawn()
-
-    if old_group in active_conversations:
-        del active_conversations[old_group]
-
+    
+    if impostor.target_group_id in active_conversations:
+        del active_conversations[impostor.target_group_id]
+    
     print(f"🛑 Impostor deactivated (was: {old_disguise})")
     
     return {"success": True, "message": f"Deactivated (was {old_disguise})"}

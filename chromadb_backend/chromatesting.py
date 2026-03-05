@@ -1,8 +1,6 @@
 # chromatesting.py - OPTIMIZED WITH GAME CONTEXT (ORIGINAL MEMORY SETTINGS)
 import chromadb
 import time
-import re
-import unicodedata
 from uuid import uuid4
 from datetime import datetime
 
@@ -46,21 +44,6 @@ game_events = safe_get_collection("game_events", embed)
 npc_memory = safe_get_collection("npc_memory", embed)
 
 
-def strip_non_ascii(text: str) -> str:
-    """
-    Remove all emoji, unicode symbols, and non-ASCII characters from text.
-    Keeps standard Latin characters, digits, punctuation, and whitespace only.
-    """
-    # Normalize to decomposed form first
-    text = unicodedata.normalize('NFKD', text)
-    # Remove any character that is not basic ASCII printable (0x20-0x7E)
-    text = re.sub(r'[^ -~]', '', text)
-    # Collapse multiple spaces that may result from removal
-    text = re.sub(r'  +', ' ', text).strip()
-    return text
-
-
-
 # --- Add helpers ---
 def add_player_message_with_group(text, player_id, round_id, group_id, location="Unknown", timestamp=None):
     """Store player message WITH group information"""
@@ -95,8 +78,8 @@ llm = ChatOllama(
     model="llama3.2:3b",
     temperature=0.8,
     base_url=OLLAMA_BASE,
-    num_ctx=512,      # 512 gives enough room for the prompt + conversation context
-    num_predict=40,   # Allow slightly longer replies before truncation
+    num_ctx=256,      # ⚡ BACK TO 256 (was 512 - too much!)
+    num_predict=30,   # ⚡ BACK TO 30 (was 40)
     top_p=0.9,
     top_k=20,
 )
@@ -116,44 +99,42 @@ def generate_npc_reply_fast(
 ) -> str:
     """
     ⚡ FAST generation with GAME CONTEXT + MEMORY-FRIENDLY settings
-
-    Bug 1 fix: when a strategic_response is provided, it is injected into the
-    prompt as a directive ("Say this but in your natural style: …") so the LLM
-    actually follows the deception strategy instead of ignoring it.
+    
+    Now includes game world rules to keep responses in-context
     """
-
+    
+    # If strategy provided a specific response, use it (with slight variation)
     if strategic_response and strategy_mode != "casual":
-        # Bug 1 fix: strategic intent is now the centrepiece of the prompt.
-        # The LLM is asked to rephrase it in the player's voice, not ignore it.
-        prompt = f"""You are {disguise_name} in a Chernobyl survival game. {style_summary}
+        # Use strategic response as a template, let LLM vary it slightly
+        # BUT keep prompt SMALL for memory
+        game_prompt = get_game_context_prompt(disguise_name, style_summary, strategy_mode)
+        
+        # COMPACT prompt to fit in 256 context
+        prompt = f"""{disguise_name} in Chernobyl game. Reply casual (1 sentence):
 
-Game locations: Sheds, Barns, Greenhouse, Church, Pavilion.
-Actions: collecting wood/mushrooms, taking cans, shooting aliens. Limited ammo.
-NEVER mention: day/night, knives, caves, inventory, upgrades. No emojis or special characters.
-
-Recent chat:
-{conversation[-200:]}
-
-Rephrase this in {disguise_name}'s casual style (1 sentence, sound like a real player):
-{strategic_response}
+Context: {strategic_response}
 
 Reply:"""
-
+    
     else:
         # Generate from scratch with compact game context
+        # Extract contextual facts from conversation
         context_facts = get_contextual_facts(recent_msgs, {})
-
-        prompt = f"""You're {disguise_name} in survival game.
+        
+        # COMPACT game rules for 256 context limit
+        compact_rules = f"""You're {disguise_name} in survival game.
 Locations: Sheds, Church, Greenhouse, Pavilion
 Actions: collecting wood/mushrooms, shooting aliens
 Gun has limited ammo. Hold ONE item.
-NO: day/night, knives, caves, emojis
+NO: day/night, knives, caves
 
 {context_facts}
 
 {conversation[-100:]}
 
 Reply 1 sentence as {disguise_name}:"""
+        
+        prompt = compact_rules
     
     try:
         response = llm.invoke(prompt)
@@ -171,9 +152,6 @@ Reply 1 sentence as {disguise_name}:"""
             if not reply.endswith('.'):
                 reply += '.'
         
-        # Strip any emoji or unicode the LLM may have added
-        reply = strip_non_ascii(reply)
-
         # Validate response follows game rules
         is_valid, error = validate_response(reply)
         if not is_valid:
@@ -187,9 +165,10 @@ Reply 1 sentence as {disguise_name}:"""
         
     except Exception as e:
         print(f"   ❌ LLM error: {e}")
+        # Fall back to appropriate template based on strategy
         templates = get_response_templates(strategy_mode)
         import random
-        return strip_non_ascii(random.choice(templates))
+        return random.choice(templates)
 
 
 # Fallback for old code
