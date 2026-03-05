@@ -117,12 +117,12 @@ namespace Koshcei
                 if (btnText)
                     btnText.text = ready
                         ? "Start Game"
-                        : $"Waiting… ({lobby.Players.Count}/{minPlayersToStart})";
+                        : $"Waiting ({lobby.Players.Count}/{minPlayersToStart})";
             }
             else
             {
                 startGameButton.interactable = false;
-                if (btnText) btnText.text = "Waiting for Host…";
+                if (btnText) btnText.text = "Waiting for Host";
             }
         }
 
@@ -130,7 +130,7 @@ namespace Koshcei
         public void SetUIInteractable(bool interactable)
         {
             if (startGameButton != null) startGameButton.interactable = interactable;
-            if (leaveLobbyButton != null) leaveLobbyButton.interactable = interactable;
+            // Leave button is always enabled -- player should always be able to exit
         }
     }
 }

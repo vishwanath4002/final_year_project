@@ -54,6 +54,7 @@ namespace Koshcei
         private string playerName = "Player";
         public string PlayerName => playerName;
         private bool isJoiningRelay = false;
+        private System.Threading.CancellationTokenSource _searchCts;
         private int relayConnectAttempts = 0;
         private const int k_maxRelayConnectAttempts = 3;
 
@@ -119,7 +120,7 @@ namespace Koshcei
         // -----------------------------------------------------------------------
         private void OnClientDisconnected(ulong clientId)
         {
-            // Fired on the server when a CLIENT leaves — clean up but don't redirect
+            // Fired on the server when a CLIENT leaves -- clean up but don't redirect
             if (NetworkManager.Singleton.IsServer && clientId != NetworkManager.Singleton.LocalClientId)
             {
                 Debug.Log($"[LobbyManager] Client {clientId} disconnected from server.");
@@ -128,8 +129,8 @@ namespace Koshcei
 
             // Fired on a client when IT loses connection.
             // LocalClientId check handles both:
-            //   • Host leaves  -> server shuts down -> client gets disconnect with id=0 or its own id
-            //   • Transport timeout / host crash -> same path
+            //   -- Host leaves  -> server shuts down -> client gets disconnect with id=0 or its own id
+            //   -- Transport timeout / host crash -> same path
             if (!NetworkManager.Singleton.IsServer &&
                 clientId == NetworkManager.Singleton.LocalClientId)
             {
@@ -188,17 +189,17 @@ namespace Koshcei
         }
 
         // -----------------------------------------------------------------------
-        // Fired when the local client stops for ANY reason — including UTP-level
+        // Fired when the local client stops for ANY reason -- including UTP-level
         // "Failed to connect to server" errors that never reach OnClientDisconnected.
         // The bool parameter is true if the stop was locally initiated (e.g. Shutdown).
         // -----------------------------------------------------------------------
         private void OnClientStopped(bool wasHost)
         {
             // If we called Shutdown ourselves (ReturnToMenuCleanly sets _returningToMenu
-            // before shutting down), this is an expected stop — ignore it.
+            // before shutting down), this is an expected stop -- ignore it.
             if (_returningToMenu) return;
 
-            // If we are the host/server this fires for other reasons (clients leaving) — ignore.
+            // If we are the host/server this fires for other reasons (clients leaving) -- ignore.
             if (wasHost) return;
 
             Debug.Log("[LobbyManager] Client stopped unexpectedly (failed connection or transport error). Returning to menu.");
@@ -240,11 +241,19 @@ namespace Koshcei
         // -----------------------------------------------------------------------
         public async void QuickJoinOrCreate()
         {
+            // Cancel any previous search and start a fresh one
+            if (_searchCts != null) _searchCts.Cancel();
+            _searchCts = new System.Threading.CancellationTokenSource();
+            var token = _searchCts.Token;
+
             const int maxRetries = 3;
             int attempt = 0;
 
             while (attempt < maxRetries)
             {
+                // Check before starting each attempt
+                if (token.IsCancellationRequested) return;
+
                 try
                 {
                     Debug.Log($"[LobbyManager] QuickJoin attempt {attempt + 1}/{maxRetries}...");
@@ -262,8 +271,24 @@ namespace Koshcei
                     };
 
                     joinedLobby = await LobbyService.Instance.QuickJoinLobbyAsync(options);
-                    isJoiningRelay = false;
 
+                    // Check immediately after the await returns -- leave may have been pressed
+                    // while QuickJoinLobbyAsync was in flight. If so, undo the join and bail.
+                    if (token.IsCancellationRequested)
+                    {
+                        Debug.Log("[LobbyManager] Cancelled after join -- leaving lobby.");
+                        try
+                        {
+                            await LobbyService.Instance.RemovePlayerAsync(
+                                joinedLobby.Id,
+                                AuthenticationService.Instance.PlayerId);
+                        }
+                        catch { }
+                        joinedLobby = null;
+                        return;
+                    }
+
+                    isJoiningRelay = false;
                     Debug.Log($"[LobbyManager] Joined lobby: {joinedLobby.Name}");
                     OnJoinedLobby?.Invoke(this, new LobbyEventArgs { lobby = joinedLobby });
                     return;
@@ -272,9 +297,10 @@ namespace Koshcei
                 {
                     if (e.Reason == LobbyExceptionReason.NoOpenLobbies)
                     {
-                        Debug.Log("[LobbyManager] No open lobbies – retrying...");
+                        Debug.Log("[LobbyManager] No open lobbies -- retrying...");
                         attempt++;
-                        await Task.Delay(2000);
+                        try { await Task.Delay(2000, token); }
+                        catch (System.OperationCanceledException) { return; }
                     }
                     else
                     {
@@ -284,7 +310,14 @@ namespace Koshcei
                 }
             }
 
-            Debug.Log("[LobbyManager] Retries exhausted – creating new lobby.");
+            // Final check -- leave may have been pressed while the last attempt was in flight
+            if (token.IsCancellationRequested)
+            {
+                Debug.Log("[LobbyManager] Search cancelled -- skipping lobby creation.");
+                return;
+            }
+
+            Debug.Log("[LobbyManager] Retries exhausted -- creating new lobby.");
             CreateLobby("Public_Match", false);
         }
 
@@ -339,7 +372,7 @@ namespace Koshcei
                 Allocation allocation = await AllocateRelay();
                 if (allocation.AllocationId == Guid.Empty)
                 {
-                    Debug.LogError("[LobbyManager] Relay allocation returned empty – aborting.");
+                    Debug.LogError("[LobbyManager] Relay allocation returned empty -- aborting.");
                     if (LobbyUI.Instance != null) LobbyUI.Instance.SetUIInteractable(true);
                     return;
                 }
@@ -347,7 +380,7 @@ namespace Koshcei
                 string relayCode = await GetRelayJoinCode(allocation);
                 if (string.IsNullOrEmpty(relayCode))
                 {
-                    Debug.LogError("[LobbyManager] Relay join code is empty – aborting.");
+                    Debug.LogError("[LobbyManager] Relay join code is empty -- aborting.");
                     if (LobbyUI.Instance != null) LobbyUI.Instance.SetUIInteractable(true);
                     return;
                 }
@@ -359,11 +392,11 @@ namespace Koshcei
                     .GetComponent<UnityTransport>()
                     .SetRelayServerData(new RelayServerData(allocation, ConnectionType));
 
-                // Temporary approval callback – just approves the connection.
+                // Temporary approval callback -- just approves the connection.
                 // CreatePlayerObject MUST be false here. If it were true and a client
                 // connected before the game scene finished loading, NGO would send the
                 // spawn message before the client was in the right scene, causing the
-                // "Deferred messages … trigger not received within 10s" error and players
+                // "Deferred messages -- trigger not received within 10s" error and players
                 // not appearing. SpawnManager.OnSceneLoadEventCompleted handles all spawning
                 // once every client has confirmed the scene is loaded.
                 NetworkManager.Singleton.ConnectionApprovalCallback = (request, response) =>
@@ -371,7 +404,7 @@ namespace Koshcei
                     response.Approved = true;
                     response.CreatePlayerObject = false;
                     response.Pending = false;
-                    Debug.Log("[LobbyManager] Temp approval – player spawn deferred to SpawnManager.");
+                    Debug.Log("[LobbyManager] Temp approval -- player spawn deferred to SpawnManager.");
                 };
 
                 bool started = NetworkManager.Singleton.StartHost();
@@ -417,7 +450,10 @@ namespace Koshcei
             {
                 try
                 {
-                    await LobbyService.Instance.RemovePlayerAsync(
+                    if (IsLobbyHost())
+                        await LobbyService.Instance.DeleteLobbyAsync(joinedLobby.Id);
+                    else
+                        await LobbyService.Instance.RemovePlayerAsync(
                         joinedLobby.Id,
                         AuthenticationService.Instance.PlayerId);
                 }
@@ -476,7 +512,7 @@ namespace Koshcei
         }
 
         // -----------------------------------------------------------------------
-        // Client relay join – called from polling when relay code appears
+        // Client relay join -- called from polling when relay code appears
         // -----------------------------------------------------------------------
         private async void JoinRelay(string relayCode)
         {
@@ -512,7 +548,7 @@ namespace Koshcei
                     .GetComponent<UnityTransport>()
                     .SetRelayServerData(new RelayServerData(joinAllocation, ConnectionType));
 
-                await Task.Yield(); // one engine frame – lets UTP commit relay config
+                await Task.Yield(); // one engine frame -- lets UTP commit relay config
 
                 bool success = NetworkManager.Singleton.StartClient();
                 if (!success)
@@ -525,7 +561,7 @@ namespace Koshcei
                 else
                 {
                     relayConnectAttempts++;
-                    Debug.Log("[LobbyManager] StartClient() succeeded – awaiting server handshake...");
+                    Debug.Log("[LobbyManager] StartClient() succeeded -- awaiting server handshake...");
                 }
             }
             catch (Exception e)
@@ -598,7 +634,7 @@ namespace Koshcei
             {
                 if (e.Reason == LobbyExceptionReason.RateLimited)
                 {
-                    Debug.LogWarning("[LobbyManager] Rate limited – backing off.");
+                    Debug.LogWarning("[LobbyManager] Rate limited -- backing off.");
                     lobbyPollTimer = 5f;
                     return;
                 }
