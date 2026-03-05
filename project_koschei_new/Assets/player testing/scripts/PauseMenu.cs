@@ -74,8 +74,9 @@ namespace Koshcei
 
             // If the object is despawned while paused (e.g. scene change),
             // restore cursor so it doesn't stay locked
-            if (isPaused)
-                RestoreCursor(false);
+            // Do NOT restore cursor here — if we're despawning because the player
+            // clicked "Exit to Login", the cursor is already unlocked for the menu.
+            // Calling RestoreCursor(false) here would re-lock it on the login screen.
 
             if (resumeButton != null) resumeButton.onClick.RemoveListener(Resume);
             if (returnToLoginButton != null) returnToLoginButton.onClick.RemoveListener(ReturnToLogin);

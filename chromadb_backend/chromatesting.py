@@ -1,6 +1,8 @@
 # chromatesting.py - OPTIMIZED WITH GAME CONTEXT (ORIGINAL MEMORY SETTINGS)
 import chromadb
 import time
+import re
+import unicodedata
 from uuid import uuid4
 from datetime import datetime
 
@@ -42,6 +44,21 @@ def safe_get_collection(name, embedding_function):
 player_messages = safe_get_collection("player_messages", embed)
 game_events = safe_get_collection("game_events", embed)
 npc_memory = safe_get_collection("npc_memory", embed)
+
+
+def strip_non_ascii(text: str) -> str:
+    """
+    Remove all emoji, unicode symbols, and non-ASCII characters from text.
+    Keeps standard Latin characters, digits, punctuation, and whitespace only.
+    """
+    # Normalize to decomposed form first
+    text = unicodedata.normalize('NFKD', text)
+    # Remove any character that is not basic ASCII printable (0x20-0x7E)
+    text = re.sub(r'[^ -~]', '', text)
+    # Collapse multiple spaces that may result from removal
+    text = re.sub(r'  +', ' ', text).strip()
+    return text
+
 
 
 # --- Add helpers ---
@@ -112,7 +129,7 @@ def generate_npc_reply_fast(
 
 Game locations: Sheds, Barns, Greenhouse, Church, Pavilion.
 Actions: collecting wood/mushrooms, taking cans, shooting aliens. Limited ammo.
-NEVER mention: day/night, knives, caves, inventory, upgrades.
+NEVER mention: day/night, knives, caves, inventory, upgrades. No emojis or special characters.
 
 Recent chat:
 {conversation[-200:]}
@@ -130,7 +147,7 @@ Reply:"""
 Locations: Sheds, Church, Greenhouse, Pavilion
 Actions: collecting wood/mushrooms, shooting aliens
 Gun has limited ammo. Hold ONE item.
-NO: day/night, knives, caves
+NO: day/night, knives, caves, emojis
 
 {context_facts}
 
@@ -154,6 +171,9 @@ Reply 1 sentence as {disguise_name}:"""
             if not reply.endswith('.'):
                 reply += '.'
         
+        # Strip any emoji or unicode the LLM may have added
+        reply = strip_non_ascii(reply)
+
         # Validate response follows game rules
         is_valid, error = validate_response(reply)
         if not is_valid:
@@ -167,10 +187,9 @@ Reply 1 sentence as {disguise_name}:"""
         
     except Exception as e:
         print(f"   ❌ LLM error: {e}")
-        # Fall back to appropriate template based on strategy
         templates = get_response_templates(strategy_mode)
         import random
-        return random.choice(templates)
+        return strip_non_ascii(random.choice(templates))
 
 
 # Fallback for old code

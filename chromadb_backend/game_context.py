@@ -161,8 +161,9 @@ def get_game_context_prompt(disguise_name: str, style_summary: str, strategy_mod
 **YOUR STYLE**: {style_summary}
 
 **NEVER mention**: day/night, crouching, knives, inventory, caves, NPCs, loot, reactor, animals, upgrades
+**NEVER use**: emojis, emoticons, or any special symbols. Plain text only.
 
-**RESPOND**: 1-2 short casual sentences as {disguise_name}. Sound like a real player."""
+**RESPOND**: 1-2 short casual sentences as {disguise_name}. Sound like a real player. Plain English only."""
 
 def validate_response(response: str) -> tuple[bool, str]:
     """

@@ -543,6 +543,7 @@ namespace Koshcei
         private async void HandleLobbyHeartbeat()
         {
             if (joinedLobby == null || !IsLobbyHost()) return;
+            if (SceneManager.GetActiveScene().name == SCENE_NAME_GAME) return;
 
             heartbeatTimer -= Time.deltaTime;
             if (heartbeatTimer > 0f) return;
@@ -564,6 +565,7 @@ namespace Koshcei
         private async void HandleLobbyPolling()
         {
             if (joinedLobby == null || isJoiningRelay) return;
+            if (SceneManager.GetActiveScene().name == SCENE_NAME_GAME) return;
 
             lobbyPollTimer -= Time.deltaTime;
             if (lobbyPollTimer > 0f) return;

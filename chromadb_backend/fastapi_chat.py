@@ -228,35 +228,48 @@ class ImpostorState:
         self.disguised_as: Optional[str] = None
         self.is_active: bool = False
         self.target_group_id: Optional[str] = None
-        # Bug 3 fix: remember last group so we never re-pick it immediately
-        self.last_visited_group_id: Optional[str] = None
+        # Track ALL previously visited groups so the impostor cycles through them
+        self.visited_group_ids: list = []
 
     def reset(self):
-        # Preserve last_visited_group_id across resets so next spawn avoids it
-        self.last_visited_group_id = self.target_group_id
+        # Record the group we just left before clearing state
+        if self.target_group_id and self.target_group_id not in self.visited_group_ids:
+            self.visited_group_ids.append(self.target_group_id)
+        # Keep history capped at last 10 groups (avoids memory growing forever)
+        if len(self.visited_group_ids) > 10:
+            self.visited_group_ids = self.visited_group_ids[-10:]
         self.disguised_as = None
         self.is_active = False
         self.target_group_id = None
+
+    @property
+    def last_visited_group_id(self) -> Optional[str]:
+        """Backward-compatible property — returns most recently visited group."""
+        return self.visited_group_ids[-1] if self.visited_group_ids else None
 
 impostor = ImpostorState()
 
 class ImpostorSpawnControl:
     def __init__(self):
-        self.spawn_interval: float = 10.0
-        self.last_spawn_time: float = time.time()
+        self.spawn_interval: float = 60.0  # 1 minute minimum between despawn and next spawn
+        self.last_despawn_time: float = 0.0  # track despawn time, not spawn time
         self.min_group_size: int = 1
 
     def should_spawn_now(self) -> bool:
         if impostor.is_active:
             return False
-        elapsed = time.time() - self.last_spawn_time
-        if elapsed < self.spawn_interval:
-            return False
+        # Enforce delay from last DESPAWN, not last spawn
+        if self.last_despawn_time > 0:
+            elapsed = time.time() - self.last_despawn_time
+            if elapsed < self.spawn_interval:
+                remaining = self.spawn_interval - elapsed
+                return False
         valid_groups = [g for g in current_groups.values() if g.get('size', 0) >= self.min_group_size]
         return len(valid_groups) > 0
 
-    def record_spawn(self):
-        self.last_spawn_time = time.time()
+    def record_despawn(self):
+        """Call this when the impostor despawns to start the cooldown timer."""
+        self.last_despawn_time = time.time()
 
 spawn_control = ImpostorSpawnControl()
 
@@ -364,15 +377,24 @@ def choose_target_group() -> Optional[Dict]:
     if len(current_groups) < 2:
         return None
 
+    # Exclude all previously visited groups so the impostor cycles through different ones
     valid_groups = [
         g for g in current_groups.values()
         if g['size'] >= spawn_control.min_group_size
-        # Bug 3 fix: exclude the last visited group
-        and g['group_id'] != impostor.last_visited_group_id
+        and g['group_id'] not in impostor.visited_group_ids
     ]
 
     if not valid_groups:
-        # If excluding last group leaves nothing, relax the constraint
+        # All groups have been visited — reset history and start a new cycle,
+        # but still avoid the most recent one if possible
+        print("   ♻️  All groups visited — resetting group history for new cycle")
+        impostor.visited_group_ids.clear()
+        valid_groups = [
+            g for g in current_groups.values()
+            if g['size'] >= spawn_control.min_group_size
+            and g['group_id'] != impostor.last_visited_group_id
+        ]
+    if not valid_groups:
         valid_groups = [
             g for g in current_groups.values()
             if g['size'] >= spawn_control.min_group_size
@@ -748,8 +770,6 @@ def check_impostor_spawn():
         if target_group:
             disguise_player = choose_impostor_disguise(target_group['group_id'])
             
-            spawn_control.record_spawn()
-            
             return {
                 'should_spawn': True,
                 'should_despawn': False,
@@ -795,11 +815,13 @@ def activate_impostor(
 @app.post("/impostor/deactivate")
 def deactivate_impostor():
     old_disguise = impostor.disguised_as
+    old_group = impostor.target_group_id
     impostor.reset()
-    
-    if impostor.target_group_id in active_conversations:
-        del active_conversations[impostor.target_group_id]
-    
+    spawn_control.record_despawn()
+
+    if old_group in active_conversations:
+        del active_conversations[old_group]
+
     print(f"🛑 Impostor deactivated (was: {old_disguise})")
     
     return {"success": True, "message": f"Deactivated (was {old_disguise})"}
