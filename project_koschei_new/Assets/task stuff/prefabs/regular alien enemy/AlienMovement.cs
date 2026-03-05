@@ -34,6 +34,9 @@ public class AlienMovement : MonoBehaviour
     public float attack1Duration = 0.8f;  // movement lock time for attack1
     public float attack2Duration = 1.0f;  // movement lock time for attack2
 
+    [Header("Rotation")]
+    public float turnSpeed = 10f;
+
     NavMeshAgent agent;
     AIState state = AIState.Idle;
     float stateTimer = 0f;
@@ -54,6 +57,8 @@ public class AlienMovement : MonoBehaviour
             sensor = GetComponentInChildren<AlienSensor>();
 
         homePosition = transform.position;
+
+        agent.updateRotation = false;
 
         state = AIState.Patrol;
         agent.speed = patrolSpeed;
@@ -163,14 +168,21 @@ public class AlienMovement : MonoBehaviour
     void UpdateChase()
     {
         if (isAttacking)
-        {
-            agent.isStopped = true;
-            agent.velocity = Vector3.zero;
-            return;
-        }
+    {
+        agent.isStopped = true;
+        agent.velocity = Vector3.zero;
+
+        // Keep facing player while attacking
+        if (currentTargetPlayer != null)
+            FaceTarget(currentTargetPlayer);
+
+        return;
+    }
 
         if (currentTargetPlayer != null)
         {
+            FaceTarget(currentTargetPlayer);
+
             float dist = Vector3.Distance(transform.position, currentTargetPlayer.position);
 
             if (dist > attackRange)
@@ -206,11 +218,17 @@ public class AlienMovement : MonoBehaviour
     {
         Vector3 dir = target.position - transform.position;
         dir.y = 0f;
-        if (dir.sqrMagnitude > 0.001f)
-        {
-            Quaternion lookRot = Quaternion.LookRotation(dir);
-            transform.rotation = Quaternion.Slerp(transform.rotation, lookRot, Time.deltaTime * 10f);
-        }
+
+        if (dir.sqrMagnitude < 0.001f)
+            return;
+
+        Quaternion lookRot = Quaternion.LookRotation(dir);
+
+        transform.rotation = Quaternion.Slerp(
+            transform.rotation,
+            lookRot,
+            Time.deltaTime * turnSpeed
+        );
     }
 
     void TryAttack()
