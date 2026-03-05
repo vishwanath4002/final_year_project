@@ -16,6 +16,15 @@ public class HealthMaterialChanger : MonoBehaviour
     [Range(0f, 1f)] public float stage3Threshold = 0.5f;
     [Range(0f, 1f)] public float stage4Threshold = 0.25f;
 
+    [Header("Speed Scaling")]
+    [SerializeField] private Animator animator;
+    [SerializeField] private AILocomotion ai;
+
+    [SerializeField] private float stage1Speed = 1f;
+    [SerializeField] private float stage2Speed = 1.15f;
+    [SerializeField] private float stage3Speed = 1.3f;
+    [SerializeField] private float stage4Speed = 1.5f;
+
     private Renderer[] childRenderers;
     private int currentStage = 1;
 
@@ -31,11 +40,11 @@ public class HealthMaterialChanger : MonoBehaviour
             UpdateMaterial();
         }
 
-        HealthMaterialChanger changer = GetComponent<HealthMaterialChanger>();
-        if (changer != null)
-        {
-            changer.UpdateMaterial();
-        }
+        // HealthMaterialChanger changer = GetComponent<HealthMaterialChanger>();
+        // if (changer != null)
+        // {
+        //     changer.UpdateMaterial();
+        // }
     }
 
     public void UpdateMaterial()
@@ -56,6 +65,8 @@ public class HealthMaterialChanger : MonoBehaviour
         {
             rend.material = targetMat;
         }
+
+        ApplySpeedBoost(newStage);
     }
 
     private int GetStageFromHealth(float percent)
@@ -82,5 +93,24 @@ public class HealthMaterialChanger : MonoBehaviour
             case 4: return stage4Material; // Critical
             default: return stage1Material;
         }
+    }
+
+    void ApplySpeedBoost(int stage)
+    {
+        float speed = stage1Speed;
+
+        switch (stage)
+        {
+            case 1: speed = stage1Speed; break;
+            case 2: speed = stage2Speed; break;
+            case 3: speed = stage3Speed; break;
+            case 4: speed = stage4Speed; break;
+        }
+
+        if (animator != null)
+            animator.speed = speed;
+
+        if (ai != null)
+            ai.chaseSpeed = ai.chaseSpeed * speed;
     }
 }
