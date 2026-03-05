@@ -273259,7 +273259,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7fe14edf109ec6543ac270b888d12571, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  impostorAlienPrefab: {fileID: 1435870730363778741, guid: cdc4485d93eaf2548acbda4729b587c0, type: 3}
+  impostorAlienPrefab: {fileID: 3559662974732174791, guid: 7a9b1cad235ca9143ac8e08dc1cfac9e, type: 3}
   minSpawnDistanceFromPlayers: 25
   maxSpawnDistanceFromPlayers: 40
   navmeshSampleRadius: 3
@@ -273306,8 +273306,8 @@ MonoBehaviour:
   walkAwayDistance: 30
   maxWalkAwayTime: 15
   spawner: {fileID: 2139008037}
-  groupSyncManager: {fileID: 0}
-  playerGroupManager: {fileID: 0}
+  groupSyncManager: {fileID: 309538819}
+  playerGroupManager: {fileID: 309538816}
   showDebugLogs: 1
 --- !u!1001 &2139646692
 PrefabInstance:

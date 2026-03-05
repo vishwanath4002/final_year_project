@@ -103,6 +103,7 @@ public class ImpostorPlayerAI : NetworkBehaviour
         }
 
         anim = GetComponentInChildren<Animator>();
+        InitAnimatorIDs();
         if (anim == null)
             Debug.LogWarning("ImpostorPlayerAI: Animator not found in children.");
 
@@ -691,27 +692,39 @@ public class ImpostorPlayerAI : NetworkBehaviour
             Debug.DrawRay(rayOrigin, desired * 2f, Color.green, 0.1f);
     }
 
+    // Cached animator parameter hashes (same names ThirdPersonController uses)
+    private int _animIDSpeed;
+    private int _animIDGrounded;
+    private int _animIDMotionSpeed;
+    private int _animIDFreeFall;
+
+    void InitAnimatorIDs()
+    {
+        _animIDSpeed = Animator.StringToHash("Speed");
+        _animIDGrounded = Animator.StringToHash("Grounded");
+        _animIDMotionSpeed = Animator.StringToHash("MotionSpeed");
+        _animIDFreeFall = Animator.StringToHash("FreeFall");
+    }
+
     void UpdateAnimations()
     {
         if (anim == null) return;
 
-        anim.SetBool("IsGrounded", isGrounded);
+        // Grounded state
+        anim.SetBool(_animIDGrounded, isGrounded);
+        anim.SetBool(_animIDFreeFall, !isGrounded);
 
-        Vector3 worldVelocity = (transform.position - lastPosition) / Mathf.Max(Time.deltaTime, 0.0001f);
-        lastPosition = transform.position;
+        // Derive speed from actual world movement (NavMeshAgent velocity)
+        float horizontalSpeed = new Vector3(agent.velocity.x, 0f, agent.velocity.z).magnitude;
 
-        Vector3 localVel = transform.InverseTransformDirection(worldVelocity);
-        localVel.y = 0f;
+        // Smoothly blend toward current speed
+        currentSpeed = Mathf.Lerp(currentSpeed, horizontalSpeed, Time.deltaTime * acceleration);
+        movementMagnitude = currentSpeed;
 
-        float targetForward = Mathf.Clamp(localVel.z / runSpeed, -1f, 1f);
-        float targetRight = Mathf.Clamp(localVel.x / runSpeed, -1f, 1f);
+        // "Speed" drives the walk/run blend tree (0 = idle, ~2 = walk, ~5 = run)
+        anim.SetFloat(_animIDSpeed, currentSpeed);
 
-        currentSpeed = Mathf.Lerp(currentSpeed, targetForward, Time.deltaTime * acceleration);
-        currentDirection = Mathf.Lerp(currentDirection, targetRight, Time.deltaTime * acceleration);
-        movementMagnitude = new Vector2(currentDirection, currentSpeed).magnitude;
-
-        anim.SetFloat("Speed", currentSpeed);
-        anim.SetBool("IsMoving", movementMagnitude > 0.05f);
-        anim.SetFloat("Direction", currentDirection);
+        // "MotionSpeed" is the multiplier the Starter Assets blend tree expects (keep at 1)
+        anim.SetFloat(_animIDMotionSpeed, currentSpeed > 0.05f ? 1f : 0f);
     }
 }
