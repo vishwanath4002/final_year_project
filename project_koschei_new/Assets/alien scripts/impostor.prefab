@@ -1742,8 +1742,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 961452eb4b66c1f4c8af6afbc738500c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  audioSource: {fileID: 2809567568100611892}
-  footstepClips:
+  LandingAudioClip: {fileID: 8300000, guid: ff697d3070687ce4583faa0561a145a2, type: 3}
+  FootstepAudioClips:
   - {fileID: 8300000, guid: 72f526a6a9890f643a88e85a61c86c8a, type: 3}
   - {fileID: 8300000, guid: 85016e0f2b01da248b9663dd49a161b0, type: 3}
   - {fileID: 8300000, guid: 186de84b3207156479abe98f4958fed0, type: 3}
@@ -1754,8 +1754,7 @@ MonoBehaviour:
   - {fileID: 8300000, guid: 67c8b33e424ccdc4486edf538ab91c5a, type: 3}
   - {fileID: 8300000, guid: 274649b0e221539409070ebf6c18918b, type: 3}
   - {fileID: 8300000, guid: a3194b8bbc96ef84fab1f98f4b7dae3e, type: 3}
-  volume: 0.5
-  pitchVariance: 0.1
+  FootstepAudioVolume: 0.5
 --- !u!82 &2809567568100611892
 AudioSource:
   m_ObjectHideFlags: 0

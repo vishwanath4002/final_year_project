@@ -1,39 +1,37 @@
 using UnityEngine;
 
 /// <summary>
-/// Receives OnFootstep animation events from Walk_N and Run_N clips
-/// and plays a random footstep sound. Add to the root of ImpostorPlayer prefab.
-/// Assign footstep clips and an AudioSource in the Inspector.
+/// Receives OnFootstep and OnLand animation events on the ImpostorPlayer prefab,
+/// matching the same behaviour as ThirdPersonController on the real player.
+/// Add to the root of ImpostorPlayer and assign the same audio clips.
 /// </summary>
 public class FootstepReceiver : MonoBehaviour
 {
-    [Header("Audio")]
-    [SerializeField] private AudioSource audioSource;
-    [SerializeField] private AudioClip[] footstepClips;
+    [Header("Audio Clips")]
+    public AudioClip LandingAudioClip;
+    public AudioClip[] FootstepAudioClips;
 
     [Range(0f, 1f)]
-    [SerializeField] private float volume = 0.5f;
-
-    [Tooltip("Random pitch variance around 1.0 to stop footsteps sounding identical")]
-    [SerializeField] private float pitchVariance = 0.1f;
-
-    private void Awake()
-    {
-        if (audioSource == null)
-            audioSource = GetComponentInChildren<AudioSource>();
-    }
-
-    // Called by animation events on Walk_N_Land and Run_N_Land clips
-    private void OnLand(AnimationEvent animationEvent) { }
+    public float FootstepAudioVolume = 0.5f;
 
     // Called by animation events on Walk_N and Run_N clips
     private void OnFootstep(AnimationEvent animationEvent)
     {
-        if (audioSource == null || footstepClips == null || footstepClips.Length == 0)
-            return;
+        // Respect blend weight so blended transitions don't double-trigger
+        if (animationEvent.animatorClipInfo.weight <= 0.5f) return;
+        if (FootstepAudioClips == null || FootstepAudioClips.Length == 0) return;
 
-        AudioClip clip = footstepClips[Random.Range(0, footstepClips.Length)];
-        audioSource.pitch = 1f + Random.Range(-pitchVariance, pitchVariance);
-        audioSource.PlayOneShot(clip, volume);
+        var index = Random.Range(0, FootstepAudioClips.Length);
+        AudioSource.PlayClipAtPoint(FootstepAudioClips[index],
+            transform.position, FootstepAudioVolume);
+    }
+
+    // Called by animation events on Walk_N_Land and Run_N_Land clips
+    private void OnLand(AnimationEvent animationEvent)
+    {
+        if (LandingAudioClip == null) return;
+
+        AudioSource.PlayClipAtPoint(LandingAudioClip,
+            transform.position, FootstepAudioVolume);
     }
 }
