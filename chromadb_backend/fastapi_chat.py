@@ -451,6 +451,46 @@ def generate_impostor_message(conv: ConversationState) -> Optional[str]:
     return reply
 
 
+def _generate_cover_blown_response(disguised_as: str, conv: "ConversationState",
+                                    attempt_convince: bool) -> Optional[str]:
+    """
+    Called when the real player the impostor was disguised as enters the group.
+    Two strategies:
+      attempt_convince=True  — try to sow enough confusion to buy an escape
+      attempt_convince=False — say nothing useful and flee (short exit line)
+    """
+    from chromatesting import generate_npc_reply_fast
+
+    style = conv.style_summary or "Casual gamer, short responses."
+
+    if attempt_convince:
+        # Try to confuse the group — point at the real player as the imposter
+        directive = (
+            f"Someone claiming to be you just showed up. "
+            f"Say something short and panicked that makes others doubt the real {disguised_as}, "
+            f"like 'wait who is that' or 'that's not me over there'."
+        )
+    else:
+        # Cut and run — a vague exit line
+        directive = "Say you have to go right now, very briefly, like something came up."
+
+    try:
+        reply = generate_npc_reply_fast(
+            disguise_name=disguised_as,
+            style_summary=style,
+            conversation=conv.get_buffer_text(),
+            intent_directive=directive,
+            strategy_mode="casual",
+        )
+        return reply
+    except Exception as e:
+        print(f"   ❌ Cover-blown response failed: {e}")
+        # Hard fallback
+        if attempt_convince:
+            return "wait who is that, that's not me"
+        return "I gotta go"
+
+
 def detect_goodbye(message: str) -> bool:
     return any(k in message.lower()
                for k in ["bye","goodbye","see ya","later","gotta go","gtg","brb","afk"])
@@ -476,9 +516,34 @@ def receive_message(
 
     active_players.add(player_id)
 
-    # Detect if real player exposes disguise
+    # Detect if real player exposes disguise — cover blown
     if impostor.is_active and impostor.disguised_as == player_id:
-        print(f"⚠️ Real {player_id} appeared — impostor blown!")
+        print(f"⚠️ Real {player_id} appeared — cover blown!")
+
+        # Generate a panic response before resetting —
+        # 50/50: try to convince the group vs. flee immediately
+        conv = active_conversations.get(impostor.target_group_id)
+        if conv:
+            import random
+            panic_msg = _generate_cover_blown_response(
+                impostor.disguised_as, conv, attempt_convince=random.random() < 0.5
+            )
+            if panic_msg:
+                panic_ts = datetime.now(timezone.utc).isoformat()
+                add_player_message_with_group(
+                    text=panic_msg,
+                    player_id=f"impostor_{impostor.disguised_as}",
+                    round_id="r1", group_id=impostor.target_group_id,
+                    location="Unknown", timestamp=panic_ts,
+                )
+                response_data["impostor_message"] = {
+                    "player_id": impostor.disguised_as,
+                    "message":   panic_msg,
+                    "timestamp": panic_ts,
+                    "cover_blown": True,
+                }
+                print(f"💥 Cover-blown response: {panic_msg}")
+
         impostor.reset()
         if impostor.target_group_id in active_conversations:
             del active_conversations[impostor.target_group_id]

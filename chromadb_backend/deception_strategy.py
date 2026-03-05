@@ -54,22 +54,24 @@ class DeceptionIntent:
         """
         Returns a short directive injected into the LLM prompt.
         Keeps it under ~30 tokens so the small model can follow it.
+        Note: players are physically nearby (proximity chat) — no need to ask
+        where someone is if they're standing right there.
         """
         if self.action == 'ask_location':
             t = f" {self.target}" if self.target else ""
-            return f"Ask where{t} is or what they're doing."
+            return f"Ask where{t} has been or what they were doing earlier."
         if self.action == 'confirm_task':
-            return f"Say you were {self.alibi or 'doing a task'}."
+            return f"Say you were {self.alibi or 'doing a task'} earlier."
         if self.action == 'provide_alibi':
-            return f"Defend yourself: say you were {self.alibi or 'doing a task'}."
+            return f"Defend yourself: say you were {self.alibi or 'doing a task'} just now."
         if self.action == 'accuse':
-            return f"Suggest {self.target} seems suspicious."
+            return f"Suggest {self.target} seems suspicious to the people nearby."
         if self.action == 'seed_doubt':
-            return f"Casually question where {self.target} was."
+            return f"Casually mention you are not sure about where {self.target} was earlier."
         if self.action == 'redirect':
-            return f"Deflect suspicion toward {self.target}."
+            return f"Deflect suspicion toward {self.target} in front of the group."
         if self.action == 'casual':
-            return self.detail or "Say something casual about the game."
+            return self.detail or "Say something casual to the people nearby."
         return self.detail or "Say something short and casual."
 
 

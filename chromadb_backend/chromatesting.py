@@ -99,18 +99,27 @@ def generate_npc_reply_fast(
 Locations: Sheds, Barns, Greenhouse, Church, Pavilion.
 Actions: collecting wood/mushrooms, taking cans to church, shooting scavengers. Limited ammo.
 NPCs: Dr. Voss (gave the briefing), Dr. Petrov (rescued from lower levels).
+The players you are talking to are physically nearby — proximity chat, they can see you.
 Style: {style_summary}
 NEVER use: day/night, knives, tunnels, inventory, emojis, the word Koschei. Plain text only.
+Do NOT put quotes around your reply. Just write the words directly.
 
 Recent chat:
 {conversation[-180:]}
 
 Task: {intent_directive}
-Reply as {disguise_name} in 1 short casual sentence:"""
+Reply as {disguise_name} in 1 short casual sentence (no quotes):"""
 
     try:
         response = llm.invoke(prompt)
         reply = (response.content or "").strip()
+
+        # Strip wrapping quotes — LLMs often output "hey" or 'sure thing'
+        if (reply.startswith('"') and reply.endswith('"')) or \
+           (reply.startswith("'") and reply.endswith("'")):
+            reply = reply[1:-1].strip()
+        # Also strip if the whole reply is one quoted sentence mid-text: He said "..."
+        reply = re.sub(r'^["\']|["\']$', '', reply).strip()
 
         # Strip any role-play preamble ("Player2: ...")
         if ':' in reply and reply.index(':') < 20:
