@@ -1,5 +1,11 @@
-# fastapi_chat.py - V4.0 STRATEGIC DECEPTIVE IMPOSTOR
-# Complete integration with player profiling, suspicion tracking, and deception strategy
+# fastapi_chat.py - V5.0 FACT-BASED DECEPTIVE IMPOSTOR
+# Key changes vs V4:
+#   - Suspicion tracker reads ALL messages (not just keyword hits)
+#   - Facts extracted from conversation at end → stored in PlayerProfile
+#   - DeceptionStrategy produces a DeceptionIntent (structured WHAT)
+#   - LLM only does style rendering (HOW) — smaller, cleaner prompt
+#   - Conversation arc: gather → trust → seed_doubt/accuse
+#   - Style summary generated once at conversation start, cached for whole convo
 
 from fastapi import FastAPI, Body
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,12 +16,14 @@ from datetime import datetime, timezone
 from collections import deque
 import uvicorn
 
-# Import our new modules
-from player_profiling import PlayerProfileManager, PlayerProfile
+from player_profiling import (
+    PlayerProfileManager, PlayerProfile,
+    extract_facts_from_conversation,
+    extract_facts_from_message,
+)
 from suspicion_tracker import SuspicionTracker
-from deception_strategy import DeceptionStrategy, DeceptionMode
+from deception_strategy import DeceptionStrategy, DeceptionMode, DeceptionIntent
 
-# Import existing modules
 from chromatesting import (
     generate_npc_reply_fast,
     add_player_message_with_group,
@@ -32,763 +40,653 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ========== GLOBAL STATE ==========
+# ═══════════════════════════════════════════════════════════════════════════════
+# GLOBAL STATE
+# ═══════════════════════════════════════════════════════════════════════════════
 
-# Player profiling system
-profile_manager = PlayerProfileManager()
-
-# Suspicion tracking system
+profile_manager   = PlayerProfileManager()
 suspicion_tracker = SuspicionTracker()
 
-# Per-player recent messages (for LLM style imitation)
 recent_history: Dict[str, deque] = {}
+active_players: set = set()
 
-# All active players
-active_players: set[str] = set()
-
-# Current groups from Unity
 current_groups: Dict[str, Dict] = {}
 last_group_update_time: float = 0.0
 
-# Global summary for match events
 global_message_buffer: deque = deque(maxlen=40)
 global_summary: str = "Match just started. Players are exploring."
 
-# ========== CONVERSATION STATE ==========
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CONVERSATION STATE
+# ═══════════════════════════════════════════════════════════════════════════════
 
 class ConversationState:
-    """Enhanced conversation state with strategic intelligence"""
-    
+
     def __init__(self, group_id: str, disguise_player_id: str):
-        self.group_id = group_id
+        self.group_id           = group_id
         self.disguise_player_id = disguise_player_id
-        
-        # Conversation buffer (last 20 turns)
+
         self.buffer: deque = deque(maxlen=20)
-        
-        # Style summary (cached)
+
+        # Style summary — generated ONCE at conversation start from player history
         self.style_summary: Optional[str] = None
-        
-        # ✅ NEW: Deception strategy engine
+
+        # Strategy engine
         self.strategy = DeceptionStrategy(disguise_player_id)
-        
-        # Timing
-        self.started_at: float = time.time()
-        self.last_activity: float = time.time()
-        self.last_impostor_response: float = 0
-        
-        # Conversation state
-        self.goodbye_detected: bool = False
-        self.message_count = 0
-        self.impostor_message_count = 0
-        self.max_messages = 30
-        self.idle_timeout = 90
-        
-        # ✅ NEW: Track conversation facts
-        self.facts_learned = 0
-        self.questions_asked = 0
-        self.accusations_made = 0
-        
+
+        # Timing / limits
+        self.started_at              = time.time()
+        self.last_activity           = time.time()
+        self.last_impostor_response  = 0.0
+        self.goodbye_detected        = False
+        self.message_count           = 0
+        self.impostor_message_count  = 0
+        self.max_messages            = 30
+        self.idle_timeout            = 90
+
     def add_message(self, player_id: str, message: str, is_impostor: bool):
-        """Add message and analyze it"""
         self.buffer.append({
-            "player_id": player_id,
-            "message": message,
+            "player_id":   player_id,
+            "message":     message,
             "is_impostor": is_impostor,
-            "timestamp": time.time(),
+            "timestamp":   time.time(),
         })
         self.last_activity = time.time()
         self.message_count += 1
         if is_impostor:
-            self.impostor_message_count += 1
-            self.last_impostor_response = time.time()
-        
-        # ✅ NEW: Analyze message for strategic info
-        msg_lower = message.lower()
-        
-        # Track facts learned
-        if any(word in msg_lower for word in ['was at', 'went to', 'saw', 'found']):
-            self.facts_learned += 1
-        
-        # Track accusations
-        if any(word in msg_lower for word in ['suspicious', 'lying', 'impostor']):
-            if not is_impostor:  # Player accused someone
-                self.accusations_made += 1
-                
-                # Update suspicion tracker
-                if self.disguise_player_id.lower() in msg_lower:
-                    # We're being accused!
-                    suspicion_tracker.add_accusation(
-                        accuser=player_id,
-                        accused=self.disguise_player_id,
-                        reason=message[:50],
-                        weight=3.0
-                    )
+            self.impostor_message_count  += 1
+            self.last_impostor_response   = time.time()
+            self.strategy.message_count  += 1   # advance the temporal arc
+
+        # ── Suspicion detection on every real player message ──────────────────
+        if not is_impostor:
+            known = list(profile_manager.profiles.keys())
+            suspicion_tracker.process_message(player_id, message, known)
+
+            # Also detect if the disguised player is being accused directly
+            if self.disguise_player_id.lower() in message.lower():
+                from suspicion_tracker import detect_suspicion_weight
+                w = detect_suspicion_weight(message)
+                if w >= 1.5:
                     self.strategy.has_been_accused = True
                     self.strategy.accusation_count += 1
-    
+                    print(f"   ⚠️ Impostor ({self.disguise_player_id}) accused! "
+                          f"weight={w:.1f}")
+
+            # ── Mid-convo fact extraction during GATHER_INFO ──────────────────
+            # When the impostor is asking questions, immediately extract facts from
+            # player replies so the strategy layer knows what was learned and can
+            # advance the arc as soon as intel is sufficient — not just at convo end.
+            if self.strategy.current_mode == DeceptionMode.GATHER_INFO:
+                new_facts = extract_facts_from_message(message, round_id="r1")
+                if new_facts:
+                    profile = profile_manager.get_or_create_profile(player_id)
+                    added = 0
+                    for fact in new_facts:
+                        before = len(profile.known_facts)
+                        profile.add_fact(fact.fact_type, fact.description,
+                                         fact.source, round_id="r1")
+                        if len(profile.known_facts) > before:
+                            added += 1
+                    if added:
+                        self.strategy.facts_gathered += added
+                        print(f"   📥 Mid-convo: +{added} facts from {player_id} "
+                              f"(total gathered={self.strategy.facts_gathered})")
+
     def should_respond(self, last_msg_player_id: str) -> Tuple[bool, str]:
-        """Determine if impostor should respond - STRATEGIC VERSION"""
-        
-        # Don't respond to ourselves
         if last_msg_player_id == self.disguise_player_id:
             return False, "self"
-        
-        # Check cooldown
-        time_since_last = time.time() - self.last_impostor_response
-        if self.last_impostor_response > 0 and time_since_last < 5.0:
-            return False, f"cooldown {time_since_last:.1f}s"
-        
-        # Count humans in conversation
-        human_players = set()
-        for msg in self.buffer:
-            if not msg['is_impostor']:
-                human_players.add(msg['player_id'])
-        
-        num_humans = len(human_players)
-        
-        # ✅ NEW: Strategic override - ALWAYS respond if accused
+
+        time_since = time.time() - self.last_impostor_response
+        if self.last_impostor_response > 0 and time_since < 5.0:
+            return False, f"cooldown {time_since:.1f}s"
+
+        # Always respond if accused
         if self.strategy.has_been_accused:
-            return True, "MUST DEFEND (accused!)"
-        
-        # ✅ NEW: Check if we should respond strategically
-        last_message = list(self.buffer)[-1]['message'] if self.buffer else ""
-        should_respond, response_type = self.strategy.should_respond_to_message(
-            last_message,
-            {'num_humans': num_humans, 'facts_learned': self.facts_learned}
+            return True, "MUST DEFEND"
+
+        # Strategic check
+        last_msg = list(self.buffer)[-1]['message'] if self.buffer else ""
+        should, reason = self.strategy.should_respond_to_message(
+            last_msg, {'message_count': self.message_count}
         )
-        
-        if response_type == "defend":
-            return True, "defending accusation"
-        elif response_type == "answer_question":
-            return True, "answering question"
-        elif response_type == "seed_doubt":
-            return True, "seeding doubt (strategic)"
-        
-        # Original logic for non-strategic responses
-        if num_humans == 1:
-            return True, "1-on-1 (100%)"
-        elif num_humans == 2:
-            if random.random() < 0.7:
-                return True, "2 players (70%)"
-            else:
-                return False, "2 players (skip)"
+        if should:
+            return True, reason
+
+        # Probabilistic fallback based on group size
+        human_players = {m['player_id'] for m in self.buffer if not m['is_impostor']}
+        n = len(human_players)
+        if n == 1:
+            return True, "1-on-1"
+        elif n == 2:
+            return random.random() < 0.7, "2-player (70%)"
         else:
-            if random.random() < 0.4:
-                return True, f"{num_humans} players (40%)"
-            else:
-                return False, f"{num_humans} players (skip)"
-    
+            return random.random() < 0.4, f"{n}-player (40%)"
+
     def is_finished(self) -> Tuple[bool, str]:
-        """Check if conversation should end"""
         if self.goodbye_detected:
             return True, "goodbye"
         if self.message_count >= self.max_messages:
-            return True, f"max messages"
-        
-        idle_time = time.time() - self.last_activity
-        if idle_time > self.idle_timeout:
-            return True, f"idle {idle_time:.0f}s"
+            return True, "max messages"
+        if time.time() - self.last_activity > self.idle_timeout:
+            return True, "idle timeout"
         if self.impostor_message_count >= 10:
-            return True, f"impostor done"
-        
+            return True, "impostor limit"
         return False, "active"
-    
+
     def get_buffer_text(self) -> str:
         if not self.buffer:
             return "(conversation just started)"
-        lines = []
-        for msg in self.buffer:
-            lines.append(f"{msg['player_id']}: {msg['message']}")
-        return "\n".join(lines)
-    
-    def get_conversation_summary(self) -> str:
-        """Generate conversation summary"""
-        players = set(msg['player_id'] for msg in self.buffer)
-        
-        summary_parts = [
-            f"📊 CONVERSATION SUMMARY",
-            f"   Duration: {time.time() - self.started_at:.0f}s",
-            f"   Messages: {self.message_count} ({self.impostor_message_count} impostor)",
-            f"   Participants: {', '.join(players)}",
-            f"   Facts learned: {self.facts_learned}",
-            f"   Questions asked: {self.questions_asked}",
-            f"   Accusations made: {self.accusations_made}",
-        ]
-        
-        return "\n".join(summary_parts)
+        return "\n".join(f"{m['player_id']}: {m['message']}" for m in self.buffer)
 
-# Active conversations
+    def get_conversation_summary(self) -> str:
+        players = {m['player_id'] for m in self.buffer}
+        trust = suspicion_tracker.get_trust_scores(
+            self.disguise_player_id, list(self.buffer)
+        )
+        trust_str = ", ".join(f"{p}:{s:+.1f}" for p, s in sorted(trust.items()))
+        return (
+            f"📊 CONVERSATION SUMMARY\n"
+            f"   Duration:  {time.time()-self.started_at:.0f}s\n"
+            f"   Messages:  {self.message_count} ({self.impostor_message_count} impostor)\n"
+            f"   Players:   {', '.join(players)}\n"
+            f"   Arc stage: {self.strategy.current_mode.value}\n"
+            f"   Facts gathered: {self.strategy.facts_gathered}\n"
+            f"   Trust scores: {trust_str or 'none yet'}"
+        )
+
+
 active_conversations: Dict[str, ConversationState] = {}
 
-# ========== IMPOSTOR STATE ==========
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# IMPOSTOR STATE
+# ═══════════════════════════════════════════════════════════════════════════════
 
 class ImpostorState:
     def __init__(self):
-        self.disguised_as: Optional[str] = None
-        self.is_active: bool = False
+        self.disguised_as:    Optional[str] = None
+        self.is_active:       bool          = False
         self.target_group_id: Optional[str] = None
-        self.visited_group_ids: list = []  # tracks all groups visited this cycle
+        self.visited_group_ids: list        = []
 
     def reset(self):
-        # Record the group we just left so we avoid it next time
         if self.target_group_id and self.target_group_id not in self.visited_group_ids:
             self.visited_group_ids.append(self.target_group_id)
-        # Cap history at 10 entries
-        if len(self.visited_group_ids) > 10:
-            self.visited_group_ids = self.visited_group_ids[-10:]
-        self.disguised_as = None
-        self.is_active = False
+        self.visited_group_ids = self.visited_group_ids[-10:]
+        self.disguised_as    = None
+        self.is_active       = False
         self.target_group_id = None
+
+    @property
+    def last_visited_group_id(self) -> Optional[str]:
+        return self.visited_group_ids[-1] if self.visited_group_ids else None
 
 impostor = ImpostorState()
 
+
 class ImpostorSpawnControl:
     def __init__(self):
-        self.spawn_interval: float = 60.0  # 1 minute cooldown after despawn
-        self.last_despawn_time: float = 0.0  # 0 means no despawn yet, spawn immediately on first run
-        self.min_group_size: int = 1
+        self.spawn_interval  = 60.0
+        self.last_despawn    = 0.0
+        self.min_group_size  = 1
 
     def should_spawn_now(self) -> bool:
         if impostor.is_active:
             return False
-        if self.last_despawn_time > 0:
-            elapsed = time.time() - self.last_despawn_time
-            if elapsed < self.spawn_interval:
+        if self.last_despawn > 0:
+            if time.time() - self.last_despawn < self.spawn_interval:
                 return False
-        valid_groups = [g for g in current_groups.values() if g.get('size', 0) >= self.min_group_size]
-        return len(valid_groups) > 0
+        valid = [g for g in current_groups.values()
+                 if g.get('size', 0) >= self.min_group_size]
+        return len(valid) > 0
 
     def record_despawn(self):
-        self.last_despawn_time = time.time()
-
-    def record_spawn(self):
-        pass  # kept for compatibility, cooldown now starts on despawn
+        self.last_despawn = time.time()
 
 spawn_control = ImpostorSpawnControl()
 
-# ========== HELPER FUNCTIONS ==========
 
-def normalize_player_id(player_id: str) -> str:
-    if not player_id:
-        return ""
-    return player_id.lower().replace(" ", "_")
+# ═══════════════════════════════════════════════════════════════════════════════
+# HELPERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def normalize_player_id(pid: str) -> str:
+    return pid.lower().replace(" ", "_") if pid else ""
 
 def is_valid_player_id(pid) -> bool:
     if not pid or not isinstance(pid, str):
         return False
-    pid_str = str(pid).strip()
-    if len(pid_str) < 2:
+    pid = str(pid).strip()
+    if len(pid) < 2 or pid.isdigit():
         return False
-    if pid_str.isdigit():
+    if pid.lower() in ("string", "null", "none", "0", ""):
         return False
-    if pid_str.lower() in ["string", "null", "none", "0", ""]:
-        return False
-    if pid_str.startswith("impostor_"):
+    if pid.startswith("impostor_"):
         return False
     return True
 
 def update_player_history(player_id: str, message: str):
-    """Update per-player recent message history"""
     if player_id not in recent_history:
         recent_history[player_id] = deque(maxlen=20)
     recent_history[player_id].append(message)
 
 def update_global_summary():
-    """Update global summary every 5 messages"""
     global global_summary
-    
     if len(global_message_buffer) < 5:
         return
-    
-    recent_msgs = list(global_message_buffer)[-20:]
-    
-    players_mentioned = set()
-    locations_mentioned = set()
-    
-    VALID_LOCATIONS = ["Pavillion", "Church", "Mansion", "Greenhouse", "Sheds"]
-    
-    for msg in recent_msgs:
-        pid = msg.get('player_id', '')
-        text = msg.get('message', '').lower()
-        
-        if not pid.startswith('impostor_'):
-            players_mentioned.add(pid)
-        
-        for loc in VALID_LOCATIONS:
-            if loc.lower() in text:
-                locations_mentioned.add(loc)
-    
-    parts = []
-    if players_mentioned:
-        parts.append(f"Players: {', '.join(list(players_mentioned)[:2])}")
-    if locations_mentioned:
-        parts.append(f"at {', '.join(list(locations_mentioned)[:2])}")
-    
-    if parts:
-        global_summary = ". ".join(parts)
-    else:
-        global_summary = "Players exploring"
+    recent = list(global_message_buffer)[-20:]
+    lines  = [f"{m['player_id']}: {m['message']}"
+              for m in recent if not m['player_id'].startswith('impostor_')]
+    transcript = "\n".join(lines)
+    prompt = (
+        "Summarise this Chernobyl survival game chat in ONE sentence (max 20 words).\n"
+        "Only mention: Sheds, Barns, Greenhouse, Church, Pavilion, collecting wood/mushrooms, "
+        "taking cans, shooting aliens.\n"
+        f"Messages:\n{transcript}\nSummary:"
+    )
+    try:
+        from langchain_ollama import ChatOllama
+        _llm = ChatOllama(model="llama3.2:3b", temperature=0.3,
+                          base_url="http://127.0.0.1:11434",
+                          num_ctx=256, num_predict=40)
+        resp = _llm.invoke(prompt)
+        cand = (resp.content or "").strip().split("\n")[0].strip()
+        if len(cand) > 10:
+            global_summary = cand
+            print(f"   📝 Summary: {global_summary}")
+    except Exception as e:
+        print(f"   ⚠️ Summary failed ({e})")
+
 
 def choose_target_group() -> Optional[Dict]:
-    """Choose a group the impostor has not visited yet this cycle, preferring smaller groups."""
     if len(current_groups) < 2:
         return None
-    # Exclude already-visited groups
-    valid_groups = [
-        g for g in current_groups.values()
-        if g['size'] >= spawn_control.min_group_size
-        and g['group_id'] not in impostor.visited_group_ids
-    ]
-    if not valid_groups:
-        # All groups visited - start a new cycle, only avoid the most recent one
-        print("   All groups visited - resetting cycle")
+
+    valid = [g for g in current_groups.values()
+             if g['size'] >= spawn_control.min_group_size
+             and g['group_id'] not in impostor.visited_group_ids]
+
+    if not valid:
+        print("   ♻️ All groups visited — resetting history")
         impostor.visited_group_ids.clear()
-        last = impostor.visited_group_ids[-1] if impostor.visited_group_ids else None
-        valid_groups = [
-            g for g in current_groups.values()
-            if g['size'] >= spawn_control.min_group_size
-            and g['group_id'] != last
-        ]
-    if not valid_groups:
-        valid_groups = [g for g in current_groups.values() if g['size'] >= spawn_control.min_group_size]
-    if not valid_groups:
+        valid = [g for g in current_groups.values()
+                 if g['size'] >= spawn_control.min_group_size
+                 and g['group_id'] != impostor.last_visited_group_id]
+    if not valid:
+        valid = [g for g in current_groups.values()
+                 if g['size'] >= spawn_control.min_group_size]
+    if not valid:
         return None
-    return min(valid_groups, key=lambda g: g['size'])
+
+    def score(g):
+        pos = g.get('center_position', [0,0,0])
+        dist = sum(
+            ((pos[0]-o['center_position'][0])**2 +
+             (pos[2]-o['center_position'][2])**2)**0.5
+            for o in current_groups.values() if o['group_id'] != g['group_id']
+        )
+        return dist - (g['size'] - 1) * 5.0
+
+    return max(valid, key=score)
+
 
 def choose_impostor_disguise(target_group_id: Optional[str] = None) -> Optional[str]:
-    """Choose player from farthest group"""
     try:
-        target_members = set()
-        target_group_position = None
-        
+        target_members     = set()
+        target_group_pos   = None
+
         if target_group_id and target_group_id in current_groups:
-            raw_members = current_groups[target_group_id].get('player_ids', [])
-            target_members = {normalize_player_id(pid) for pid in raw_members if is_valid_player_id(pid)}
-            target_group_position = current_groups[target_group_id].get('center_position', [0, 0, 0])
-        
-        candidate_players_with_distance = []
-        
+            raw = current_groups[target_group_id].get('player_ids', [])
+            target_members   = {normalize_player_id(p) for p in raw if is_valid_player_id(p)}
+            target_group_pos = current_groups[target_group_id].get('center_position', [0,0,0])
+
+        candidates = []
         for gid, gdata in current_groups.items():
             if gid == target_group_id:
                 continue
-            
-            group_position = gdata.get('center_position', [0, 0, 0])
-            
-            if target_group_position:
-                distance = ((group_position[0] - target_group_position[0])**2 + 
-                           (group_position[2] - target_group_position[2])**2) ** 0.5
-            else:
-                distance = 0
-            
+            gpos = gdata.get('center_position', [0,0,0])
+            dist = (((gpos[0]-target_group_pos[0])**2 +
+                     (gpos[2]-target_group_pos[2])**2)**0.5
+                    if target_group_pos else 0)
             for pid in gdata.get('player_ids', []):
                 if not is_valid_player_id(pid):
                     continue
-                
-                normalized_pid = normalize_player_id(pid)
-                if normalized_pid in target_members:
+                if normalize_player_id(pid) in target_members:
                     continue
-                
-                candidate_players_with_distance.append({
-                    'player_id': pid,
-                    'distance': distance,
-                    'group_id': gid
-                })
-        
-        if not candidate_players_with_distance:
+                candidates.append({'player_id': pid, 'distance': dist})
+
+        if not candidates:
             return "Player_Default"
-        
-        candidate_players_with_distance.sort(key=lambda x: x['distance'], reverse=True)
-        chosen_data = candidate_players_with_distance[0]
-        
-        return chosen_data['player_id']
-        
+        candidates.sort(key=lambda x: x['distance'], reverse=True)
+        return candidates[0]['player_id']
+
     except Exception as e:
-        print(f"❌ Error choosing disguise: {e}")
+        print(f"❌ Disguise selection error: {e}")
         return "Player_Default"
 
+
 def generate_style_summary(player_id: str) -> str:
-    """Generate style summary from recent messages"""
+    """
+    Generate style summary from the player's last 20 messages — ONCE per conversation.
+    Falls back to a sensible default if not enough data.
+    """
     msgs = list(recent_history.get(player_id, []))
-    
     if not msgs or len(msgs) < 3:
-        return "Casual gamer"
-    
-    avg_length = sum(len(m.split()) for m in msgs) / len(msgs)
-    
-    if avg_length < 4:
-        return "Very short messages"
-    elif avg_length < 8:
-        return "Brief casual chat"
-    else:
-        return "Longer messages"
+        return "Casual gamer, short responses, friendly tone."
+    try:
+        from stylometric import summarize_player_style
+        summary = summarize_player_style(player_id, msgs)
+        print(f"   🖊️ Style ({player_id}): {summary[:80]}...")
+        return summary
+    except Exception as e:
+        print(f"   ⚠️ Style LLM failed ({e})")
+        avg = sum(len(m.split()) for m in msgs) / len(msgs)
+        if avg < 4:
+            return "Very short messages, blunt, minimal punctuation."
+        if avg < 8:
+            return "Brief casual chat, informal, short sentences."
+        return "Longer messages, explains actions clearly."
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# IMPOSTOR MESSAGE GENERATION
+# ═══════════════════════════════════════════════════════════════════════════════
 
 def generate_impostor_message(conv: ConversationState) -> Optional[str]:
     """
-    ✅ NEW: Generate STRATEGIC impostor reply
-    
-    Uses deception strategy to decide what to say
+    1. Strategy layer  → DeceptionIntent  (WHAT to say)
+    2. LLM             → renders intent in player style  (HOW to say it)
     """
-    
     print(f"\n{'─'*50}")
-    print(f"🤖 GENERATING STRATEGIC REPLY")
-    print(f"{'─'*50}")
-    
-    # Cache style summary
+    print(f"🤖 GENERATING REPLY  (arc msg #{conv.strategy.message_count})")
+
+    # Style cached for entire conversation
     if conv.style_summary is None:
         conv.style_summary = generate_style_summary(conv.disguise_player_id)
-    
-    conversation_text = conv.get_buffer_text()
-    
-    # ✅ NEW: Get all player profiles for strategic decision-making
-    profiles = {
-        pid: profile.to_dict()
-        for pid, profile in profile_manager.profiles.items()
-    }
-    
-    # Get recent messages
-    recent_msgs = list(recent_history.get(conv.disguise_player_id, []))
-    
-    # Get last message from conversation
+
+    # Pull known facts for disguised player
+    disguise_profile = profile_manager.get_or_create_profile(conv.disguise_player_id)
+    known_facts_text = disguise_profile.get_facts_as_text(5)
+    if known_facts_text:
+        print(f"   📌 Known facts: {known_facts_text}")
+
+    # Get all profiles dict for strategy
+    profiles = {pid: p.to_dict() for pid, p in profile_manager.profiles.items()}
+
     last_message = list(conv.buffer)[-1]['message'] if conv.buffer else ""
-    conversation_history = [msg['message'] for msg in list(conv.buffer)[-10:]]
-    
-    print(f"   Style: {conv.style_summary}")
-    print(f"   Buffer: {len(conv.buffer)} messages")
-    print(f"   Facts: {conv.facts_learned}")
-    print(f"   Mode: {conv.strategy.current_mode.value}")
-    
-    # ✅ NEW: Use deception strategy to generate response
-    try:
-        strategic_response = conv.strategy.get_response_strategy(
-            message=last_message,
-            profiles=profiles,
-            suspicion_tracker=suspicion_tracker,
-            conversation_history=conversation_history
-        )
-        
-        if strategic_response:
-            print(f"   🎭 Strategic: {strategic_response[:60]}...")
-            t0 = time.time()
-            
-            # Optionally refine with LLM (make it sound natural)
-            prompt = f"""You are {conv.disguise_player_id}. {conv.style_summary}
 
-Recent: {global_summary}
+    # Strategy → structured intent
+    # Compute trust scores from existing data — no new signals needed
+    trust_scores = suspicion_tracker.get_trust_scores(
+        disguised_as=conv.disguise_player_id,
+        conversation_buffer=list(conv.buffer),
+    )
+    if trust_scores:
+        print(f"   🤝 Trust scores: { {p: f'{s:+.1f}' for p, s in trust_scores.items()} }")
 
-{conversation_text}
+    intent: DeceptionIntent = conv.strategy.get_intent(
+        message=last_message,
+        profiles=profiles,
+        suspicion_tracker=suspicion_tracker,
+        known_facts_text=known_facts_text,
+        trust_scores=trust_scores,
+    )
+    directive = intent.to_prompt_fragment()
+    print(f"   🎯 Intent: [{intent.action}] {directive}")
 
-Say this but in your natural style: {strategic_response}
-
-Reply (1 sentence):"""
-            
-            reply = generate_npc_reply_fast(
-                disguise_name=conv.disguise_player_id,
-                style_summary=conv.style_summary,
-                global_context=global_summary,
-                conversation=conversation_text,
-                recent_msgs=recent_msgs,
-            )
-            
-            t1 = time.time()
-            print(f"   ⏱️ {t1-t0:.2f}s")
-            print(f"   💬 {reply}")
-            
-        else:
-            # No strategic response - use generic reply
-            reply = "Yeah."
-    
-    except Exception as e:
-        print(f"   ❌ Strategy failed: {e}")
-        import traceback
-        traceback.print_exc()
-        reply = "Not sure."
-    
+    # LLM renders the intent
+    t0 = time.time()
+    reply = generate_npc_reply_fast(
+        disguise_name=conv.disguise_player_id,
+        style_summary=conv.style_summary,
+        conversation=conv.get_buffer_text(),
+        intent_directive=directive,
+        strategy_mode=conv.strategy.current_mode.value,
+    )
+    print(f"   ⏱️ {time.time()-t0:.2f}s")
+    print(f"   💬 {reply}")
     print(f"{'─'*50}\n")
-    
     return reply
 
-def detect_goodbye(message: str) -> bool:
-    goodbye_keywords = ["bye", "goodbye", "see ya", "later", "gotta go", "gtg", "brb", "afk"]
-    return any(keyword in message.lower() for keyword in goodbye_keywords)
 
-# ========== API ENDPOINTS ==========
+def detect_goodbye(message: str) -> bool:
+    return any(k in message.lower()
+               for k in ["bye","goodbye","see ya","later","gotta go","gtg","brb","afk"])
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# API ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/chat")
 def receive_message(
     player_id: str = Body(..., embed=True),
-    message: str = Body(..., embed=True),
-    group_id: str = Body("solo", embed=True),
+    message:   str = Body(..., embed=True),
+    group_id:  str = Body("solo", embed=True),
 ):
-    """Enhanced chat endpoint with strategic analysis"""
-    
     player_id = player_id.strip()
-    message = message.strip()
-    group_id = group_id.strip() if group_id else "solo"
+    message   = message.strip()
+    group_id  = (group_id or "solo").strip()
     timestamp = datetime.now(timezone.utc).isoformat()
-    
+
     print(f"\n{'='*60}")
     print(f"💬 [{player_id}] in {group_id}: {message}")
-    
+
     active_players.add(player_id)
-    
-    # Check if real player conflicts with impostor
+
+    # Detect if real player exposes disguise
     if impostor.is_active and impostor.disguised_as == player_id:
-        print(f"⚠️ Real {player_id} appeared! Impostor compromised.")
+        print(f"⚠️ Real {player_id} appeared — impostor blown!")
         impostor.reset()
         if impostor.target_group_id in active_conversations:
             del active_conversations[impostor.target_group_id]
-    
-    # ✅ NEW: Analyze message and update player profile
+
+    # Profile + statement analysis
     statement = profile_manager.analyze_message(player_id, message, location=group_id)
     print(f"   📝 Category: {statement.category}")
-    if statement.mentioned_players:
-        print(f"   👥 Mentioned: {', '.join(statement.mentioned_players)}")
-    
-    # Store in database
+
+    # DB store
     try:
         add_player_message_with_group(
-            text=message,
-            player_id=player_id,
-            round_id="r1",
-            group_id=group_id,
-            location="Unknown",
-            timestamp=timestamp,
+            text=message, player_id=player_id,
+            round_id="r1", group_id=group_id,
+            location="Unknown", timestamp=timestamp,
         )
     except Exception as e:
         print(f"⚠️ DB store failed: {e}")
-    
-    # Update histories
+
     update_player_history(player_id, message)
-    global_message_buffer.append({
-        'player_id': player_id,
-        'message': message,
-        'timestamp': timestamp
-    })
-    
-    # Update global summary every 5 messages
+    global_message_buffer.append({'player_id': player_id, 'message': message,
+                                   'timestamp': timestamp})
+
     if len(global_message_buffer) % 5 == 0:
         update_global_summary()
-    
+
     response_data = {
-        "player_id": player_id,
-        "message": message,
-        "timestamp": timestamp,
-        "group_id": group_id,
+        "player_id": player_id, "message": message,
+        "timestamp": timestamp, "group_id": group_id,
         "impostor_message": None,
     }
-    
-    # Handle impostor conversation
+
+    # ── Impostor conversation handling ────────────────────────────────────────
     if impostor.is_active and impostor.target_group_id == group_id:
         conv = active_conversations.get(group_id)
-        
         if not conv:
             conv = ConversationState(group_id, impostor.disguised_as)
             active_conversations[group_id] = conv
-            print(f"🆕 Conversation started")
-        
-        # Add message to buffer
+            print("🆕 Conversation started")
+            # Generate style summary NOW (once) at conversation start
+            conv.style_summary = generate_style_summary(impostor.disguised_as)
+
         conv.add_message(player_id, message, is_impostor=False)
-        
-        # Check for goodbye
+
         if detect_goodbye(message):
             conv.goodbye_detected = True
-            print(f"👋 Goodbye detected")
-        
-        # Determine if impostor should respond
+            print("👋 Goodbye detected")
+
         should_respond, reason = conv.should_respond(player_id)
-        
         print(f"🤔 Respond? {should_respond} ({reason})")
-        
+
         if should_respond:
             try:
                 impostor_msg = generate_impostor_message(conv)
-                
                 if impostor_msg:
-                    impostor_timestamp = datetime.now(timezone.utc).isoformat()
-                    
-                    # Store impostor message
+                    impostor_ts = datetime.now(timezone.utc).isoformat()
                     add_player_message_with_group(
                         text=impostor_msg,
                         player_id=f"impostor_{impostor.disguised_as}",
-                        round_id="r1",
-                        group_id=group_id,
-                        location="Unknown",
-                        timestamp=impostor_timestamp,
+                        round_id="r1", group_id=group_id,
+                        location="Unknown", timestamp=impostor_ts,
                     )
-                    
-                    # Add to buffer
                     conv.add_message(impostor.disguised_as, impostor_msg, is_impostor=True)
-                    
                     global_message_buffer.append({
                         'player_id': f"impostor_{impostor.disguised_as}",
-                        'message': impostor_msg,
-                        'timestamp': impostor_timestamp
+                        'message': impostor_msg, 'timestamp': impostor_ts,
                     })
-                    
                     response_data["impostor_message"] = {
                         "player_id": impostor.disguised_as,
-                        "message": impostor_msg,
-                        "timestamp": impostor_timestamp,
+                        "message":   impostor_msg,
+                        "timestamp": impostor_ts,
                     }
-                    
                     print(f"✅ Replied as {impostor.disguised_as}")
-            
             except Exception as e:
-                print(f"❌ Reply failed: {e}")
                 import traceback
+                print(f"❌ Reply failed: {e}")
                 traceback.print_exc()
-        
-        # Check if conversation should end
-        finished, finish_reason = conv.is_finished()
+
+        # Check for conversation end
+        finished, reason = conv.is_finished()
         if finished:
             print(f"\n{conv.get_conversation_summary()}")
             print(f"\n{suspicion_tracker.get_suspicion_summary()}")
-            print(f"🏁 Ended: {finish_reason}\n")
+            print(f"🏁 Ended: {reason}\n")
+
+            # ── Extract + save facts from this conversation ───────────────────
+            # Do this for every real player who participated
+            real_players = {m['player_id'] for m in conv.buffer
+                            if not m['is_impostor']}
+            for pid in real_players:
+                p = profile_manager.get_or_create_profile(pid)
+                extract_facts_from_conversation(
+                    player_id=pid,
+                    conversation_buffer=list(conv.buffer),
+                    profile=p,
+                    round_id="r1",
+                )
+
             del active_conversations[group_id]
             impostor.reset()
-            spawn_control.record_despawn()
-    
+
     print(f"{'='*60}\n")
     return response_data
 
+
 @app.post("/groups/sync")
-def sync_groups(groups: List[Dict] = Body(..., embed=True), timestamp: str = Body(..., embed=True)):
+def sync_groups(groups: List[Dict] = Body(..., embed=True),
+                timestamp: str = Body(..., embed=True)):
     global current_groups, last_group_update_time
-    
     current_groups.clear()
-    
-    for group_data in groups:
-        group_id = group_data.get('group_id')
-        if group_id:
-            current_groups[group_id] = {
-                'group_id': group_id,
-                'player_ids': group_data.get('player_ids', []),
-                'center_position': group_data.get('center_position', [0, 0, 0]),
-                'size': group_data.get('size', 0)
+    for g in groups:
+        gid = g.get('group_id')
+        if gid:
+            current_groups[gid] = {
+                'group_id':        gid,
+                'player_ids':      g.get('player_ids', []),
+                'center_position': g.get('center_position', [0,0,0]),
+                'size':            g.get('size', 0),
             }
-    
     last_group_update_time = time.time()
     return {'success': True, 'groups_received': len(current_groups)}
 
+
 @app.get("/impostor/check_spawn")
 def check_impostor_spawn():
-    """Check if impostor should spawn"""
-    
     if impostor.is_active and impostor.target_group_id:
         conv = active_conversations.get(impostor.target_group_id)
         if conv:
             finished, reason = conv.is_finished()
             if finished:
-                return {
-                    'should_spawn': False,
-                    'should_despawn': True,
-                    'reason': f'Conversation ended: {reason}'
-                }
-        
-        return {
-            'should_spawn': False,
-            'should_despawn': False,
-            'reason': 'Impostor active'
-        }
-    
+                return {'should_spawn': False, 'should_despawn': True,
+                        'reason': f'Conversation ended: {reason}'}
+        return {'should_spawn': False, 'should_despawn': False, 'reason': 'Active'}
+
     if len(current_groups) < 2:
-        return {
-            'should_spawn': False,
-            'should_despawn': False,
-            'reason': f'Need 2+ groups (have {len(current_groups)})'
-        }
-    
+        return {'should_spawn': False, 'should_despawn': False,
+                'reason': f'Need 2+ groups (have {len(current_groups)})'}
+
     if spawn_control.should_spawn_now():
-        target_group = choose_target_group()
-        
-        if target_group:
-            disguise_player = choose_impostor_disguise(target_group['group_id'])
-            
-            spawn_control.record_spawn()
-            
+        target = choose_target_group()
+        if target:
+            disguise = choose_impostor_disguise(target['group_id'])
             return {
-                'should_spawn': True,
-                'should_despawn': False,
-                'target_group_id': target_group['group_id'],
-                'target_group_position': target_group['center_position'],
-                'target_group_members': target_group['player_ids'],
-                'disguise_as': disguise_player,
-                'engagement_rate': 0.5,
-                'conversation_duration': 60.0
+                'should_spawn':           True,
+                'should_despawn':         False,
+                'target_group_id':        target['group_id'],
+                'target_group_position':  target['center_position'],
+                'target_group_members':   target['player_ids'],
+                'disguise_as':            disguise,
+                'engagement_rate':        0.5,
+                'conversation_duration':  60.0,
             }
-    
-    return {
-        'should_spawn': False,
-        'should_despawn': False,
-        'reason': 'Waiting'
-    }
+
+    return {'should_spawn': False, 'should_despawn': False, 'reason': 'Waiting'}
+
 
 @app.post("/impostor/activate")
 def activate_impostor(
     target_player_id: Optional[str] = Body(None),
-    target_group_id: Optional[str] = Body(None),
-    engagement_rate: float = Body(0.5),
+    target_group_id:  Optional[str] = Body(None),
+    engagement_rate:  float          = Body(0.5),
 ):
-    if not target_player_id:
-        impostor.disguised_as = choose_impostor_disguise(target_group_id)
-    else:
-        impostor.disguised_as = target_player_id
-    
+    impostor.disguised_as = (target_player_id
+                             if target_player_id
+                             else choose_impostor_disguise(target_group_id))
     if not impostor.disguised_as:
         return {"success": False, "message": "No suitable disguise"}
-    
-    impostor.is_active = True
+    impostor.is_active       = True
     impostor.target_group_id = target_group_id
-    
-    print(f"✅ Impostor activated as: {impostor.disguised_as} in {target_group_id}")
-    
-    return {
-        "success": True,
-        "disguised_as": impostor.disguised_as,
-        "target_group_id": target_group_id,
-    }
+    print(f"✅ Impostor activated as {impostor.disguised_as} in {target_group_id}")
+    return {"success": True, "disguised_as": impostor.disguised_as,
+            "target_group_id": target_group_id}
+
 
 @app.post("/impostor/deactivate")
 def deactivate_impostor():
-    old_disguise = impostor.disguised_as
-    old_group = impostor.target_group_id
+    old = impostor.disguised_as
     impostor.reset()
     spawn_control.record_despawn()
+    if impostor.target_group_id in active_conversations:
+        del active_conversations[impostor.target_group_id]
+    print(f"🛑 Impostor deactivated (was {old})")
+    return {"success": True}
 
-    if old_group in active_conversations:
-        del active_conversations[old_group]
-    
-    print(f"🛑 Impostor deactivated (was: {old_disguise})")
-    
-    return {"success": True, "message": f"Deactivated (was {old_disguise})"}
 
 @app.get("/impostor/status")
 def impostor_status():
     return {
-        "is_active": impostor.is_active,
-        "disguised_as": impostor.disguised_as,
-        "target_group_id": impostor.target_group_id,
+        "is_active":            impostor.is_active,
+        "disguised_as":         impostor.disguised_as,
+        "target_group_id":      impostor.target_group_id,
         "active_conversations": list(active_conversations.keys()),
     }
 
+
 @app.get("/profiles")
 def get_profiles():
-    """Get all player profiles"""
     return {
-        "profiles": {
-            pid: profile.to_dict()
-            for pid, profile in profile_manager.profiles.items()
-        }
+        "profiles": {pid: p.to_dict() for pid, p in profile_manager.profiles.items()}
     }
+
 
 @app.get("/suspicions")
 def get_suspicions():
-    """Get suspicion summary"""
     return {
-        "summary": suspicion_tracker.get_suspicion_summary(),
-        "most_suspected": suspicion_tracker.get_most_suspected(5)
+        "summary":       suspicion_tracker.get_suspicion_summary(),
+        "most_suspected": suspicion_tracker.get_most_suspected(5),
     }
+
 
 @app.post("/session/reset")
 def reset_session():
@@ -799,36 +697,30 @@ def reset_session():
     impostor.reset()
     profile_manager.profiles.clear()
     suspicion_tracker.suspicion_matrix.clear()
-    
     print("🗑️ Session reset")
-    
-    return {"success": True, "message": "Session reset"}
+    return {"success": True}
+
 
 @app.get("/")
 def root():
     return {
-        "status": "online",
-        "message": "Impostor Chat Server - V4.0 STRATEGIC DECEPTION",
+        "status":          "online",
+        "version":         "5.0 - Fact-based deceptive impostor",
         "impostor_active": impostor.is_active,
-        "tracked_groups": len(current_groups),
+        "tracked_groups":  len(current_groups),
         "tracked_players": len(profile_manager.profiles),
-        "version": "4.0 - Strategic deceptive impostor with profiling & suspicion tracking"
     }
 
+
 if __name__ == "__main__":
-    print("🚀 Impostor Chat Server V4.0 - STRATEGIC DECEPTION")
-    print("📍 Port: 8000")
-    print("\n✅ NEW FEATURES:")
-    print("   [✓] Player profiling (tracks behavior, statements, locations)")
-    print("   [✓] Suspicion tracking (scores who suspects whom)")
-    print("   [✓] Deception strategy engine (decides when to lie/accuse/defend)")
-    print("   [✓] Strategic question asking (gathers intel)")
-    print("   [✓] Smart accusation targeting (picks best targets)")
-    print("   [✓] Defense generation (uses alibis from memory)")
-    print("   [✓] Doubt seeding (plants subtle suspicion)")
-    print("\n✅ API ENDPOINTS:")
-    print("   GET  /profiles     - View all player profiles")
-    print("   GET  /suspicions   - View suspicion matrix")
-    print("\n✅ Server ready!\n")
-    
+    print("🚀 Impostor Chat Server V5.0 — FACT-BASED DECEPTION")
+    print("─" * 50)
+    print("What's new:")
+    print("  [✓] Facts extracted from every conversation → player profiles")
+    print("  [✓] Impostor uses real player facts as alibi material")
+    print("  [✓] Suspicion tracker reads ALL messages (not just keywords)")
+    print("  [✓] Strategy → DeceptionIntent → LLM renders style only")
+    print("  [✓] Temporal arc: gather info → build trust → seed doubt/accuse")
+    print("  [✓] Style summary generated once at convo start, cached")
+    print("─" * 50)
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning")

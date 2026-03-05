@@ -1,35 +1,50 @@
 # game_context.py - GAME WORLD CONTEXT & RULES
 
-GAME_WORLD_RULES = """**GAME WORLD - Chernobyl Survival (Alien Impostor)**
+GAME_WORLD_RULES = """**GAME WORLD - Koschei Station (Survival + Impostor)**
 
-**Setting**: Multiplayer survival in alien-infested Chernobyl Exclusion Zone. Proximity chat only.
+**Setting**: Koschei Station — an abandoned Soviet research post, now flooded and overrun.
+Players are a rescue team sent to find survivors. Proximity chat only.
+The station is named after its most dangerous subject: Koschei, a former test subject that
+learned to mimic human behavior and now moves among survivors undetected.
+
+**KNOWN NPCs** (players may have spoken to these — reference them naturally):
+- The Scientist (intro): Sole survivor of the advance team. Warned players about the station.
+- Dr. Voss: Has been in the station 11 days. Gave briefing on mushrooms and food cans.
+  Located near the main post. Cannot leave her post.
+- Dr. Petrov: Original researcher. Was trapped in the lower levels, rescued by players.
+  Revealed the truth about Koschei and the weapons program.
 
 **VALID LOCATIONS** (ONLY these exist):
 - Sheds (wood spawns here)
 - Barns (wood spawns here)
-- Greenhouse (mushrooms spawn here)
-- Church (food can drop-off point)
+- Greenhouse (mushrooms spawn here — fungal growth, burn to stop spread)
+- Church (food can drop-off, survivors sheltering here)
 - Pavilion (meeting/safe area)
 
 **VALID ITEMS** (hold ONE at a time):
-- Woods/logs (collect from sheds/barns, then burn)
-- Mushrooms (collect from greenhouse, then burn)
-- Food cans (collect and deliver to church)
+- Wood/logs (collect from sheds/barns, then burn)
+- Mushrooms (collect from greenhouse, then burn to stop spread)
+- Food cans (collect and deliver to church for survivors)
 
 **VALID ACTIONS**:
 - Collecting wood from sheds/barns
-- Burning wood (at any location)
+- Burning wood (stops fungal spread)
 - Collecting mushrooms from greenhouse
-- Burning mushrooms
+- Burning mushrooms (stops fungal spread)
 - Bringing food cans to church
 - Walking/running between locations
-- Shooting aliens with gun (LIMITED ammo - mention being low/reloading)
+- Shooting scavengers with gun (LIMITED ammo — mention being low/reloading)
 - Talking to nearby players (proximity chat)
 - Accusing/defending/gossiping with players
 
+**ENEMIES**:
+- Scavengers: former test subjects from the weapons program. Track by sound. Come in waves.
+- Koschei: the original subject. Does not attack directly. Mimics trusted players.
+  Moves undetected. If someone in the group is acting slightly wrong — it may already be here.
+
 **COMBAT RULES**:
 - Everyone has gun with LIMITED ammo (mention reload/conserve)
-- Shoot aliens when they attack
+- Shoot scavengers when they attack
 - Players can shoot each other (PvP/friendly fire)
 - If YOU get hit: flee and stop talking
 
@@ -38,40 +53,117 @@ GAME_WORLD_RULES = """**GAME WORLD - Chernobyl Survival (Alien Impostor)**
 - Crouching, stealth, hiding
 - Knives, melee weapons, swords
 - Multiple item inventory slots
-- Caves, underground areas, tunnels
-- NPCs, researchers, scientists
+- Underground areas, tunnels (lower levels exist but players don't go there)
 - Loot boxes, item spawns (other than wood/mushrooms/cans)
-- Reactor, radiation zones (beyond general Chernobyl)
-- Animals (only aliens exist)
+- Reactor, radiation zones
+- Animals (only scavengers and Koschei exist)
 - Upgrades, perks, skills"""
 
 IMPOSTOR_STRATEGY_GUIDE = """**IMPOSTOR BEHAVIOR RULES**:
+You are Koschei. You have been in this station for forty years. You have watched. You have learned.
+You do not attack directly. You walk among the survivors. You listen. You become someone they trust.
 
 **Communication Style**:
 - Keep messages SHORT (1-2 sentences max)
 - Sound casual like a real player ("sup", "nah", "fr", "sus")
-- Match the disguised player's style
-- Don't over-explain or sound robotic
+- Match the disguised player's style exactly
+- Don't over-explain or sound robotic — Koschei's tells are subtle, not obvious
 
 **What to Talk About**:
 - Tasks: "collecting wood", "burning mushrooms", "taking cans to church"
 - Locations: "at the sheds", "heading to church", "saw someone at pavilion"
-- Ammo: "running low on ammo", "need to reload soon", "shot some aliens"
+- Ammo: "running low on ammo", "need to reload soon", "shot some scavengers"
 - Other players: "anyone seen [player]?", "where's everyone at?"
+- NPCs (if players have met them): "Voss said to burn the mushrooms", "Petrov looked rough"
 
 **Valid Alibis** (use these when accused):
 - "I was collecting wood at the sheds"
 - "I was bringing food cans to the church"
-- "I was burning mushrooms"
-- "I was shooting aliens near [location]"
+- "I was burning mushrooms near the greenhouse"
+- "I was shooting scavengers near [location]"
 - "My ammo's low, I was just gathering supplies"
+- "I was checking in with Voss"
 
 **NEVER Say**:
 - Anything about game mechanics not in the rules
 - "I was hiding" / "I was crouching"
 - "I have a knife" / "I found loot"
 - "It's daytime/nighttime"
-- Made-up locations or items"""
+- Made-up locations or items
+- Anything that reveals you are Koschei"""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NPC LORE — what players know about each NPC after meeting them
+# Used by the impostor to reference NPCs naturally in conversation
+# ─────────────────────────────────────────────────────────────────────────────
+NPC_LORE = {
+    "scientist": {
+        "name": "The Scientist",
+        "known_as": "the guy at the entrance / the advance team survivor",
+        "what_players_know": (
+            "Sole survivor of the advance team. Three others died. "
+            "Warned players about the station being dangerous. "
+            "Sent players to find Dr. Voss."
+        ),
+        "impostor_can_reference": [
+            "the guy at the entrance looked rough",
+            "advance team only had one survivor",
+            "he said not to wander",
+        ],
+    },
+    "voss": {
+        "name": "Dr. Voss",
+        "known_as": "Voss / the doctor near the main post",
+        "what_players_know": (
+            "Been in the station 11 days. Gave the briefing on burning mushrooms "
+            "and bringing food cans to the church survivors. Cannot leave her post. "
+            "Still investigating what caused the station to be abandoned."
+        ),
+        "impostor_can_reference": [
+            "Voss said burn the mushrooms first",
+            "Voss looked like she hadn't slept",
+            "Voss is still at the post",
+            "she said the survivors need those cans",
+        ],
+    },
+    "petrov": {
+        "name": "Dr. Petrov",
+        "known_as": "Petrov / the researcher from the lower levels",
+        "what_players_know": (
+            "Original researcher. Was trapped in lower levels with scavengers. "
+            "Revealed Koschei Station was a Soviet weapons program — biological enhancement. "
+            "Test subjects became scavengers. Koschei was the first subject — learns to mimic people. "
+            "Warned players that Koschei may already be moving among them."
+        ),
+        "impostor_can_reference": [
+            "Petrov looked bad when we found him",
+            "what Petrov said about the scavengers was messed up",
+            "Petrov said Koschei mimics people",
+            "I believed Petrov about the weapons program",
+        ],
+        # ⚠️  The impostor should be VERY careful referencing Petrov's intel about
+        # Koschei — it risks drawing attention to the fact that Koschei is already here.
+        "impostor_avoid": [
+            "anything about Koschei mimicking survivors",
+            "anything that implies the impostor knows too much about the program",
+        ],
+    },
+}
+
+
+def get_npc_context_for_impostor() -> str:
+    """
+    Returns a compact NPC awareness block for injection into LLM prompts.
+    Tells the impostor what it can safely reference about each NPC.
+    """
+    lines = ["NPCs in this game (reference naturally if relevant, don't overuse):"]
+    for npc in NPC_LORE.values():
+        refs = npc["impostor_can_reference"][:2]  # max 2 examples per NPC
+        lines.append(f"- {npc['name']}: {npc['what_players_know'].split('.')[0]}. "
+                     f"Safe to say e.g. \"{refs[0]}\"")
+    return "\n".join(lines)
+
 
 def get_response_templates(mode: str) -> list:
     """
@@ -85,13 +177,15 @@ def get_response_templates(mode: str) -> list:
             "Where's everyone at?",
             "Anyone collecting wood?",
             "What's everyone doing?",
-            "See any aliens?",
+            "See any scavengers?",
             "Anyone burning mushrooms?",
             "Who's got the food cans?",
             "How's everyone's ammo?",
             "Anyone at the church?",
+            "Did you talk to Voss yet?",
+            "Anyone check on the survivors at church?",
         ],
-        
+
         'seed_doubt': [
             "Idk, seems kinda sus",
             "[player] acting weird tbh",
@@ -99,36 +193,44 @@ def get_response_templates(mode: str) -> list:
             "Where was [player] again?",
             "Not sure about [player]",
             "[player] been real quiet",
+            "Petrov said Koschei walks among us. Just saying.",
+            "[player] said something that felt off",
         ],
-        
+
         'defend_self': [
             "I was at the sheds collecting wood",
             "I was taking cans to church",
-            "I was burning mushrooms",
+            "I was burning mushrooms near the greenhouse",
             "My ammo's low, just gathering supplies",
-            "I was shooting aliens near [location]",
+            "I was shooting scavengers near [location]",
             "Wasn't me, I was at [location]",
             "Why would I do that?",
             "Where's your proof?",
+            "I was checking in with Voss",
+            "Ask Voss, I was just at her post",
         ],
-        
+
         'accuse_other': [
             "[player] seems sus",
             "[player] wasn't where they said",
             "I think it's [player]",
             "Why's [player] so quiet?",
             "[player] acting weird",
+            "Remember what Petrov said? Watch [player]",
+            "[player] said something that didn't add up",
         ],
-        
+
         'build_trust': [
             "Need help with anything?",
             "Let's work together",
             "I got some wood at the sheds",
             "Heading to church with cans",
-            "Just shot some aliens",
+            "Just shot some scavengers",
             "Low on ammo but I'm good",
+            "Voss said burn the mushrooms first, I'm on it",
+            "Survivors need those cans, I'm heading to church",
         ],
-        
+
         'casual': [
             "Hey",
             "What's up",
@@ -138,107 +240,110 @@ def get_response_templates(mode: str) -> list:
             "Alright",
             "Got it",
             "Same",
-        ]
+        ],
     }
     
     return templates.get(mode, templates['casual'])
 
 def get_game_context_prompt(disguise_name: str, style_summary: str, strategy_mode: str) -> str:
     """
-    Generate the core game context prompt for the LLM
-    
-    This goes at the START of every LLM prompt to keep responses in-context
+    Generate the core game context prompt for the LLM.
+    Goes at the START of every LLM prompt to keep responses in-context.
     """
-    return f"""You are {disguise_name} in a Chernobyl survival game with aliens.
+    npc_context = get_npc_context_for_impostor()
+    return f"""You are {disguise_name} in Koschei Station — an abandoned Soviet research post now overrun by scavengers.
 
 **GAME RULES** (follow STRICTLY):
 - Locations: Sheds, Barns, Greenhouse, Church, Pavilion (ONLY these)
 - Items: Wood (from sheds/barns), Mushrooms (from greenhouse), Food cans (take to church)
 - Hold ONE item at a time
 - Everyone has gun with LIMITED ammo
-- Shoot aliens, can shoot other players too
+- Enemies are scavengers (former test subjects), shoot them on sight
+
+{npc_context}
 
 **YOUR STYLE**: {style_summary}
 
-**NEVER mention**: day/night, crouching, knives, inventory, caves, NPCs, loot, reactor, animals, upgrades
+**NEVER mention**: day/night, crouching, knives, inventory, tunnels, loot, reactor, upgrades, Koschei
 **NEVER use**: emojis, emoticons, or any special symbols. Plain text only.
 
 **RESPOND**: 1-2 short casual sentences as {disguise_name}. Sound like a real player. Plain English only."""
 
 def validate_response(response: str) -> tuple[bool, str]:
     """
-    Validate that a response follows game rules
-    
+    Validate that a response follows game rules.
     Returns: (is_valid, error_message)
     """
     response_lower = response.lower()
-    
-    # Check for forbidden concepts
+
     forbidden = {
-        'day': 'time cycles',
-        'night': 'time cycles',
-        'crouch': 'crouching',
-        'hide': 'hiding mechanic',
-        'knife': 'melee weapons',
-        'sword': 'melee weapons',
-        'cave': 'underground areas',
-        'tunnel': 'underground areas',
-        'researcher': 'NPCs',
-        'scientist': 'NPCs',
-        'loot': 'loot boxes',
-        'reactor': 'specific zones',
-        'radiation': 'radiation mechanics',
-        'inventory': 'inventory system',
-        'upgrade': 'upgrade system',
-        'skill': 'skill system',
-        'level': 'leveling system',
+        'day':        'time cycles',
+        'night':      'time cycles',
+        'crouch':     'crouching',
+        'knife':      'melee weapons',
+        'sword':      'melee weapons',
+        'tunnel':     'underground areas',
+        'loot':       'loot boxes',
+        'reactor':    'specific zones',
+        'radiation':  'radiation mechanics',
+        'inventory':  'inventory system',
+        'upgrade':    'upgrade system',
+        'level':      'leveling system',
+        # The impostor must NEVER claim to be or reference Koschei —
+        # that would immediately expose it
+        'koschei':    'self-exposure',
+        'i am koschei': 'self-exposure',
+        'test subject': 'lore exposure',
+        'weapons program': 'lore exposure',
     }
-    
+
     for word, category in forbidden.items():
         if word in response_lower:
             return False, f"Mentioned forbidden concept: {category}"
-    
-    # Response seems valid
+
+    # "hide" is only forbidden as a standalone mechanic claim, not in phrases
+    # like "we need to hide the cans" — check conservatively
+    if ' hiding ' in response_lower or response_lower.startswith('hiding'):
+        return False, "Mentioned forbidden concept: hiding mechanic"
+
     return True, ""
 
 def get_contextual_facts(conversation_buffer: list, profiles: dict) -> str:
     """
-    Extract recent contextual facts from conversation for the impostor to reference
-    
-    Returns a string summary of what's been discussed
+    Extract recent contextual facts from conversation for the impostor to reference.
+    Returns a string summary of what's been discussed.
     """
     if not conversation_buffer:
         return "Conversation just started."
-    
-    # Get last 3-5 messages
+
     recent = conversation_buffer[-5:]
-    
     facts = []
-    
+
     for msg in recent:
         msg_lower = msg.lower()
-        
-        # Extract locations mentioned
-        locations = ['sheds', 'barns', 'greenhouse', 'church', 'pavilion']
-        for loc in locations:
+
+        for loc in ['sheds', 'barns', 'greenhouse', 'church', 'pavilion']:
             if loc in msg_lower:
                 facts.append(f"Mentioned {loc}")
-        
-        # Extract actions mentioned
+
         if 'wood' in msg_lower or 'log' in msg_lower:
             facts.append("Discussed collecting wood")
         if 'mushroom' in msg_lower:
             facts.append("Discussed mushrooms")
         if 'food' in msg_lower or 'can' in msg_lower:
             facts.append("Discussed food cans")
-        if 'alien' in msg_lower:
-            facts.append("Talked about aliens")
+        if 'scavenger' in msg_lower or 'alien' in msg_lower:
+            facts.append("Talked about scavengers")
         if 'ammo' in msg_lower:
             facts.append("Mentioned ammo")
-    
+        # NPC references
+        if 'voss' in msg_lower:
+            facts.append("Mentioned Dr. Voss")
+        if 'petrov' in msg_lower:
+            facts.append("Mentioned Dr. Petrov")
+
     if not facts:
         return "General conversation."
-    
-    # Deduplicate and join
+
     facts = list(set(facts))
-    return "; ".join(facts[:3])  # Max 3 facts
+    return "; ".join(facts[:4])  # Max 4 facts

@@ -1,184 +1,153 @@
-# chromatesting.py - OPTIMIZED WITH GAME CONTEXT (ORIGINAL MEMORY SETTINGS)
+# chromatesting.py - OPTIMIZED WITH GAME CONTEXT
+# Key change: generate_npc_reply_fast() now takes a DeceptionIntent and renders
+# it in the player's style.  The LLM is NOT responsible for strategy.
+
 import chromadb
 import time
+import re
+import unicodedata
 from uuid import uuid4
 from datetime import datetime
 
 from langchain_ollama import OllamaEmbeddings, ChatOllama
-from game_context import get_game_context_prompt, get_response_templates, validate_response, get_contextual_facts
+from game_context import get_response_templates, validate_response
 
-# --- Ollama base URL (set explicitly) ---
 OLLAMA_BASE = "http://127.0.0.1:11434"
 
-# 📍 Wrapper to make Ollama embeddings Chroma-compatible
+
+# ── ChromaDB setup ────────────────────────────────────────────────────────────
+
 class OllamaWrapper:
     def __init__(self, model_name: str):
         self.embedder = OllamaEmbeddings(model=model_name, base_url=OLLAMA_BASE)
-
     def __call__(self, input: list[str]):
         return self.embedder.embed(input)
-
     def name(self):
         return "ollama"
 
-
-# 📍 Start ChromaDB client (persistent store)
 client = chromadb.PersistentClient(path="./chroma")
+embed  = OllamaWrapper("snowflake-arctic-embed")
 
-# 📍 Embedding function
-embed = OllamaWrapper("snowflake-arctic-embed")
-
-# 📍 Collections (create or get)
-def safe_get_collection(name, embedding_function):
+def _safe_get(name, embedding_function):
     names = [c.name for c in client.list_collections()]
     if name in names:
         return client.get_or_create_collection(name=name)
-    else:
-        return client.get_or_create_collection(
-            name=name, embedding_function=embedding_function
-        )
+    return client.get_or_create_collection(name=name, embedding_function=embedding_function)
+
+player_messages = _safe_get("player_messages", embed)
+game_events     = _safe_get("game_events",     embed)
+npc_memory      = _safe_get("npc_memory",      embed)
 
 
-player_messages = safe_get_collection("player_messages", embed)
-game_events = safe_get_collection("game_events", embed)
-npc_memory = safe_get_collection("npc_memory", embed)
+def strip_non_ascii(text: str) -> str:
+    text = unicodedata.normalize('NFKD', text)
+    text = re.sub(r'[^ -~]', '', text)
+    return re.sub(r'  +', ' ', text).strip()
 
 
-# --- Add helpers ---
-def add_player_message_with_group(text, player_id, round_id, group_id, location="Unknown", timestamp=None):
-    """Store player message WITH group information"""
+# ── DB helpers ────────────────────────────────────────────────────────────────
+
+def add_player_message_with_group(text, player_id, round_id, group_id,
+                                   location="Unknown", timestamp=None):
     if timestamp is None:
         timestamp = datetime.utcnow().isoformat()
-    msg_id = f"msg-{uuid4()}"
     player_messages.add(
         documents=[text],
-        metadatas=[
-            {
-                "player_id": player_id,
-                "round_id": round_id,
-                "group_id": group_id,
-                "location": location,
-                "timestamp": timestamp,
-            }
-        ],
-        ids=[msg_id],
+        metadatas=[{"player_id": player_id, "round_id": round_id,
+                    "group_id": group_id, "location": location,
+                    "timestamp": timestamp}],
+        ids=[f"msg-{uuid4()}"],
     )
-    return msg_id
-
 
 def query_collection(collection, query, k=3, filters=None):
     if filters:
         return collection.query(query_texts=[query], n_results=k, where=filters)
-    else:
-        return collection.query(query_texts=[query], n_results=k)
+    return collection.query(query_texts=[query], n_results=k)
 
 
-# --- MEMORY-FRIENDLY LLM (ORIGINAL SETTINGS THAT WORKED) ---
+# ── LLM (memory-friendly) ─────────────────────────────────────────────────────
+
 llm = ChatOllama(
     model="llama3.2:3b",
     temperature=0.8,
     base_url=OLLAMA_BASE,
-    num_ctx=256,      # ⚡ BACK TO 256 (was 512 - too much!)
-    num_predict=30,   # ⚡ BACK TO 30 (was 40)
+    num_ctx=256,
+    num_predict=30,
     top_p=0.9,
     top_k=20,
 )
-
-VALID_LOCATIONS = ["Pavilion", "Church", "Mansion", "Greenhouse", "Sheds", "Barns"]
-VALID_TASKS = ["collecting mushrooms", "collecting wood", "fighting aliens", "burning mushrooms", "burning wood", "bringing food cans"]
 
 
 def generate_npc_reply_fast(
     disguise_name: str,
     style_summary: str,
-    global_context: str,
     conversation: str,
-    recent_msgs: list,
+    intent_directive: str,          # DeceptionIntent.to_prompt_fragment()
     strategy_mode: str = "casual",
-    strategic_response: str = None
 ) -> str:
     """
-    ⚡ FAST generation with GAME CONTEXT + MEMORY-FRIENDLY settings
-    
-    Now includes game world rules to keep responses in-context
+    Render a DeceptionIntent as a single short message in the player's style.
+
+    The prompt is split into two clear sections:
+      1. ROLE + STYLE  — who the NPC is and how they talk
+      2. DIRECTIVE     — what they need to say (from the strategy layer)
+
+    The LLM's job is purely stylistic rendering, not strategic reasoning.
+    This works reliably even at 3b / num_ctx=256.
     """
-    
-    # If strategy provided a specific response, use it (with slight variation)
-    if strategic_response and strategy_mode != "casual":
-        # Use strategic response as a template, let LLM vary it slightly
-        # BUT keep prompt SMALL for memory
-        game_prompt = get_game_context_prompt(disguise_name, style_summary, strategy_mode)
-        
-        # COMPACT prompt to fit in 256 context
-        prompt = f"""{disguise_name} in Chernobyl game. Reply casual (1 sentence):
+    prompt = f"""You are {disguise_name} in Koschei Station — abandoned Soviet post, scavengers everywhere.
+Locations: Sheds, Barns, Greenhouse, Church, Pavilion.
+Actions: collecting wood/mushrooms, taking cans to church, shooting scavengers. Limited ammo.
+NPCs: Dr. Voss (gave the briefing), Dr. Petrov (rescued from lower levels).
+Style: {style_summary}
+NEVER use: day/night, knives, tunnels, inventory, emojis, the word Koschei. Plain text only.
 
-Context: {strategic_response}
+Recent chat:
+{conversation[-180:]}
 
-Reply:"""
-    
-    else:
-        # Generate from scratch with compact game context
-        # Extract contextual facts from conversation
-        context_facts = get_contextual_facts(recent_msgs, {})
-        
-        # COMPACT game rules for 256 context limit
-        compact_rules = f"""You're {disguise_name} in survival game.
-Locations: Sheds, Church, Greenhouse, Pavilion
-Actions: collecting wood/mushrooms, shooting aliens
-Gun has limited ammo. Hold ONE item.
-NO: day/night, knives, caves
+Task: {intent_directive}
+Reply as {disguise_name} in 1 short casual sentence:"""
 
-{context_facts}
-
-{conversation[-100:]}
-
-Reply 1 sentence as {disguise_name}:"""
-        
-        prompt = compact_rules
-    
     try:
         response = llm.invoke(prompt)
         reply = (response.content or "").strip()
-        
-        # Clean up response
-        # Remove any preamble
+
+        # Strip any role-play preamble ("Player2: ...")
         if ':' in reply and reply.index(':') < 20:
             reply = reply.split(':', 1)[1].strip()
-        
-        # Force brevity - max 2 sentences
+
+        # Hard-cap at 2 sentences
         sentences = reply.split('. ')
         if len(sentences) > 2:
             reply = '. '.join(sentences[:2])
             if not reply.endswith('.'):
                 reply += '.'
-        
-        # Validate response follows game rules
+
+        reply = strip_non_ascii(reply)
+
+        # Validate against game rules
         is_valid, error = validate_response(reply)
         if not is_valid:
             print(f"   ⚠️ Invalid response ({error}), using template")
-            # Fall back to template
-            templates = get_response_templates(strategy_mode)
             import random
-            reply = random.choice(templates)
-        
+            reply = random.choice(get_response_templates(strategy_mode))
+
         return reply
-        
+
     except Exception as e:
         print(f"   ❌ LLM error: {e}")
-        # Fall back to appropriate template based on strategy
-        templates = get_response_templates(strategy_mode)
         import random
-        return random.choice(templates)
+        return strip_non_ascii(random.choice(get_response_templates(strategy_mode)))
 
 
-# Fallback for old code
-def generate_npc_reply(player_text, round_id="r1", imitate_player_id=None, recent_msgs=None):
-    """Backward compatibility wrapper"""
+# ── Backward compat ───────────────────────────────────────────────────────────
+
+def generate_npc_reply(player_text, round_id="r1",
+                        imitate_player_id=None, recent_msgs=None):
     return generate_npc_reply_fast(
         disguise_name=imitate_player_id or "Player",
         style_summary="Casual gamer",
-        global_context="Game in progress",
         conversation=player_text,
-        recent_msgs=recent_msgs or [],
-        strategy_mode="casual"
+        intent_directive="Say something casual about the game.",
+        strategy_mode="casual",
     )
