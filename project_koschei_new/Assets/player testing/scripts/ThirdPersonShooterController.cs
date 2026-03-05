@@ -47,6 +47,8 @@ public class ThirdPersonShooterController : NetworkBehaviour
     [SerializeField] private float fireRate = 0.1f;
     [SerializeField] private int magazineSize = 30;
     [SerializeField] private float reloadTime = 2f;
+    [Tooltip("Speed multiplier applied while reloading (e.g. 0.4 = 40% of normal speed)")]
+    [SerializeField][Range(0f, 1f)] private float reloadSpeedMultiplier = 0.4f;
 
     [Header("Interaction Settings")]
     [SerializeField] private float interactRange = 5f;
@@ -480,6 +482,17 @@ public class ThirdPersonShooterController : NetworkBehaviour
         if (starterAssetsInputs != null)
             starterAssetsInputs.shoot = false;
 
+        // Reduce movement speed while reloading
+        float originalMoveSpeed = 0f;
+        float originalSprintSpeed = 0f;
+        if (thirdPersonController != null)
+        {
+            originalMoveSpeed = thirdPersonController.MoveSpeed;
+            originalSprintSpeed = thirdPersonController.SprintSpeed;
+            thirdPersonController.MoveSpeed = originalMoveSpeed * reloadSpeedMultiplier;
+            thirdPersonController.SprintSpeed = originalSprintSpeed * reloadSpeedMultiplier;
+        }
+
         // Play reload sound locally for owner
         if (weaponAudioSource != null && reloadClip != null)
             weaponAudioSource.PlayOneShot(reloadClip, reloadVolume);
@@ -491,6 +504,13 @@ public class ThirdPersonShooterController : NetworkBehaviour
 
         currentAmmo.Value = magazineSize;
         isReloading.Value = false;
+
+        // Restore movement speed
+        if (thirdPersonController != null)
+        {
+            thirdPersonController.MoveSpeed = originalMoveSpeed;
+            thirdPersonController.SprintSpeed = originalSprintSpeed;
+        }
 
         Debug.Log("[Reload] Complete!");
 

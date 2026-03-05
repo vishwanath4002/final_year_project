@@ -243852,7 +243852,7 @@ PrefabInstance:
     - target: {fileID: 2923355420650352709, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
       propertyPath: bossPrefab
       value: 
-      objectReference: {fileID: 8070923430143094911, guid: fa28d04f0fe6d4f44b548ea292dd8ecf, type: 3}
+      objectReference: {fileID: 8497106706065169657, guid: 862c47ca3c5df874f8f38a925e2744d2, type: 3}
     - target: {fileID: 2923355420650352709, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
       propertyPath: npc1Dialogue
       value: 

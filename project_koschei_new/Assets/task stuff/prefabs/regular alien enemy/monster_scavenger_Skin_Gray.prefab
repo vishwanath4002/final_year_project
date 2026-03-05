@@ -635,7 +635,7 @@ MonoBehaviour:
   searchDuration: 3
   idleTimeAtPatrolPoint: 2
   patrolRadius: 10
-  animator: {fileID: 0}
+  animator: {fileID: 3600447987726435479}
   moveXParam: MoveX
   moveZParam: MoveZ
   sensor: {fileID: 2369376195736885294}
@@ -646,6 +646,7 @@ MonoBehaviour:
   attack2Cooldown: 1.5
   attack1Duration: 2.1
   attack2Duration: 2.1
+  scientistTarget: {fileID: 0}
 --- !u!64 &-4172530834877500892
 MeshCollider:
   m_ObjectHideFlags: 0
