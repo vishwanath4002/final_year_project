@@ -95,8 +95,8 @@ llm = ChatOllama(
     model="llama3.2:3b",
     temperature=0.8,
     base_url=OLLAMA_BASE,
-    num_ctx=256,      # ⚡ BACK TO 256 (was 512 - too much!)
-    num_predict=30,   # ⚡ BACK TO 30 (was 40)
+    num_ctx=512,      # 512 gives enough room for the prompt + conversation context
+    num_predict=40,   # Allow slightly longer replies before truncation
     top_p=0.9,
     top_k=20,
 )
