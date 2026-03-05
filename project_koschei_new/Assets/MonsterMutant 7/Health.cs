@@ -4,10 +4,19 @@ using Unity.Netcode;
 
 public class Health : NetworkBehaviour
 {
+    [Header("Stats")]
     [SerializeField] private float maxHealth = 100f;
     [SerializeField] private float defence = 15f;
     [SerializeField] private float destroyAfterSeconds = 0f; // 0 = don't destroy
 
+    [Header("UI")]
+    [SerializeField] private HealthBar healthBar;
+
+    [Header("Debug")]
+    [SerializeField] private bool enableDebugDamage = false;
+    [SerializeField] private float debugDamageAmount = 25f;
+    [SerializeField] private KeyCode debugDamageKey = KeyCode.K;
+    
     private NetworkVariable<float> currentHealth = new NetworkVariable<float>(
         100f,
         NetworkVariableReadPermission.Everyone,
@@ -20,10 +29,28 @@ public class Health : NetworkBehaviour
         NetworkVariableWritePermission.Server
     );
 
-    private void Awake()
+    // =========================
+    // UNITY EVENTS
+    // =========================
+
+    private void Update()
     {
-        // Initialize on server after network spawn
+        if (!enableDebugDamage) 
+        {
+            return;
+        }
+        
+        if (Input.GetKeyDown(debugDamageKey))
+        {
+            if (IsServer)
+            {
+                Debug.Log($"[DEBUG] Applying {debugDamageAmount} damage to {gameObject.name}");
+                TakeDamage(debugDamageAmount);
+            }
+        }
     }
+
+
 
     public override void OnNetworkSpawn()
     {
@@ -36,7 +63,15 @@ public class Health : NetworkBehaviour
         }
 
         // Subscribe to death state changes for all clients
+        currentHealth.OnValueChanged += OnHealthChanged;
         isDead.OnValueChanged += OnDeathStateChanged;
+
+        // Initialize UI
+        if (healthBar != null)
+        {
+            healthBar.SetMaxHealth(maxHealth);
+            healthBar.SetHealth(currentHealth.Value);
+        }
 
         Debug.Log($"[Health] {gameObject.name} spawned - Health: {currentHealth.Value}, IsServer: {IsServer}");
     }
@@ -44,6 +79,7 @@ public class Health : NetworkBehaviour
     public override void OnNetworkDespawn()
     {
         base.OnNetworkDespawn();
+        currentHealth.OnValueChanged -= OnHealthChanged;
         isDead.OnValueChanged -= OnDeathStateChanged;
     }
 
@@ -57,6 +93,10 @@ public class Health : NetworkBehaviour
         }
     }
 
+    // =========================
+    // DAMAGE
+    // =========================
+
     public void TakeDamage(float damage)
     {
         // Only server can modify health
@@ -66,7 +106,10 @@ public class Health : NetworkBehaviour
             return;
         }
 
-        if (isDead.Value) return;
+        if (isDead.Value) 
+        {
+            return;
+        }
 
         damage = Mathf.Max(damage - defence, 0f);
         currentHealth.Value -= damage;
@@ -75,13 +118,29 @@ public class Health : NetworkBehaviour
 
         if (currentHealth.Value <= 0f)
         {
+            currentHealth.Value = 0f;
             Die();
         }
+    }
+
+    private void OnHealthChanged(float oldValue, float newValue)
+    {
+        Debug.Log($"[Health] {gameObject.name} health changed: {newValue}");
+
+        if (healthBar != null)
+        {
+            healthBar.SetHealth(newValue);
+        }   
     }
 
     public float GetCurrentHealth()
     {
         return currentHealth.Value;
+    }
+
+    public float GetMaxHealth()
+    {
+        return maxHealth;
     }
 
     public bool IsDead()
