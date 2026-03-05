@@ -23,6 +23,9 @@ public class FootstepReceiver : MonoBehaviour
             audioSource = GetComponentInChildren<AudioSource>();
     }
 
+    // Called by animation events on Walk_N_Land and Run_N_Land clips
+    private void OnLand(AnimationEvent animationEvent) { }
+
     // Called by animation events on Walk_N and Run_N clips
     private void OnFootstep(AnimationEvent animationEvent)
     {
