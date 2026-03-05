@@ -228,8 +228,15 @@ class ImpostorState:
         self.disguised_as: Optional[str] = None
         self.is_active: bool = False
         self.target_group_id: Optional[str] = None
+        self.visited_group_ids: list = []  # tracks all groups visited this cycle
 
     def reset(self):
+        # Record the group we just left so we avoid it next time
+        if self.target_group_id and self.target_group_id not in self.visited_group_ids:
+            self.visited_group_ids.append(self.target_group_id)
+        # Cap history at 10 entries
+        if len(self.visited_group_ids) > 10:
+            self.visited_group_ids = self.visited_group_ids[-10:]
         self.disguised_as = None
         self.is_active = False
         self.target_group_id = None
@@ -238,21 +245,25 @@ impostor = ImpostorState()
 
 class ImpostorSpawnControl:
     def __init__(self):
-        self.spawn_interval: float = 10.0
-        self.last_spawn_time: float = time.time()
+        self.spawn_interval: float = 60.0  # 1 minute cooldown after despawn
+        self.last_despawn_time: float = 0.0  # 0 means no despawn yet, spawn immediately on first run
         self.min_group_size: int = 1
 
     def should_spawn_now(self) -> bool:
         if impostor.is_active:
             return False
-        elapsed = time.time() - self.last_spawn_time
-        if elapsed < self.spawn_interval:
-            return False
+        if self.last_despawn_time > 0:
+            elapsed = time.time() - self.last_despawn_time
+            if elapsed < self.spawn_interval:
+                return False
         valid_groups = [g for g in current_groups.values() if g.get('size', 0) >= self.min_group_size]
         return len(valid_groups) > 0
 
+    def record_despawn(self):
+        self.last_despawn_time = time.time()
+
     def record_spawn(self):
-        self.last_spawn_time = time.time()
+        pass  # kept for compatibility, cooldown now starts on despawn
 
 spawn_control = ImpostorSpawnControl()
 
@@ -320,10 +331,27 @@ def update_global_summary():
         global_summary = "Players exploring"
 
 def choose_target_group() -> Optional[Dict]:
-    """Choose smallest group"""
+    """Choose a group the impostor has not visited yet this cycle, preferring smaller groups."""
     if len(current_groups) < 2:
         return None
-    valid_groups = [g for g in current_groups.values() if g['size'] >= spawn_control.min_group_size]
+    # Exclude already-visited groups
+    valid_groups = [
+        g for g in current_groups.values()
+        if g['size'] >= spawn_control.min_group_size
+        and g['group_id'] not in impostor.visited_group_ids
+    ]
+    if not valid_groups:
+        # All groups visited - start a new cycle, only avoid the most recent one
+        print("   All groups visited - resetting cycle")
+        impostor.visited_group_ids.clear()
+        last = impostor.visited_group_ids[-1] if impostor.visited_group_ids else None
+        valid_groups = [
+            g for g in current_groups.values()
+            if g['size'] >= spawn_control.min_group_size
+            and g['group_id'] != last
+        ]
+    if not valid_groups:
+        valid_groups = [g for g in current_groups.values() if g['size'] >= spawn_control.min_group_size]
     if not valid_groups:
         return None
     return min(valid_groups, key=lambda g: g['size'])
@@ -619,6 +647,7 @@ def receive_message(
             print(f"🏁 Ended: {finish_reason}\n")
             del active_conversations[group_id]
             impostor.reset()
+            spawn_control.record_despawn()
     
     print(f"{'='*60}\n")
     return response_data
@@ -723,10 +752,12 @@ def activate_impostor(
 @app.post("/impostor/deactivate")
 def deactivate_impostor():
     old_disguise = impostor.disguised_as
+    old_group = impostor.target_group_id
     impostor.reset()
-    
-    if impostor.target_group_id in active_conversations:
-        del active_conversations[impostor.target_group_id]
+    spawn_control.record_despawn()
+
+    if old_group in active_conversations:
+        del active_conversations[old_group]
     
     print(f"🛑 Impostor deactivated (was: {old_disguise})")
     
