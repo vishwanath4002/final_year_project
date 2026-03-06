@@ -455,6 +455,7 @@ def generate_impostor_message(conv: ConversationState):
         group_members=conv.group_members,
         intent=intent,
         strategy_mode=conv.strategy.current_mode.value,
+        all_players=list(active_players),
     )
     print(f"   ⏱️ {time.time()-t0:.2f}s  💬 {reply}")
     print(f"{'─'*50}\n")

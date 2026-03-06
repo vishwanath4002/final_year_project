@@ -83,6 +83,23 @@ llm = ChatOllama(
 )
 
 
+def _clean_reply(raw: str) -> str:
+    """Strip quotes, preamble, hard-cap at 2 sentences."""
+    reply = raw.strip()
+    if (reply.startswith('"') and reply.endswith('"')) or \
+       (reply.startswith("'") and reply.endswith("'")):
+        reply = reply[1:-1].strip()
+    reply = re.sub(r'^["\']|["\']$', '', reply).strip()
+    if ':' in reply and reply.index(':') < 20:
+        reply = reply.split(':', 1)[1].strip()
+    sentences = reply.split('. ')
+    if len(sentences) > 2:
+        reply = '. '.join(sentences[:2])
+        if not reply.endswith('.'):
+            reply += '.'
+    return strip_non_ascii(reply)
+
+
 def generate_npc_reply_fast(
     disguise_name: str,
     style_summary: str,
@@ -92,25 +109,15 @@ def generate_npc_reply_fast(
     group_members: list,
     intent: "DeceptionIntent",
     strategy_mode: str = "casual",
+    all_players: list = None,       # every player currently in the match
 ) -> str:
     """
     Generate a natural reply that:
-      1. Responds to what the speaker just said — not a scripted directive
-      2. Weaves in strategic intent only where it fits naturally:
-         - gather_info / build_trust / casual: respond first, question/confirm
-           as a light nudge — and only ask a question ~35% of the time
-         - defend_self / seed_doubt / accuse_other: intent is the priority
-           but must still sound like a real player talking to someone nearby
-
-    The LLM knows:
-      - Who it is (disguise_name)
-      - Who just spoke (speaker_name) — proximity chat, face-to-face
-      - Who else is physically nearby (group_members)
-      - The full recent conversation
-      - What was just said
-      - What it wants to accomplish strategically
+      1. Responds to what the speaker just said
+      2. Weaves in strategic intent only where it fits naturally
+      3. Knows all players currently in the game
+      4. On invalid response: retries up to 2 times before falling back to template
     """
-    # Build nearby context
     nearby = [p for p in (group_members or [])
               if p != disguise_name and p != speaker_name]
     if nearby:
@@ -120,14 +127,17 @@ def generate_npc_reply_fast(
     else:
         nearby_line = f"You are talking directly to {speaker_name}."
 
-    directive = intent.to_prompt_fragment()
+    # All players in the match — so the impostor can reference anyone by name
+    all_players_clean = [p for p in (all_players or []) if p != disguise_name]
+    players_line = (
+        f"Players in this match: {', '.join(all_players_clean)}."
+        if all_players_clean else ""
+    )
 
-    # Natural modes: respond first, intent is optional and light
-    # Strategic modes: intent drives the reply, but still sounds human
+    directive = intent.to_prompt_fragment()
     natural_modes = {'gather_info', 'build_trust', 'casual'}
 
     if strategy_mode in natural_modes:
-        # Skip the question most of the time in natural modes
         if intent.action == 'ask_location' and random.random() > 0.35:
             task_line = f"Respond naturally to what {speaker_name} said."
         else:
@@ -136,60 +146,48 @@ def generate_npc_reply_fast(
                 f"If it fits, also: {directive}"
             )
     else:
-        # Strategic intent is primary
         task_line = f"Respond to {speaker_name}. Your goal: {directive}"
 
-    prompt = (
-        f"You are {disguise_name} in Koschei Station. Scavengers everywhere.\n"
-        f"Talking face-to-face with {speaker_name}. {nearby_line}\n"
-        f"You have seen these players around the station before — this is not your first meeting.\n"
-        f"Locations: Sheds, Barns, Greenhouse, Church, Pavilion.\n"
-        f"Actions: collecting wood/mushrooms, cans to church, shooting scavengers.\n"
-        f"Style: {style_summary}\n"
-        f"NO: day/night, knives, tunnels, inventory, emojis, word Koschei. Plain text.\n"
-        f"No quotes around reply.\n"
-        f"\n"
-        f"Chat:\n{conversation[-150:]}\n"
-        f"\n"
-        f"{speaker_name}: {last_message}\n"
-        f"\n"
-        f"{task_line}\n"
-        f"{disguise_name} (1-2 casual sentences, no quotes):"
-    )
+    def build_prompt(extra_instruction: str = "") -> str:
+        return (
+            f"You are {disguise_name} in Koschei Station. Scavengers everywhere.\n"
+            f"Talking face-to-face with {speaker_name}. {nearby_line}\n"
+            f"You have seen these players around the station before — not your first meeting.\n"
+            f"{players_line}\n"
+            f"Locations: Sheds, Barns, Greenhouse, Church, Pavilion.\n"
+            f"Actions: collecting wood/mushrooms, cans to church, shooting scavengers.\n"
+            f"Style: {style_summary}\n"
+            f"NO: day/night, knives, tunnels, inventory, emojis, word Koschei. Plain text.\n"
+            f"No quotes around reply.{(' ' + extra_instruction) if extra_instruction else ''}\n"
+            f"\nChat:\n{conversation[-150:]}\n"
+            f"\n{speaker_name}: {last_message}\n"
+            f"\n{task_line}\n"
+            f"{disguise_name} (1-2 casual sentences, no quotes):"
+        )
 
-    try:
-        response = llm.invoke(prompt)
-        reply = (response.content or "").strip()
+    max_attempts = 3
+    last_error = ""
 
-        # Strip wrapping quotes
-        if (reply.startswith('"') and reply.endswith('"')) or \
-           (reply.startswith("'") and reply.endswith("'")):
-            reply = reply[1:-1].strip()
-        reply = re.sub(r'^["\']|["\']$', '', reply).strip()
+    for attempt in range(max_attempts):
+        try:
+            extra = f"Avoid mentioning: {last_error}." if last_error else ""
+            response = llm.invoke(build_prompt(extra))
+            reply = _clean_reply(response.content or "")
 
-        # Strip role-play preamble ("Player2: ...")
-        if ':' in reply and reply.index(':') < 20:
-            reply = reply.split(':', 1)[1].strip()
+            is_valid, error = validate_response(reply)
+            if is_valid:
+                return reply
 
-        # Hard-cap at 2 sentences
-        sentences = reply.split('. ')
-        if len(sentences) > 2:
-            reply = '. '.join(sentences[:2])
-            if not reply.endswith('.'):
-                reply += '.'
+            last_error = error
+            print(f"   ⚠️ Attempt {attempt+1} invalid ({error}), retrying...")
 
-        reply = strip_non_ascii(reply)
+        except Exception as e:
+            print(f"   ❌ LLM error attempt {attempt+1}: {e}")
+            last_error = str(e)
 
-        is_valid, error = validate_response(reply)
-        if not is_valid:
-            print(f"   \u26a0\ufe0f Invalid response ({error}), using template")
-            reply = random.choice(get_response_templates(strategy_mode))
-
-        return reply
-
-    except Exception as e:
-        print(f"   \u274c LLM error: {e}")
-        return strip_non_ascii(random.choice(get_response_templates(strategy_mode)))
+    # All retries failed — fall back to template
+    print(f"   ⚠️ All {max_attempts} attempts failed, using template")
+    return strip_non_ascii(random.choice(get_response_templates(strategy_mode)))
 
 
 # ── Backward compat ───────────────────────────────────────────────────────────
