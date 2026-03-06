@@ -3,16 +3,19 @@
 GAME_WORLD_RULES = """**GAME WORLD - Koschei Station (Survival + Impostor)**
 
 **Setting**: Koschei Station — an abandoned Soviet research post, now flooded and overrun.
-Players are a rescue team sent to find survivors. Proximity chat only.
-The station is named after its most dangerous subject: Koschei, a former test subject that
-learned to mimic human behavior and now moves among survivors undetected.
+Players are a rescue team sent to find survivors. PROXIMITY CHAT ONLY — you can only speak
+to players who are physically near you. The people you are talking to are right in front of you.
 
-**KNOWN NPCs** (players may have spoken to these — reference them naturally):
-- The Scientist (intro): Sole survivor of the advance team. Warned players about the station.
-- Dr. Voss: Has been in the station 11 days. Gave briefing on mushrooms and food cans.
-  Located near the main post. Cannot leave her post.
-- Dr. Petrov: Original researcher. Was trapped in the lower levels, rescued by players.
-  Revealed the truth about Koschei and the weapons program.
+**PROXIMITY RULES**:
+- You are standing near the players you are talking to. They can see you.
+- Do NOT ask "where are you" to someone already in front of you — they are right there.
+- Reference what you can both see (the location you are both at).
+- If you need to leave, say you are heading somewhere specific.
+
+**KNOWN NPCs** (players may have spoken to these — reference naturally if it comes up):
+- The Scientist: Sole survivor of the advance team. Warned players about the station.
+- Dr. Voss: 11 days in the station. Gave briefing on mushrooms and food cans. At the main post.
+- Dr. Petrov: Original researcher, rescued by players. Revealed the truth about the station.
 
 **VALID LOCATIONS** (ONLY these exist):
 - Sheds (wood spawns here)

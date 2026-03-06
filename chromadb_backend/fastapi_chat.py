@@ -63,9 +63,12 @@ global_summary: str = "Match just started. Players are exploring."
 
 class ConversationState:
 
-    def __init__(self, group_id: str, disguise_player_id: str):
+    def __init__(self, group_id: str, disguise_player_id: str,
+                 group_members: List[str] = None):
         self.group_id           = group_id
         self.disguise_player_id = disguise_player_id
+        # Players physically nearby — known at conversation start from group data
+        self.group_members: List[str] = group_members or []
 
         self.buffer: deque = deque(maxlen=20)
 
@@ -396,8 +399,9 @@ def generate_style_summary(player_id: str) -> str:
 
 def generate_impostor_message(conv: ConversationState) -> Optional[str]:
     """
-    1. Strategy layer  → DeceptionIntent  (WHAT to say)
-    2. LLM             → renders intent in player style  (HOW to say it)
+    1. Strategy layer  → DeceptionIntent  (WHAT to do strategically)
+    2. LLM             → responds naturally to the last message, with the
+                         strategic intent woven in only when appropriate
     """
     print(f"\n{'─'*50}")
     print(f"🤖 GENERATING REPLY  (arc msg #{conv.strategy.message_count})")
@@ -415,10 +419,12 @@ def generate_impostor_message(conv: ConversationState) -> Optional[str]:
     # Get all profiles dict for strategy
     profiles = {pid: p.to_dict() for pid, p in profile_manager.profiles.items()}
 
-    last_message = list(conv.buffer)[-1]['message'] if conv.buffer else ""
+    # Who sent the last message
+    last_entry  = list(conv.buffer)[-1] if conv.buffer else {}
+    last_message = last_entry.get('message', '')
+    speaker_name = last_entry.get('player_id', 'someone')
 
-    # Strategy → structured intent
-    # Compute trust scores from existing data — no new signals needed
+    # Trust scores
     trust_scores = suspicion_tracker.get_trust_scores(
         disguised_as=conv.disguise_player_id,
         conversation_buffer=list(conv.buffer),
@@ -426,6 +432,7 @@ def generate_impostor_message(conv: ConversationState) -> Optional[str]:
     if trust_scores:
         print(f"   🤝 Trust scores: { {p: f'{s:+.1f}' for p, s in trust_scores.items()} }")
 
+    # Strategy → structured intent
     intent: DeceptionIntent = conv.strategy.get_intent(
         message=last_message,
         profiles=profiles,
@@ -436,13 +443,16 @@ def generate_impostor_message(conv: ConversationState) -> Optional[str]:
     directive = intent.to_prompt_fragment()
     print(f"   🎯 Intent: [{intent.action}] {directive}")
 
-    # LLM renders the intent
+    # LLM renders the reply — knows who it's talking to and who's nearby
     t0 = time.time()
     reply = generate_npc_reply_fast(
         disguise_name=conv.disguise_player_id,
         style_summary=conv.style_summary,
         conversation=conv.get_buffer_text(),
-        intent_directive=directive,
+        last_message=last_message,
+        speaker_name=speaker_name,
+        group_members=conv.group_members,
+        intent=intent,
         strategy_mode=conv.strategy.current_mode.value,
     )
     print(f"   ⏱️ {time.time()-t0:.2f}s")
@@ -456,39 +466,45 @@ def _generate_cover_blown_response(disguised_as: str, conv: "ConversationState",
     """
     Called when the real player the impostor was disguised as enters the group.
     Two strategies:
-      attempt_convince=True  — try to sow enough confusion to buy an escape
-      attempt_convince=False — say nothing useful and flee (short exit line)
+      attempt_convince=True  — point at the real player to sow confusion
+      attempt_convince=False — brief exit line, then flee
     """
     from chromatesting import generate_npc_reply_fast
+    from deception_strategy import DeceptionIntent
 
     style = conv.style_summary or "Casual gamer, short responses."
 
     if attempt_convince:
-        # Try to confuse the group — point at the real player as the imposter
-        directive = (
-            f"Someone claiming to be you just showed up. "
-            f"Say something short and panicked that makes others doubt the real {disguised_as}, "
-            f"like 'wait who is that' or 'that's not me over there'."
+        intent = DeceptionIntent(
+            action='casual',
+            detail=(
+                f"Someone claiming to be you just showed up. "
+                f"Say something short and panicked that makes others doubt the newcomer, "
+                f"like 'wait who is that' or 'that is not me'."
+            )
         )
     else:
-        # Cut and run — a vague exit line
-        directive = "Say you have to go right now, very briefly, like something came up."
+        intent = DeceptionIntent(
+            action='casual',
+            detail="Say you have to go right now, very briefly."
+        )
 
+    # Who just walked in is the real player (disguised_as) — treat them as speaker
     try:
         reply = generate_npc_reply_fast(
             disguise_name=disguised_as,
             style_summary=style,
             conversation=conv.get_buffer_text(),
-            intent_directive=directive,
+            last_message=f"{disguised_as} just walked in",
+            speaker_name=disguised_as,
+            group_members=conv.group_members,
+            intent=intent,
             strategy_mode="casual",
         )
         return reply
     except Exception as e:
-        print(f"   ❌ Cover-blown response failed: {e}")
-        # Hard fallback
-        if attempt_convince:
-            return "wait who is that, that's not me"
-        return "I gotta go"
+        print(f"   \u274c Cover-blown response failed: {e}")
+        return "wait who is that" if attempt_convince else "I gotta go"
 
 
 def detect_goodbye(message: str) -> bool:
@@ -579,9 +595,13 @@ def receive_message(
     if impostor.is_active and impostor.target_group_id == group_id:
         conv = active_conversations.get(group_id)
         if not conv:
-            conv = ConversationState(group_id, impostor.disguised_as)
+            group_data    = current_groups.get(group_id, {})
+            group_members = [p for p in group_data.get('player_ids', [])
+                             if is_valid_player_id(p)]
+            conv = ConversationState(group_id, impostor.disguised_as,
+                                     group_members=group_members)
             active_conversations[group_id] = conv
-            print("🆕 Conversation started")
+            print(f"🆕 Conversation started with: {group_members}")
             # Generate style summary NOW (once) at conversation start
             conv.style_summary = generate_style_summary(impostor.disguised_as)
 

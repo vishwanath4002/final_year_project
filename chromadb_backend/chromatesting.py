@@ -1,16 +1,21 @@
 # chromatesting.py - OPTIMIZED WITH GAME CONTEXT
-# Key change: generate_npc_reply_fast() now takes a DeceptionIntent and renders
-# it in the player's style.  The LLM is NOT responsible for strategy.
+# generate_npc_reply_fast: response-first natural conversation,
+# strategic intent woven in only where appropriate.
 
 import chromadb
 import time
 import re
 import unicodedata
+import random
 from uuid import uuid4
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from langchain_ollama import OllamaEmbeddings, ChatOllama
 from game_context import get_response_templates, validate_response
+
+if TYPE_CHECKING:
+    from deception_strategy import DeceptionIntent
 
 OLLAMA_BASE = "http://127.0.0.1:11434"
 
@@ -72,7 +77,7 @@ llm = ChatOllama(
     temperature=0.8,
     base_url=OLLAMA_BASE,
     num_ctx=256,
-    num_predict=30,
+    num_predict=35,
     top_p=0.9,
     top_k=20,
 )
@@ -82,46 +87,88 @@ def generate_npc_reply_fast(
     disguise_name: str,
     style_summary: str,
     conversation: str,
-    intent_directive: str,          # DeceptionIntent.to_prompt_fragment()
+    last_message: str,
+    speaker_name: str,
+    group_members: list,
+    intent: "DeceptionIntent",
     strategy_mode: str = "casual",
 ) -> str:
     """
-    Render a DeceptionIntent as a single short message in the player's style.
+    Generate a natural reply that:
+      1. Responds to what the speaker just said — not a scripted directive
+      2. Weaves in strategic intent only where it fits naturally:
+         - gather_info / build_trust / casual: respond first, question/confirm
+           as a light nudge — and only ask a question ~35% of the time
+         - defend_self / seed_doubt / accuse_other: intent is the priority
+           but must still sound like a real player talking to someone nearby
 
-    The prompt is split into two clear sections:
-      1. ROLE + STYLE  — who the NPC is and how they talk
-      2. DIRECTIVE     — what they need to say (from the strategy layer)
-
-    The LLM's job is purely stylistic rendering, not strategic reasoning.
-    This works reliably even at 3b / num_ctx=256.
+    The LLM knows:
+      - Who it is (disguise_name)
+      - Who just spoke (speaker_name) — proximity chat, face-to-face
+      - Who else is physically nearby (group_members)
+      - The full recent conversation
+      - What was just said
+      - What it wants to accomplish strategically
     """
-    prompt = f"""You are {disguise_name} in Koschei Station — abandoned Soviet post, scavengers everywhere.
-Locations: Sheds, Barns, Greenhouse, Church, Pavilion.
-Actions: collecting wood/mushrooms, taking cans to church, shooting scavengers. Limited ammo.
-NPCs: Dr. Voss (gave the briefing), Dr. Petrov (rescued from lower levels).
-The players you are talking to are physically nearby — proximity chat, they can see you.
-Style: {style_summary}
-NEVER use: day/night, knives, tunnels, inventory, emojis, the word Koschei. Plain text only.
-Do NOT put quotes around your reply. Just write the words directly.
+    # Build nearby context
+    nearby = [p for p in (group_members or [])
+              if p != disguise_name and p != speaker_name]
+    if nearby:
+        nearby_line = f"Others nearby: {', '.join(nearby)}."
+    elif group_members:
+        nearby_line = f"Just you and {speaker_name} here right now."
+    else:
+        nearby_line = f"You are talking directly to {speaker_name}."
 
-Recent chat:
-{conversation[-180:]}
+    directive = intent.to_prompt_fragment()
 
-Task: {intent_directive}
-Reply as {disguise_name} in 1 short casual sentence (no quotes):"""
+    # Natural modes: respond first, intent is optional and light
+    # Strategic modes: intent drives the reply, but still sounds human
+    natural_modes = {'gather_info', 'build_trust', 'casual'}
+
+    if strategy_mode in natural_modes:
+        # Skip the question most of the time in natural modes
+        if intent.action == 'ask_location' and random.random() > 0.35:
+            task_line = f"Respond naturally to what {speaker_name} said."
+        else:
+            task_line = (
+                f"Respond naturally to what {speaker_name} said. "
+                f"If it fits, also: {directive}"
+            )
+    else:
+        # Strategic intent is primary
+        task_line = f"Respond to {speaker_name}. Your goal: {directive}"
+
+    prompt = (
+        f"You are {disguise_name} in Koschei Station — abandoned Soviet post, scavengers everywhere.\n"
+        f"You are talking face-to-face with {speaker_name}. {nearby_line}\n"
+        f"Locations: Sheds, Barns, Greenhouse, Church, Pavilion.\n"
+        f"Actions: collecting wood/mushrooms, taking cans to church, shooting scavengers. Limited ammo.\n"
+        f"NPCs: Dr. Voss (gave briefing), Dr. Petrov (rescued from lower levels).\n"
+        f"Style: {style_summary}\n"
+        f"NEVER use: day/night, knives, tunnels, inventory, emojis, the word Koschei. Plain text only.\n"
+        f"Do NOT put quotes around your reply.\n"
+        f"\n"
+        f"Recent chat:\n"
+        f"{conversation[-200:]}\n"
+        f"\n"
+        f"{speaker_name} just said: {last_message}\n"
+        f"\n"
+        f"{task_line}\n"
+        f"Reply as {disguise_name} in 1-2 short casual sentences (no quotes):"
+    )
 
     try:
         response = llm.invoke(prompt)
         reply = (response.content or "").strip()
 
-        # Strip wrapping quotes — LLMs often output "hey" or 'sure thing'
+        # Strip wrapping quotes
         if (reply.startswith('"') and reply.endswith('"')) or \
            (reply.startswith("'") and reply.endswith("'")):
             reply = reply[1:-1].strip()
-        # Also strip if the whole reply is one quoted sentence mid-text: He said "..."
         reply = re.sub(r'^["\']|["\']$', '', reply).strip()
 
-        # Strip any role-play preamble ("Player2: ...")
+        # Strip role-play preamble ("Player2: ...")
         if ':' in reply and reply.index(':') < 20:
             reply = reply.split(':', 1)[1].strip()
 
@@ -134,22 +181,25 @@ Reply as {disguise_name} in 1 short casual sentence (no quotes):"""
 
         reply = strip_non_ascii(reply)
 
-        # Validate against game rules
         is_valid, error = validate_response(reply)
         if not is_valid:
-            print(f"   ⚠️ Invalid response ({error}), using template")
-            import random
+            print(f"   \u26a0\ufe0f Invalid response ({error}), using template")
             reply = random.choice(get_response_templates(strategy_mode))
 
         return reply
 
     except Exception as e:
-        print(f"   ❌ LLM error: {e}")
-        import random
+        print(f"   \u274c LLM error: {e}")
         return strip_non_ascii(random.choice(get_response_templates(strategy_mode)))
 
 
 # ── Backward compat ───────────────────────────────────────────────────────────
+
+class _CasualIntent:
+    """Minimal intent stub for backward-compat calls."""
+    action = 'casual'
+    def to_prompt_fragment(self):
+        return "Say something casual about the game."
 
 def generate_npc_reply(player_text, round_id="r1",
                         imitate_player_id=None, recent_msgs=None):
@@ -157,6 +207,9 @@ def generate_npc_reply(player_text, round_id="r1",
         disguise_name=imitate_player_id or "Player",
         style_summary="Casual gamer",
         conversation=player_text,
-        intent_directive="Say something casual about the game.",
+        last_message=player_text,
+        speaker_name="someone",
+        group_members=[],
+        intent=_CasualIntent(),
         strategy_mode="casual",
     )
