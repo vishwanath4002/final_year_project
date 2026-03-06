@@ -76,8 +76,8 @@ llm = ChatOllama(
     model="llama3.2:3b",
     temperature=0.8,
     base_url=OLLAMA_BASE,
-    num_ctx=256,
-    num_predict=35,
+    num_ctx=512,      # raised: needs room for prompt + full reply
+    num_predict=60,   # raised: was 35, too short for 1-2 sentences
     top_p=0.9,
     top_k=20,
 )
@@ -140,22 +140,21 @@ def generate_npc_reply_fast(
         task_line = f"Respond to {speaker_name}. Your goal: {directive}"
 
     prompt = (
-        f"You are {disguise_name} in Koschei Station — abandoned Soviet post, scavengers everywhere.\n"
-        f"You are talking face-to-face with {speaker_name}. {nearby_line}\n"
+        f"You are {disguise_name} in Koschei Station. Scavengers everywhere.\n"
+        f"Talking face-to-face with {speaker_name}. {nearby_line}\n"
+        f"You have seen these players around the station before — this is not your first meeting.\n"
         f"Locations: Sheds, Barns, Greenhouse, Church, Pavilion.\n"
-        f"Actions: collecting wood/mushrooms, taking cans to church, shooting scavengers. Limited ammo.\n"
-        f"NPCs: Dr. Voss (gave briefing), Dr. Petrov (rescued from lower levels).\n"
+        f"Actions: collecting wood/mushrooms, cans to church, shooting scavengers.\n"
         f"Style: {style_summary}\n"
-        f"NEVER use: day/night, knives, tunnels, inventory, emojis, the word Koschei. Plain text only.\n"
-        f"Do NOT put quotes around your reply.\n"
+        f"NO: day/night, knives, tunnels, inventory, emojis, word Koschei. Plain text.\n"
+        f"No quotes around reply.\n"
         f"\n"
-        f"Recent chat:\n"
-        f"{conversation[-200:]}\n"
+        f"Chat:\n{conversation[-150:]}\n"
         f"\n"
-        f"{speaker_name} just said: {last_message}\n"
+        f"{speaker_name}: {last_message}\n"
         f"\n"
         f"{task_line}\n"
-        f"Reply as {disguise_name} in 1-2 short casual sentences (no quotes):"
+        f"{disguise_name} (1-2 casual sentences, no quotes):"
     )
 
     try:

@@ -55,6 +55,7 @@ last_group_update_time: float = 0.0
 
 global_message_buffer: deque = deque(maxlen=40)
 global_summary: str = "Match just started. Players are exploring."
+game_start_time: float = time.time()   # set when server starts; reset on /session/reset
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -231,13 +232,20 @@ impostor = ImpostorState()
 
 class ImpostorSpawnControl:
     def __init__(self):
-        self.spawn_interval  = 60.0
-        self.last_despawn    = 0.0
-        self.min_group_size  = 1
+        self.spawn_interval       = 60.0   # wait between despawn and next spawn
+        self.initial_delay        = 60.0   # wait before EVER spawning for the first time
+        self.last_despawn         = 0.0
+        self.first_spawn_done     = False
+        self.min_group_size       = 1
 
     def should_spawn_now(self) -> bool:
         if impostor.is_active:
             return False
+        # Wait at least 1 minute from game start before first spawn
+        if not self.first_spawn_done:
+            if time.time() - game_start_time < self.initial_delay:
+                return False
+        # After despawn, wait spawn_interval before next spawn
         if self.last_despawn > 0:
             if time.time() - self.last_despawn < self.spawn_interval:
                 return False
@@ -246,7 +254,8 @@ class ImpostorSpawnControl:
         return len(valid) > 0
 
     def record_despawn(self):
-        self.last_despawn = time.time()
+        self.last_despawn     = time.time()
+        self.first_spawn_done = True
 
 spawn_control = ImpostorSpawnControl()
 
@@ -397,42 +406,36 @@ def generate_style_summary(player_id: str) -> str:
 # IMPOSTOR MESSAGE GENERATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def generate_impostor_message(conv: ConversationState) -> Optional[str]:
+def generate_impostor_message(conv: ConversationState):
     """
+    Returns (reply_text, intent) so the caller can detect flee intent.
     1. Strategy layer  → DeceptionIntent  (WHAT to do strategically)
-    2. LLM             → responds naturally to the last message, with the
-                         strategic intent woven in only when appropriate
+    2. LLM             → responds naturally, with intent woven in
     """
     print(f"\n{'─'*50}")
     print(f"🤖 GENERATING REPLY  (arc msg #{conv.strategy.message_count})")
 
-    # Style cached for entire conversation
     if conv.style_summary is None:
         conv.style_summary = generate_style_summary(conv.disguise_player_id)
 
-    # Pull known facts for disguised player
     disguise_profile = profile_manager.get_or_create_profile(conv.disguise_player_id)
     known_facts_text = disguise_profile.get_facts_as_text(5)
     if known_facts_text:
         print(f"   📌 Known facts: {known_facts_text}")
 
-    # Get all profiles dict for strategy
     profiles = {pid: p.to_dict() for pid, p in profile_manager.profiles.items()}
 
-    # Who sent the last message
-    last_entry  = list(conv.buffer)[-1] if conv.buffer else {}
+    last_entry   = list(conv.buffer)[-1] if conv.buffer else {}
     last_message = last_entry.get('message', '')
     speaker_name = last_entry.get('player_id', 'someone')
 
-    # Trust scores
     trust_scores = suspicion_tracker.get_trust_scores(
         disguised_as=conv.disguise_player_id,
         conversation_buffer=list(conv.buffer),
     )
     if trust_scores:
-        print(f"   🤝 Trust scores: { {p: f'{s:+.1f}' for p, s in trust_scores.items()} }")
+        print(f"   🤝 Trust: { {p: f'{s:+.1f}' for p, s in trust_scores.items()} }")
 
-    # Strategy → structured intent
     intent: DeceptionIntent = conv.strategy.get_intent(
         message=last_message,
         profiles=profiles,
@@ -440,10 +443,8 @@ def generate_impostor_message(conv: ConversationState) -> Optional[str]:
         known_facts_text=known_facts_text,
         trust_scores=trust_scores,
     )
-    directive = intent.to_prompt_fragment()
-    print(f"   🎯 Intent: [{intent.action}] {directive}")
+    print(f"   🎯 Intent: [{intent.action}]")
 
-    # LLM renders the reply — knows who it's talking to and who's nearby
     t0 = time.time()
     reply = generate_npc_reply_fast(
         disguise_name=conv.disguise_player_id,
@@ -455,10 +456,9 @@ def generate_impostor_message(conv: ConversationState) -> Optional[str]:
         intent=intent,
         strategy_mode=conv.strategy.current_mode.value,
     )
-    print(f"   ⏱️ {time.time()-t0:.2f}s")
-    print(f"   💬 {reply}")
+    print(f"   ⏱️ {time.time()-t0:.2f}s  💬 {reply}")
     print(f"{'─'*50}\n")
-    return reply
+    return reply, intent
 
 
 def _generate_cover_blown_response(disguised_as: str, conv: "ConversationState",
@@ -616,7 +616,7 @@ def receive_message(
 
         if should_respond:
             try:
-                impostor_msg = generate_impostor_message(conv)
+                impostor_msg, intent = generate_impostor_message(conv)
                 if impostor_msg:
                     impostor_ts = datetime.now(timezone.utc).isoformat()
                     add_player_message_with_group(
@@ -630,12 +630,18 @@ def receive_message(
                         'player_id': f"impostor_{impostor.disguised_as}",
                         'message': impostor_msg, 'timestamp': impostor_ts,
                     })
+                    is_fleeing = intent.action == 'flee'
                     response_data["impostor_message"] = {
                         "player_id": impostor.disguised_as,
                         "message":   impostor_msg,
                         "timestamp": impostor_ts,
+                        "fleeing":   is_fleeing,
                     }
-                    print(f"✅ Replied as {impostor.disguised_as}")
+                    print(f"{'🏃 FLEEING' if is_fleeing else '✅'} Replied as {impostor.disguised_as}")
+
+                    # Flee intent — end the conversation immediately after this message
+                    if is_fleeing:
+                        conv.goodbye_detected = True
             except Exception as e:
                 import traceback
                 print(f"❌ Reply failed: {e}")
@@ -782,6 +788,10 @@ def reset_session():
     impostor.reset()
     profile_manager.profiles.clear()
     suspicion_tracker.suspicion_matrix.clear()
+    global game_start_time
+    game_start_time = time.time()
+    spawn_control.last_despawn     = 0.0
+    spawn_control.first_spawn_done = False
     print("🗑️ Session reset")
     return {"success": True}
 

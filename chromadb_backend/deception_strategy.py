@@ -64,6 +64,10 @@ class DeceptionIntent:
             return f"Say you were {self.alibi or 'doing a task'} earlier."
         if self.action == 'provide_alibi':
             return f"Defend yourself: say you were {self.alibi or 'doing a task'} just now."
+        if self.action == 'redirect_defense':
+            return self.detail or f"Defend yourself then suggest {self.target} is suspicious."
+        if self.action == 'flee':
+            return self.detail or "Say you have to leave right now, very briefly."
         if self.action == 'accuse':
             return f"Suggest {self.target} seems suspicious to the people nearby."
         if self.action == 'seed_doubt':
@@ -78,16 +82,15 @@ class DeceptionIntent:
 class DeceptionStrategy:
 
     def __init__(self, disguised_as: str):
-        self.disguised_as       = disguised_as
-        self.current_mode       = DeceptionMode.GATHER_INFO
-        self.has_been_accused   = False
-        self.accusation_count   = 0
-        self.message_count      = 0   # incremented by fastapi on each impostor reply
-        # How many facts we've actively extracted from player replies mid-convo.
-        # GATHER_INFO phase ends early once this hits the threshold — so the
-        # impostor actually uses the intel it asked for.
-        self.facts_gathered     = 0
-        self.facts_threshold    = 3   # leave GATHER_INFO after 3 facts learned
+        self.disguised_as          = disguised_as
+        self.current_mode          = DeceptionMode.GATHER_INFO
+        self.has_been_accused      = False
+        self.accusation_count      = 0
+        self.consecutive_defenses  = 0   # how many times in a row we've defended
+        self.flee_threshold        = 3   # after this many defenses, flee
+        self.message_count         = 0
+        self.facts_gathered        = 0
+        self.facts_threshold       = 3
 
     # ── Mode selection ────────────────────────────────────────────────────────
 
@@ -105,6 +108,11 @@ class DeceptionStrategy:
         trust_scores = trust_scores or {}
 
         if self.has_been_accused or suspicion_on_self > 3.0:
+            # If we've defended too many times and suspicion is still high — flee
+            if self.consecutive_defenses >= self.flee_threshold:
+                print(f"   🏃 Too many defenses ({self.consecutive_defenses}) — fleeing")
+                self.current_mode = DeceptionMode.LIE_LOW
+                return self.current_mode
             self.current_mode = DeceptionMode.DEFEND_SELF
             return self.current_mode
 
@@ -159,30 +167,49 @@ class DeceptionStrategy:
         mode = self.decide_mode(suspicion_on_self, other_suspicions, trust_scores)
         print(f"   🎭 Mode: {mode.value} (msg#{self.message_count}, "
               f"self-suspicion={suspicion_on_self:.1f}, "
-              f"trust={trust_scores})")
+              f"defenses={self.consecutive_defenses})")
 
-        # ── DEFEND ────────────────────────────────────────────────────────────
+        # ── FLEE ──────────────────────────────────────────────────────────────
+        if mode == DeceptionMode.LIE_LOW:
+            # Signal the conversation to end — fastapi will trigger exit
+            return DeceptionIntent('flee', detail="Say you have to go right now, briefly.")
+
+        # ── DEFEND + REDIRECT ─────────────────────────────────────────────────
         if mode == DeceptionMode.DEFEND_SELF:
+            self.consecutive_defenses += 1
             alibi = known_facts_text or "collecting wood at the sheds"
+            # Pick someone to redirect suspicion toward
+            redirect_target = self._pick_skeptic_target(trust_scores, suspicion_tracker)
+            if redirect_target:
+                return DeceptionIntent(
+                    'redirect_defense',
+                    target=redirect_target,
+                    alibi=alibi,
+                    detail=(
+                        f"Defend: say you were {alibi}. "
+                        f"Then suggest {redirect_target} is the real impostor."
+                    )
+                )
             return DeceptionIntent('provide_alibi', alibi=alibi)
 
         # ── GATHER INFO ───────────────────────────────────────────────────────
         if mode == DeceptionMode.GATHER_INFO:
+            self.consecutive_defenses = 0
             target = self._pick_target_from_message(message, profiles)
             return DeceptionIntent('ask_location', target=target)
 
         # ── BUILD TRUST ───────────────────────────────────────────────────────
         if mode == DeceptionMode.BUILD_TRUST:
+            self.consecutive_defenses = 0
             alibi = known_facts_text or random.choice([
                 "collecting wood", "taking cans to church",
-                "burning mushrooms", "shooting aliens",
+                "burning mushrooms", "shooting scavengers",
             ])
             return DeceptionIntent('confirm_task', alibi=alibi)
 
         # ── SEED DOUBT ────────────────────────────────────────────────────────
         if mode == DeceptionMode.SEED_DOUBT:
-            # Prefer targeting skeptics (low/negative trust) — they're already
-            # halfway there. Protect trusting players — burning them looks suspicious.
+            self.consecutive_defenses = 0
             target = self._pick_skeptic_target(trust_scores, suspicion_tracker)
             if target:
                 return DeceptionIntent('seed_doubt', target=target)
@@ -190,7 +217,7 @@ class DeceptionStrategy:
 
         # ── ACCUSE ────────────────────────────────────────────────────────────
         if mode == DeceptionMode.ACCUSE_OTHER:
-            # Same logic — accuse skeptics not trusters
+            self.consecutive_defenses = 0
             target = self._pick_skeptic_target(trust_scores, suspicion_tracker)
             if not target and other_suspicions:
                 target = other_suspicions[0][0]
