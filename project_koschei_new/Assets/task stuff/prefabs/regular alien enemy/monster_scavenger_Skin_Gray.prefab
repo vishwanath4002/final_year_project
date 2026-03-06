@@ -47,7 +47,7 @@ BoxCollider:
     serializedVersion: 2
     m_Bits: 0
   m_LayerOverridePriority: 0
-  m_IsTrigger: 0
+  m_IsTrigger: 1
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
@@ -100,7 +100,7 @@ BoxCollider:
     serializedVersion: 2
     m_Bits: 0
   m_LayerOverridePriority: 0
-  m_IsTrigger: 0
+  m_IsTrigger: 1
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
@@ -501,8 +501,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9fe1f890dbbda2e48b6e7800f2230b33, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  coneAngle: 90
-  raysPerAxis: 8
+  coneAngle: 180
+  raysPerAxis: 10
   raycastLength: 10
   detectionLayer:
     serializedVersion: 2
@@ -529,7 +529,7 @@ GameObject:
   - component: {fileID: 4557117186385430017}
   - component: {fileID: 1858672038431072560}
   - component: {fileID: 8111432883556733091}
-  - component: {fileID: 5534546985295410297}
+  - component: {fileID: 6449432567901460221}
   m_Layer: 0
   m_Name: monster_scavenger_Skin_Gray
   m_TagString: Untagged
@@ -613,7 +613,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  GlobalObjectIdHash: 2359796033
+  GlobalObjectIdHash: 691558128
   InScenePlacedSourceGlobalObjectIdHash: 0
   AlwaysReplicateAsRoot: 0
   SynchronizeTransform: 1
@@ -636,20 +636,24 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   patrolSpeed: 2
   chaseSpeed: 4
-  searchDuration: 3
-  idleTimeAtPatrolPoint: 2
   patrolRadius: 10
-  animator: {fileID: 3600447987726435479}
-  moveXParam: MoveX
-  moveZParam: MoveZ
-  sensor: {fileID: 2369376195736885294}
-  attackRange: 2
+  idleTimeAtPoint: 2
+  searchDuration: 3
+  attackRange: 3
   attack1Trigger: attack 1
   attack2Trigger: attack 2
   attack1Cooldown: 1.2
   attack2Cooldown: 1.5
   attack1Duration: 2.1
   attack2Duration: 2.1
+  turnSpeed: 10
+  animator: {fileID: 3600447987726435479}
+  moveXParam: MoveX
+  moveZParam: MoveZ
+  sensor: {fileID: 2369376195736885294}
+  deathTrigger: die
+  despawnDelay: 30
+  deathAnimDuration: 2.5
   scientistTarget: {fileID: 0}
 --- !u!64 &-4172530834877500892
 MeshCollider:
@@ -732,7 +736,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   targetTag: Player
   damage: 10
-  attackRange: 2
+  attackRange: 3
   attackCooldown: 2
   attackDuration: 0.8
   damageColliders:
@@ -792,7 +796,7 @@ CapsuleCollider:
   m_Height: 1.6
   m_Direction: 1
   m_Center: {x: 0.1, y: 0.8, z: 0.1}
---- !u!114 &5534546985295410297
+--- !u!114 &6449432567901460221
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -801,7 +805,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 8070923430143094911}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 95e81cd10c021b14899b4dc5f948402c, type: 3}
+  m_Script: {fileID: 11500000, guid: f2e45ecccf99ec44f8633a129f52fa14, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
 --- !u!1 &8197547816176235731
