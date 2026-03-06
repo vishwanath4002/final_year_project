@@ -324,9 +324,9 @@ MonoBehaviour:
   m_MaxConnectAttempts: 60
   m_DisconnectTimeoutMS: 30000
   ConnectionData:
-    Address: 127.0.0.1
+    Address: 192.168.1.1
     Port: 7777
-    ServerListenAddress: 127.0.0.1
+    ServerListenAddress: 0.0.0.0
   DebugSimulator:
     PacketDelayMS: 0
     PacketJitterMS: 0
@@ -395,8 +395,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7debbc86a27cb5b4f897bea55ad4be38, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  playerPrefab: {fileID: -3000401027358400848, guid: c26648bdae40af847afda5907b9cd5d9, type: 3}
   spawnPositions:
   - {x: 0, y: 1, z: 0}
+  - {x: 2, y: 1, z: 0}
 --- !u!95 &630495499 stripped
 Animator:
   m_CorrespondingSourceObject: {fileID: 3600447987726435479, guid: fa28d04f0fe6d4f44b548ea292dd8ecf, type: 3}
@@ -731,6 +733,10 @@ PrefabInstance:
     - target: {fileID: 7237781434840970133, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
       propertyPath: m_Name
       value: TaskManager
+      objectReference: {fileID: 0}
+    - target: {fileID: 7346632230547729201, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
+      propertyPath: GlobalObjectIdHash
+      value: 3865632790
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
