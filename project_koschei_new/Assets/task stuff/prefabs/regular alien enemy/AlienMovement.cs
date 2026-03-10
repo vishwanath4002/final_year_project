@@ -363,7 +363,7 @@ public class AlienMovement : MonoBehaviour
             agent.ResetPath();
             agent.isStopped = true;
             agent.velocity  = Vector3.zero;
-            agent.enabled   = false;
+            //agent.enabled   = false;
         }
 
         // Freeze physics

@@ -23,13 +23,13 @@ EditorBuildSettings:
   - enabled: 0
     path: Assets/MonsterMutant 7/AI test.unity
     guid: ae41c4872dfdd5745aa7e92ecf3faaa3
-  - enabled: 1
+  - enabled: 0
     path: Assets/rescuing_npc/rescue_npc.unity
     guid: abf8018bd7931504ab11c0d6bea3ecc2
-  - enabled: 1
+  - enabled: 0
     path: Assets/alien scripts/impostor test.unity
     guid: 2cede106b644d3846a24cd732bc56a20
-  - enabled: 1
+  - enabled: 0
     path: Assets/task stuff/prefabs/regular alien enemy/testing alien.unity
     guid: d0efb65e99d5a5f479a7e025af8cb627
   m_configObjects:
