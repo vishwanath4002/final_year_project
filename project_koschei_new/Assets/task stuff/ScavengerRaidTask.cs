@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -39,6 +40,12 @@ public class ScavengerRaidTask : MonoBehaviour, IGameTask
 
     public void StartTask()
     {
+        if (!NetworkManager.Singleton.IsServer)
+        {
+            Debug.LogWarning("[ScavengerRaidTask] StartTask must only be called on the server.");
+            return;
+        }
+
         if (taskActive)
         {
             Debug.LogWarning("[ScavengerRaidTask] StartTask called but task is already running.");
@@ -52,7 +59,7 @@ public class ScavengerRaidTask : MonoBehaviour, IGameTask
         livingAliens.Clear();
 
         scientistHealth = scientistNPC.GetComponent<ScientistHealth>()
-                       ?? scientistNPC.gameObject.AddComponent<ScientistHealth>();
+            ?? scientistNPC.gameObject.AddComponent<ScientistHealth>();
 
         scientistHealth.ResetHealth();
         scientistHealth.OnDeath += HandleScientistDied;
@@ -111,6 +118,17 @@ public class ScavengerRaidTask : MonoBehaviour, IGameTask
         Vector3 pos = GetNavMeshSpawnPoint();
         GameObject alien = Instantiate(alienPrefab, pos, Quaternion.identity);
 
+        // ✅ Network-spawn so Health (NetworkBehaviour) initialises on all clients
+        NetworkObject netObj = alien.GetComponent<NetworkObject>();
+        if (netObj != null)
+        {
+            netObj.Spawn();
+        }
+        else
+        {
+            Debug.LogError("[ScavengerRaidTask] alienPrefab has no NetworkObject component! Health will not work on clients.");
+        }
+
         AlienMovement movement = alien.GetComponent<AlienMovement>();
         if (movement != null)
         {
@@ -122,8 +140,16 @@ public class ScavengerRaidTask : MonoBehaviour, IGameTask
             Debug.LogWarning("[ScavengerRaidTask] Spawned alien prefab has no AlienMovement component!");
         }
 
-        AlienDeathNotifier notifier = alien.AddComponent<AlienDeathNotifier>();
-        notifier.OnDied += () => HandleAlienDied(alien);
+        // ✅ AlienDeathNotifier must already be on the prefab — don't AddComponent
+        AlienDeathNotifier notifier = alien.GetComponent<AlienDeathNotifier>();
+        if (notifier != null)
+        {
+            notifier.OnDied += () => HandleAlienDied(alien);
+        }
+        else
+        {
+            Debug.LogWarning("[ScavengerRaidTask] Spawned alien has no AlienDeathNotifier component!");
+        }
 
         livingAliens.Add(alien);
         aliensSpawnedSoFar++;
@@ -135,11 +161,11 @@ public class ScavengerRaidTask : MonoBehaviour, IGameTask
         float radius = spawnRadius + UnityEngine.Random.Range(-spawnRadiusJitter, spawnRadiusJitter);
 
         Vector3 candidate = buildingCenter.position
-                          + new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius);
+            + new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius);
 
         return NavMesh.SamplePosition(candidate, out NavMeshHit hit, 6f, NavMesh.AllAreas)
-               ? hit.position
-               : candidate;
+            ? hit.position
+            : candidate;
     }
 
     // ================================================================
@@ -153,7 +179,7 @@ public class ScavengerRaidTask : MonoBehaviour, IGameTask
 
         int remaining = livingAliens.Count;
         int yetToSpawn = totalAliens - aliensSpawnedSoFar;
-        Debug.Log($"[ScavengerRaidTask] Alien killed -- alive: {remaining}  yet to spawn: {yetToSpawn}");
+        Debug.Log($"[ScavengerRaidTask] Alien killed -- alive: {remaining} yet to spawn: {yetToSpawn}");
 
         if (yetToSpawn <= 0 && remaining == 0)
         {
@@ -195,7 +221,13 @@ public class ScavengerRaidTask : MonoBehaviour, IGameTask
             if (alien == null) continue;
             var m = alien.GetComponent<AlienMovement>();
             if (m != null) m.scientistTarget = null;
-            Destroy(alien);
+
+            // ✅ Use NetworkObject.Despawn for network-spawned objects
+            NetworkObject netObj = alien.GetComponent<NetworkObject>();
+            if (netObj != null && netObj.IsSpawned)
+                netObj.Despawn();
+            else
+                Destroy(alien);
         }
         livingAliens.Clear();
     }
@@ -207,6 +239,8 @@ public class ScavengerRaidTask : MonoBehaviour, IGameTask
         if (alienPrefab == null) { Debug.LogError("[ScavengerRaidTask] alienPrefab is not assigned!"); return false; }
         if (alienPrefab.GetComponent<AlienMovement>() == null)
             Debug.LogWarning("[ScavengerRaidTask] alienPrefab has no AlienMovement -- scientist targeting won't work.");
+        if (alienPrefab.GetComponent<NetworkObject>() == null)
+            Debug.LogError("[ScavengerRaidTask] alienPrefab has no NetworkObject -- health damage will be broken on clients!");
         return true;
     }
 
@@ -219,10 +253,6 @@ public class ScavengerRaidTask : MonoBehaviour, IGameTask
     // TESTING HELPER
     // ================================================================
 
-    /// <summary>
-    /// Force completes the scavenger raid task (testing only).
-    /// Called by TaskManager.ForceCompleteScavengerRaid() via GameFlowTester.
-    /// </summary>
     public void ForceCompleteTask()
     {
         if (!taskActive)
@@ -233,21 +263,22 @@ public class ScavengerRaidTask : MonoBehaviour, IGameTask
 
         taskActive = false;
 
-        // Stop spawning
         if (spawnCoroutine != null)
         {
             StopCoroutine(spawnCoroutine);
             spawnCoroutine = null;
         }
 
-        // Unsubscribe from scientist death
         if (scientistHealth != null)
             scientistHealth.OnDeath -= HandleScientistDied;
 
-        // Kill all remaining aliens
         foreach (var alien in livingAliens)
         {
-            if (alien != null)
+            if (alien == null) continue;
+            NetworkObject netObj = alien.GetComponent<NetworkObject>();
+            if (netObj != null && netObj.IsSpawned)
+                netObj.Despawn();
+            else
                 Destroy(alien);
         }
         livingAliens.Clear();

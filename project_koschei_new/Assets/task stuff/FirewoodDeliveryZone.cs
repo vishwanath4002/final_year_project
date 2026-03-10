@@ -28,6 +28,19 @@ public class FirewoodDeliveryZone : NetworkBehaviour
         base.OnNetworkSpawn();
         depositedWood.OnValueChanged += OnWoodChanged;
         burnedMushrooms.OnValueChanged += OnMushroomChanged;
+        fireIsActive.OnValueChanged += OnFireActiveChanged;
+
+        // ✅ Sync fire visual for clients who join after fire was already lit
+        if (firePrefab != null)
+            firePrefab.SetActive(fireIsActive.Value);
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        base.OnNetworkDespawn();
+        depositedWood.OnValueChanged -= OnWoodChanged;
+        burnedMushrooms.OnValueChanged -= OnMushroomChanged;
+        fireIsActive.OnValueChanged -= OnFireActiveChanged;
     }
 
     void OnWoodChanged(int oldValue, int newValue)
@@ -46,6 +59,14 @@ public class FirewoodDeliveryZone : NetworkBehaviour
             Debug.Log("All mushrooms burned!");
             if (IsServer) OnMushroomsComplete?.Invoke();
         }
+    }
+
+    // ✅ Reacts on ALL clients whenever fireIsActive changes
+    void OnFireActiveChanged(bool oldValue, bool newValue)
+    {
+        if (firePrefab != null)
+            firePrefab.SetActive(newValue);
+        Debug.Log($"[FirewoodDeliveryZone] Fire visual set to: {newValue}");
     }
 
     void OnTriggerEnter(Collider other)
@@ -81,7 +102,7 @@ public class FirewoodDeliveryZone : NetworkBehaviour
                 if (isFirewood) DepositWoodServerRpc(NetworkManager.Singleton.LocalClientId);
                 else Debug.Log("Deposit option: NO. Not holding valid firewood.");
             }
-            else if ((inv == null || !inv.IsHoldingItem()) && depositedWood.Value >= requiredWood && firePrefab != null && !firePrefab.activeSelf)
+            else if ((inv == null || !inv.IsHoldingItem()) && depositedWood.Value >= requiredWood && !fireIsActive.Value)
             {
                 LightFireServerRpc();
             }
@@ -139,30 +160,18 @@ public class FirewoodDeliveryZone : NetworkBehaviour
     [ServerRpc(RequireOwnership = false)]
     void LightFireServerRpc()
     {
-        if (firePrefab != null && !firePrefab.activeSelf)
-        {
-            firePrefab.SetActive(true);
-            fireIsActive.Value = true;
-            Debug.Log("Fire activated!");
-            OnFireLit?.Invoke();       // server-side event for Task1
-            FireLitClientRpc();
-        }
-    }
+        if (fireIsActive.Value) return;
 
-    [ClientRpc]
-    void FireLitClientRpc()
-    {
-        Debug.Log("Fire lit -- now burn the mushrooms!");
+        // ✅ Setting the NetworkVariable triggers OnFireActiveChanged on ALL clients automatically
+        fireIsActive.Value = true;
+        Debug.Log("Fire activated!");
+        OnFireLit?.Invoke(); // server-side event for Task1
     }
 
     // ================================================================
     // TESTING HELPER
     // ================================================================
 
-    /// <summary>
-    /// Force completes the mushroom burning objective (testing only).
-    /// Called by TaskManager.ForceCompleteMushroomTask() via GameFlowTester.
-    /// </summary>
     public void ForceCompleteMushroomBurning()
     {
         if (!NetworkManager.Singleton.IsServer)
@@ -171,7 +180,6 @@ public class FirewoodDeliveryZone : NetworkBehaviour
             return;
         }
 
-        // Set mushrooms to required count
         burnedMushrooms.Value = requiredMushrooms;
         Debug.Log($"[FirewoodDeliveryZone] Mushroom burning force completed! ({requiredMushrooms}/{requiredMushrooms})");
     }
