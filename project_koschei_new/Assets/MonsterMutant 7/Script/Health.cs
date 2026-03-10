@@ -204,7 +204,7 @@ public class Health : NetworkBehaviour
         if (TryGetComponent(out agent))
         {
             agent.isStopped = true;
-            agent.enabled = false;
+            //agent.enabled = false;
         }
 
         // 2️⃣ Disable AILocomotion (if exists)

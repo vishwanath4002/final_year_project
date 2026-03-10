@@ -122,6 +122,119 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
+--- !u!1 &541363938
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 541363942}
+  - component: {fileID: 541363941}
+  - component: {fileID: 541363940}
+  - component: {fileID: 541363939}
+  m_Layer: 0
+  m_Name: network manager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &541363939
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 541363938}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7debbc86a27cb5b4f897bea55ad4be38, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  playerPrefab: {fileID: 0}
+  spawnPositions:
+  - {x: 0, y: 2, z: 0}
+--- !u!114 &541363940
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 541363938}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6960e84d07fb87f47956e7a81d71c4e6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_ProtocolType: 0
+  m_MaxPacketQueueSize: 128
+  m_MaxPayloadSize: 6144
+  m_HeartbeatTimeoutMS: 500
+  m_ConnectTimeoutMS: 1000
+  m_MaxConnectAttempts: 60
+  m_DisconnectTimeoutMS: 30000
+  ConnectionData:
+    Address: 127.0.0.1
+    Port: 7777
+    ServerListenAddress: 127.0.0.1
+  DebugSimulator:
+    PacketDelayMS: 0
+    PacketJitterMS: 0
+    PacketDropRate: 0
+--- !u!114 &541363941
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 541363938}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 593a2fe42fa9d37498c96f9a383b6521, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  NetworkConfig:
+    ProtocolVersion: 0
+    NetworkTransport: {fileID: 541363940}
+    PlayerPrefab: {fileID: 2686844498852408971, guid: c26648bdae40af847afda5907b9cd5d9, type: 3}
+    Prefabs:
+      NetworkPrefabsLists:
+      - {fileID: 11400000, guid: 19826799c68b917499a7486b14cfd5ee, type: 2}
+    TickRate: 30
+    ClientConnectionBufferTimeout: 10
+    ConnectionApproval: 0
+    ConnectionData: 
+    EnableTimeResync: 0
+    TimeResyncInterval: 30
+    EnsureNetworkVariableLengthSafety: 0
+    EnableSceneManagement: 1
+    ForceSamePrefabs: 1
+    RecycleNetworkIds: 1
+    NetworkIdRecycleDelay: 120
+    RpcHashSize: 0
+    LoadSceneTimeOut: 120
+    SpawnTimeout: 10
+    EnableNetworkLogs: 1
+    OldPrefabList: []
+  RunInBackground: 1
+  LogLevel: 1
+--- !u!4 &541363942
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 541363938}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 653.5463, y: 24.046087, z: 507.44724}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &763517419
 GameObject:
   m_ObjectHideFlags: 0
@@ -256,7 +369,7 @@ MonoBehaviour:
   m_OverrideTileSize: 0
   m_TileSize: 256
   m_OverrideVoxelSize: 0
-  m_VoxelSize: 0.16666667
+  m_VoxelSize: 0.016666668
   m_MinRegionArea: 2
   m_NavMeshData: {fileID: 23800000, guid: 90726346caec28c46afc1a3a3fa83eec, type: 2}
   m_BuildHeightMesh: 0
@@ -548,3 +661,4 @@ SceneRoots:
   - {fileID: 763517423}
   - {fileID: 2282780071982390241}
   - {fileID: 1568830960}
+  - {fileID: 541363942}
