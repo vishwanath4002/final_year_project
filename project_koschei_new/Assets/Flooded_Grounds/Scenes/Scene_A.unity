@@ -243855,6 +243855,10 @@ PrefabInstance:
       value: 
       objectReference: {fileID: 8497106706065169657, guid: 862c47ca3c5df874f8f38a925e2744d2, type: 3}
     - target: {fileID: 2923355420650352709, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
+      propertyPath: firewoodZone
+      value: 
+      objectReference: {fileID: 2063312668}
+    - target: {fileID: 2923355420650352709, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
       propertyPath: npc1Dialogue
       value: 
       objectReference: {fileID: 1658215123}
@@ -243878,6 +243882,10 @@ PrefabInstance:
       propertyPath: npc3Controller
       value: 
       objectReference: {fileID: 1461466554}
+    - target: {fileID: 2923355420650352709, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
+      propertyPath: canDeliveryZone
+      value: 
+      objectReference: {fileID: 4344956419398036202}
     - target: {fileID: 2923355420650352709, guid: 366e8a25145c5ad449c75a385aefe932, type: 3}
       propertyPath: impostorConnector
       value: 
@@ -243962,6 +243970,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 025e425492cc1824ea86894259d0e9b9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  showDebugMessages: 1
 --- !u!1001 &1908405643
 PrefabInstance:
   m_ObjectHideFlags: 0
