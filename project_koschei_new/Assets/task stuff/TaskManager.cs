@@ -24,6 +24,10 @@ public class TaskManager : NetworkBehaviour
     [SerializeField] Task1_FieldObjectives fieldTask;
     [SerializeField] ScavengerRaidTask scavengerRaidTask;
 
+    [Header("Delivery Zones (for testing)")]
+    [SerializeField] FirewoodDeliveryZone firewoodZone;
+    [SerializeField] CanDeliveryZone canDeliveryZone;
+
     [Header("NPC1 -- Intro Scientist (dies at boss fight)")]
     [SerializeField] ScientistNPCDialogue npc1Dialogue;
     [SerializeField] ScientistNPCController npc1Controller;
@@ -341,6 +345,116 @@ public class TaskManager : NetworkBehaviour
     }
 
     // ================================================================
+    // TESTING HELPERS (Server-only, called by GameFlowTester)
+    // ================================================================
+
+    /// <summary>
+    /// Force completes the mushroom burning objective.
+    /// </summary>
+    public void ForceCompleteMushroomTask()
+    {
+        if (!IsServer)
+        {
+            Debug.LogWarning("[TaskManager] ForceCompleteMushroomTask can only be called on server!");
+            return;
+        }
+
+        if (CurrentPhase != GamePhase.Task1_Field)
+        {
+            Debug.LogWarning($"[TaskManager] ForceCompleteMushroomTask ignored -- not in Task1_Field (current: {CurrentPhase})");
+            return;
+        }
+
+        if (firewoodZone != null)
+        {
+            firewoodZone.ForceCompleteMushroomBurning();
+            Debug.Log("[TaskManager] Mushroom task force completed.");
+        }
+        else
+        {
+            Debug.LogError("[TaskManager] firewoodZone is null! Assign it in TaskManager inspector.");
+        }
+    }
+
+    /// <summary>
+    /// Force completes the food can delivery objective.
+    /// </summary>
+    public void ForceCompleteFoodCanTask()
+    {
+        if (!IsServer)
+        {
+            Debug.LogWarning("[TaskManager] ForceCompleteFoodCanTask can only be called on server!");
+            return;
+        }
+
+        if (CurrentPhase != GamePhase.Task1_Field)
+        {
+            Debug.LogWarning($"[TaskManager] ForceCompleteFoodCanTask ignored -- not in Task1_Field (current: {CurrentPhase})");
+            return;
+        }
+
+        if (canDeliveryZone != null)
+        {
+            canDeliveryZone.ForceCompleteCanDelivery();
+            Debug.Log("[TaskManager] Food can task force completed.");
+        }
+        else
+        {
+            Debug.LogError("[TaskManager] canDeliveryZone is null! Assign it in TaskManager inspector.");
+        }
+    }
+
+    /// <summary>
+    /// Force completes the scavenger raid task.
+    /// </summary>
+    public void ForceCompleteScavengerRaid()
+    {
+        if (!IsServer)
+        {
+            Debug.LogWarning("[TaskManager] ForceCompleteScavengerRaid can only be called on server!");
+            return;
+        }
+
+        if (CurrentPhase != GamePhase.Task2_ScavengerRaid)
+        {
+            Debug.LogWarning($"[TaskManager] ForceCompleteScavengerRaid ignored -- not in Task2_ScavengerRaid (current: {CurrentPhase})");
+            return;
+        }
+
+        if (scavengerRaidTask != null)
+        {
+            scavengerRaidTask.ForceCompleteTask();
+            Debug.Log("[TaskManager] Scavenger raid force completed.");
+        }
+        else
+        {
+            Debug.LogError("[TaskManager] scavengerRaidTask is null!");
+        }
+    }
+
+    /// <summary>
+    /// Skips Petrov debrief and Return to Voss dialogue, goes straight to boss fight.
+    /// </summary>
+    public void ForceStartBossFight()
+    {
+        if (!IsServer)
+        {
+            Debug.LogWarning("[TaskManager] ForceStartBossFight can only be called on server!");
+            return;
+        }
+
+        if (CurrentPhase == GamePhase.PetrovDebrief || CurrentPhase == GamePhase.ReturnToVoss)
+        {
+            Debug.Log("[TaskManager] Skipping dialogues, going straight to boss fight.");
+            BeginBossFight();
+        }
+        else
+        {
+            Debug.LogWarning($"[TaskManager] ForceStartBossFight ignored -- phase is {CurrentPhase}. Use from PetrovDebrief or ReturnToVoss.");
+        }
+    }
+
+    // ================================================================
     // Helpers
     // ================================================================
 
@@ -378,6 +492,8 @@ public class TaskManager : NetworkBehaviour
     {
         if (fieldTask == null) Debug.LogError("[TaskManager] fieldTask not assigned!");
         if (scavengerRaidTask == null) Debug.LogError("[TaskManager] scavengerRaidTask not assigned!");
+        if (firewoodZone == null) Debug.LogWarning("[TaskManager] firewoodZone not assigned - testing helpers won't work!");
+        if (canDeliveryZone == null) Debug.LogWarning("[TaskManager] canDeliveryZone not assigned - testing helpers won't work!");
         if (npc1Dialogue == null) Debug.LogError("[TaskManager] npc1Dialogue not assigned!");
         if (npc1Controller == null) Debug.LogWarning("[TaskManager] npc1Controller not assigned.");
         if (npc2Dialogue == null) Debug.LogError("[TaskManager] npc2Dialogue not assigned!");

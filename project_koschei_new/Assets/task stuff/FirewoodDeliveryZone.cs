@@ -154,4 +154,25 @@ public class FirewoodDeliveryZone : NetworkBehaviour
     {
         Debug.Log("Fire lit -- now burn the mushrooms!");
     }
+
+    // ================================================================
+    // TESTING HELPER
+    // ================================================================
+
+    /// <summary>
+    /// Force completes the mushroom burning objective (testing only).
+    /// Called by TaskManager.ForceCompleteMushroomTask() via GameFlowTester.
+    /// </summary>
+    public void ForceCompleteMushroomBurning()
+    {
+        if (!NetworkManager.Singleton.IsServer)
+        {
+            Debug.LogWarning("[FirewoodDeliveryZone] ForceCompleteMushroomBurning can only be called on server!");
+            return;
+        }
+
+        // Set mushrooms to required count
+        burnedMushrooms.Value = requiredMushrooms;
+        Debug.Log($"[FirewoodDeliveryZone] Mushroom burning force completed! ({requiredMushrooms}/{requiredMushrooms})");
+    }
 }

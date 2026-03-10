@@ -4,63 +4,153 @@ using Unity.Netcode;
 /// <summary>
 /// Server-only keyboard shortcuts to manually advance game phases for testing.
 ///
-/// 1 = CompleteIntro            NPC1 intro done
-/// 2 = CompleteBriefing         NPC2 field brief done -> Task1 + impostor start
-/// 3 = CompleteReturnBriefing   NPC2 rescue brief done -> Scavenger Raid starts
-/// 4 = Skip PetrovDebrief       Force BeginReturnToVoss (NPC3 lore done)
-/// 5 = CompleteReturnToVoss     NPC2 Koschei reaction done -> Boss Fight
-/// 6 = OnBossDefeated           Victory
-/// 7 = Simulate player 0 death
+/// Press 1-8 to skip through the game flow:
+/// 1 = Complete Intro (NPC1 intro done)
+/// 2 = Complete Dr. Voss Briefing (Start Task 1)
+/// 3 = Complete Mushroom Task (burn all mushrooms)
+/// 4 = Complete Food Can Task (deliver all cans)
+/// 5 = Complete Return to Voss (after Task 1)
+/// 6 = Complete Rescue Task (protect Petrov from scavengers)
+/// 7 = Spawn Boss (trigger boss fight)
+/// 8 = Kill Boss (victory)
+/// 
+/// 0 = Print current phase
+/// 9 = Simulate player death
 /// </summary>
 public class GameFlowTester : MonoBehaviour
 {
-    void Update()
-    {
-        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer) return;
+    [Header("Debug Info")]
+    [SerializeField] private bool showDebugMessages = true;
 
+    private void Update()
+    {
+        // Only server can advance phases
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)
+            return;
+
+        if (TaskManager.Instance == null)
+        {
+            if (Input.anyKeyDown)
+                Debug.LogError("[GameFlowTester] TaskManager.Instance is null!");
+            return;
+        }
+
+        // 0 = Print current phase
+        if (Input.GetKeyDown(KeyCode.Alpha0))
+        {
+            PrintCurrentPhase();
+        }
+
+        // 1 = Complete Intro
         if (Input.GetKeyDown(KeyCode.Alpha1))
         {
-            Debug.Log("[TESTER] 1 -- CompleteIntro");
-            TaskManager.Instance?.CompleteIntro();
+            Log("1 - Completing Intro (NPC1)");
+            TaskManager.Instance.CompleteIntro();
         }
+
+        // 2 = Complete Dr. Voss Briefing
         if (Input.GetKeyDown(KeyCode.Alpha2))
         {
-            Debug.Log("[TESTER] 2 -- CompleteBriefing");
-            TaskManager.Instance?.CompleteBriefing();
+            Log("2 - Completing Dr. Voss Briefing (Start Task 1)");
+            TaskManager.Instance.CompleteBriefing();
         }
+
+        // 3 = Complete Mushroom Task
         if (Input.GetKeyDown(KeyCode.Alpha3))
         {
-            Debug.Log("[TESTER] 3 -- CompleteReturnBriefing");
-            TaskManager.Instance?.CompleteReturnBriefing();
+            Log("3 - Force completing Mushroom Task");
+            TaskManager.Instance.ForceCompleteMushroomTask();
         }
+
+        // 4 = Complete Food Can Task
         if (Input.GetKeyDown(KeyCode.Alpha4))
         {
-            Debug.Log("[TESTER] 4 -- Skip PetrovDebrief -> ReturnToVoss");
-            if (TaskManager.Instance != null &&
-                TaskManager.Instance.CurrentPhase == GamePhase.PetrovDebrief)
+            Log("4 - Force completing Food Can Task");
+            TaskManager.Instance.ForceCompleteFoodCanTask();
+        }
+
+        // 5 = Complete Return to Voss (after Task 1)
+        if (Input.GetKeyDown(KeyCode.Alpha5))
+        {
+            Log("5 - Completing Return to Dr. Voss");
+            TaskManager.Instance.CompleteReturnBriefing();
+        }
+
+        // 6 = Complete Rescue Task (Scavenger Raid)
+        if (Input.GetKeyDown(KeyCode.Alpha6))
+        {
+            Log("6 - Force completing Scavenger Raid Task");
+            TaskManager.Instance.ForceCompleteScavengerRaid();
+        }
+
+        // 7 = Spawn Boss
+        if (Input.GetKeyDown(KeyCode.Alpha7))
+        {
+            Log("7 - Spawning Boss (skip Petrov debrief + Return to Voss)");
+            TaskManager.Instance.ForceStartBossFight();
+        }
+
+        // 8 = Kill Boss (Victory)
+        if (Input.GetKeyDown(KeyCode.Alpha8))
+        {
+            Log("8 - Boss Defeated (Victory)");
+            TaskManager.Instance.OnBossDefeated();
+        }
+
+        // 9 = Simulate Player Death
+        if (Input.GetKeyDown(KeyCode.Alpha9))
+        {
+            Log("9 - Simulating local player death");
+            if (GameManager.Instance != null)
             {
-                // Simulate NPC3 stage 1 completing
-                TaskManager.Instance.CompleteReturnToVoss();
+                ulong localClientId = NetworkManager.Singleton.LocalClientId;
+                GameManager.Instance.RegisterPlayerDeath(localClientId);
             }
             else
             {
-                Debug.LogWarning("[TESTER] Not in PetrovDebrief phase -- ignored.");
+                Debug.LogError("[GameFlowTester] GameManager.Instance is null!");
             }
         }
-        if (Input.GetKeyDown(KeyCode.Alpha5))
+    }
+
+    private void PrintCurrentPhase()
+    {
+        if (TaskManager.Instance == null)
         {
-            Debug.Log("[TESTER] 5 -- CompleteReturnToVoss -> Boss Fight");
-            TaskManager.Instance?.CompleteReturnToVoss();
+            Debug.LogError("[GameFlowTester] TaskManager.Instance is null!");
+            return;
         }
-        if (Input.GetKeyDown(KeyCode.Alpha6))
+
+        GamePhase currentPhase = TaskManager.Instance.CurrentPhase;
+        Debug.Log("========================================");
+        Debug.Log($"[GameFlowTester] CURRENT PHASE: {currentPhase}");
+        Debug.Log($"[GameFlowTester] {GetPhaseHelp(currentPhase)}");
+        Debug.Log("========================================");
+    }
+
+    private string GetPhaseHelp(GamePhase phase)
+    {
+        return phase switch
         {
-            Debug.Log("[TESTER] 6 -- OnBossDefeated -> Victory");
-            TaskManager.Instance?.OnBossDefeated();
-        }
-        if (Input.GetKeyDown(KeyCode.Alpha7))
+            GamePhase.Intro => "Press 1 to complete intro",
+            GamePhase.Briefing => "Press 2 to complete briefing",
+            GamePhase.Task1_Field => "Press 3 for mushrooms, 4 for cans (both needed)",
+            GamePhase.ReturnBriefing => "Press 5 to complete return briefing",
+            GamePhase.Task2_ScavengerRaid => "Press 6 to complete scavenger raid",
+            GamePhase.PetrovDebrief => "Press 7 to spawn boss (skips debrief)",
+            GamePhase.ReturnToVoss => "Press 7 to spawn boss",
+            GamePhase.BossFight => "Press 8 to defeat boss",
+            GamePhase.Victory => "GAME WON",
+            GamePhase.GameOver => "GAME OVER",
+            _ => "Unknown phase"
+        };
+    }
+
+    private void Log(string message)
+    {
+        if (showDebugMessages)
         {
-            Debug.Log("[TESTER] 7 -- Simulate player 0 death");
-            GameManager.Instance?.RegisterPlayerDeath(0);
+            Debug.Log($"[GameFlowTester] {message}");
         }
     }
 }

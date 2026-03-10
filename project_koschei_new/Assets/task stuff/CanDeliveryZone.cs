@@ -136,4 +136,25 @@ public class CanDeliveryZone : NetworkBehaviour
     {
         Debug.Log("All cans delivered to the church!");
     }
+
+    // ================================================================
+    // TESTING HELPER
+    // ================================================================
+
+    /// <summary>
+    /// Force completes the can delivery objective (testing only).
+    /// Called by TaskManager.ForceCompleteFoodCanTask() via GameFlowTester.
+    /// </summary>
+    public void ForceCompleteCanDelivery()
+    {
+        if (!NetworkManager.Singleton.IsServer)
+        {
+            Debug.LogWarning("[CanDeliveryZone] ForceCompleteCanDelivery can only be called on server!");
+            return;
+        }
+
+        // Set cans to required count
+        collectedCans.Value = requiredCans;
+        Debug.Log($"[CanDeliveryZone] Can delivery force completed! ({requiredCans}/{requiredCans})");
+    }
 }

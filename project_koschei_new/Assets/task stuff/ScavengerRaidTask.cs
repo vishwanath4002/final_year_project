@@ -214,4 +214,45 @@ public class ScavengerRaidTask : MonoBehaviour, IGameTask
     {
         if (taskActive) EndTask();
     }
+
+    // ================================================================
+    // TESTING HELPER
+    // ================================================================
+
+    /// <summary>
+    /// Force completes the scavenger raid task (testing only).
+    /// Called by TaskManager.ForceCompleteScavengerRaid() via GameFlowTester.
+    /// </summary>
+    public void ForceCompleteTask()
+    {
+        if (!taskActive)
+        {
+            Debug.LogWarning("[ScavengerRaidTask] ForceCompleteTask called but task is not active!");
+            return;
+        }
+
+        taskActive = false;
+
+        // Stop spawning
+        if (spawnCoroutine != null)
+        {
+            StopCoroutine(spawnCoroutine);
+            spawnCoroutine = null;
+        }
+
+        // Unsubscribe from scientist death
+        if (scientistHealth != null)
+            scientistHealth.OnDeath -= HandleScientistDied;
+
+        // Kill all remaining aliens
+        foreach (var alien in livingAliens)
+        {
+            if (alien != null)
+                Destroy(alien);
+        }
+        livingAliens.Clear();
+
+        Debug.Log("[ScavengerRaidTask] Task force completed!");
+        OnTaskCompleted?.Invoke();
+    }
 }
