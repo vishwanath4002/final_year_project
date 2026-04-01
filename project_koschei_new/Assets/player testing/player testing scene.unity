@@ -1350,6 +1350,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: CanDeliveryZone
       objectReference: {fileID: 0}
+    - target: {fileID: 4344956419540382657, guid: 8254e925f26478447958b457e0389a3d, type: 3}
+      propertyPath: m_IsActive
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 4344956419540382658, guid: 8254e925f26478447958b457e0389a3d, type: 3}
       propertyPath: m_LocalPosition.x
       value: -6.99
