@@ -12,13 +12,17 @@ public class FirewoodDeliveryZone : NetworkBehaviour
     [SerializeField] private int requiredWood = 5;
     [SerializeField] private int requiredMushrooms = 13;
 
-    // ── Task1 listens to these (server-side only) ──
+    [Header("Marker")]
+    [SerializeField] private GameObject zoneMarkerSprite; // Visible only when task is active and no wood has been deposited yet
+
+    // Task1 listens to these (server-side only)
     public event Action OnFireLit;
     public event Action OnMushroomsComplete;
 
     private NetworkVariable<int> depositedWood = new NetworkVariable<int>(0);
     private NetworkVariable<int> burnedMushrooms = new NetworkVariable<int>(0);
     private NetworkVariable<bool> fireIsActive = new NetworkVariable<bool>(false);
+    private NetworkVariable<bool> taskIsActive = new NetworkVariable<bool>(false);
 
     private bool playerInZone = false;
     private GameObject playerInTrigger = null;
@@ -26,47 +30,77 @@ public class FirewoodDeliveryZone : NetworkBehaviour
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
+
         depositedWood.OnValueChanged += OnWoodChanged;
         burnedMushrooms.OnValueChanged += OnMushroomChanged;
         fireIsActive.OnValueChanged += OnFireActiveChanged;
+        taskIsActive.OnValueChanged += OnTaskActiveChanged;
 
-        // ✅ Sync fire visual for clients who join after fire was already lit
-        if (firePrefab != null)
-            firePrefab.SetActive(fireIsActive.Value);
+        RefreshWoodPileVisual(depositedWood.Value);
+        ApplyFireVisual(fireIsActive.Value);
+        RefreshMarkerVisual();
     }
 
     public override void OnNetworkDespawn()
     {
         base.OnNetworkDespawn();
+
         depositedWood.OnValueChanged -= OnWoodChanged;
         burnedMushrooms.OnValueChanged -= OnMushroomChanged;
         fireIsActive.OnValueChanged -= OnFireActiveChanged;
+        taskIsActive.OnValueChanged -= OnTaskActiveChanged;
     }
 
-    void OnWoodChanged(int oldValue, int newValue)
+    private void OnWoodChanged(int oldValue, int newValue)
     {
-        for (int i = 0; i < firewoodPileObjects.Count; i++)
-            if (firewoodPileObjects[i] != null)
-                firewoodPileObjects[i].SetActive(i < newValue);
+        RefreshWoodPileVisual(newValue);
+        RefreshMarkerVisual();
         Debug.Log($"Pile updated: {newValue}/{requiredWood} wood pieces active.");
     }
 
-    void OnMushroomChanged(int oldValue, int newValue)
+    private void OnMushroomChanged(int oldValue, int newValue)
     {
         Debug.Log($"Mushrooms burned: {newValue}/{requiredMushrooms}");
+
         if (newValue >= requiredMushrooms)
         {
             Debug.Log("All mushrooms burned!");
-            if (IsServer) OnMushroomsComplete?.Invoke();
+            if (IsServer)
+                OnMushroomsComplete?.Invoke();
         }
     }
 
-    // ✅ Reacts on ALL clients whenever fireIsActive changes
-    void OnFireActiveChanged(bool oldValue, bool newValue)
+    private void OnFireActiveChanged(bool oldValue, bool newValue)
+    {
+        ApplyFireVisual(newValue);
+        Debug.Log($"[FirewoodDeliveryZone] Fire visual set to: {newValue}");
+    }
+
+    private void OnTaskActiveChanged(bool oldValue, bool newValue)
+    {
+        RefreshMarkerVisual();
+        Debug.Log($"[FirewoodDeliveryZone] Task active set to: {newValue}");
+    }
+
+    private void RefreshWoodPileVisual(int woodCount)
+    {
+        for (int i = 0; i < firewoodPileObjects.Count; i++)
+        {
+            if (firewoodPileObjects[i] != null)
+                firewoodPileObjects[i].SetActive(i < woodCount);
+        }
+    }
+
+    private void ApplyFireVisual(bool active)
     {
         if (firePrefab != null)
-            firePrefab.SetActive(newValue);
-        Debug.Log($"[FirewoodDeliveryZone] Fire visual set to: {newValue}");
+            firePrefab.SetActive(active);
+    }
+
+    private void RefreshMarkerVisual()
+    {
+        if (zoneMarkerSprite != null)
+            zoneMarkerSprite.SetActive(taskIsActive.Value && depositedWood.Value == 0);
     }
 
     void OnTriggerEnter(Collider other)
@@ -90,29 +124,38 @@ public class FirewoodDeliveryZone : NetworkBehaviour
     void Update()
     {
         if (!playerInZone) return;
-        PlayerInventory inv = playerInTrigger != null ? playerInTrigger.GetComponent<PlayerInventory>() : null;
+        if (playerInTrigger == null) return;
+
+        PlayerInventory inv = playerInTrigger.GetComponent<PlayerInventory>();
+        if (inv == null) return;
 
         if (Input.GetKeyDown(KeyCode.E))
         {
-            if (inv != null && inv.IsHoldingItem() && depositedWood.Value < requiredWood)
+            if (inv.IsHoldingItem() && depositedWood.Value < requiredWood)
             {
                 GameObject held = inv.GetHeldPrefab();
                 string heldName = held != null ? held.name.Replace("(Clone)", "").Trim() : "";
                 bool isFirewood = heldName == firewoodPrefabName;
-                if (isFirewood) DepositWoodServerRpc(NetworkManager.Singleton.LocalClientId);
-                else Debug.Log("Deposit option: NO. Not holding valid firewood.");
+
+                if (isFirewood)
+                    DepositWoodServerRpc(NetworkManager.Singleton.LocalClientId);
+                else
+                    Debug.Log("Deposit option: NO. Not holding valid firewood.");
             }
-            else if ((inv == null || !inv.IsHoldingItem()) && depositedWood.Value >= requiredWood && !fireIsActive.Value)
+            else if (!inv.IsHoldingItem() && depositedWood.Value >= requiredWood && !fireIsActive.Value)
             {
                 LightFireServerRpc();
             }
-            else if (inv != null && inv.IsHoldingItem() && fireIsActive.Value && burnedMushrooms.Value < requiredMushrooms)
+            else if (inv.IsHoldingItem() && fireIsActive.Value && burnedMushrooms.Value < requiredMushrooms)
             {
                 GameObject held = inv.GetHeldPrefab();
                 string heldName = held != null ? held.name.Replace("(Clone)", "").Trim() : "";
                 bool isMushroom = heldName.StartsWith("mushroom", StringComparison.OrdinalIgnoreCase);
-                if (isMushroom) DepositMushroomServerRpc(NetworkManager.Singleton.LocalClientId);
-                else Debug.Log("Mushroom deposit option: NO. Not holding a mushroom.");
+
+                if (isMushroom)
+                    DepositMushroomServerRpc(NetworkManager.Singleton.LocalClientId);
+                else
+                    Debug.Log("Mushroom deposit option: NO. Not holding a mushroom.");
             }
         }
     }
@@ -120,7 +163,9 @@ public class FirewoodDeliveryZone : NetworkBehaviour
     [ServerRpc(RequireOwnership = false)]
     void DepositWoodServerRpc(ulong playerId)
     {
+        if (!taskIsActive.Value) return;
         if (depositedWood.Value >= requiredWood) return;
+
         if (NetworkManager.Singleton.ConnectedClients.TryGetValue(playerId, out var client))
         {
             var inv = client.PlayerObject.GetComponent<PlayerInventory>();
@@ -140,7 +185,10 @@ public class FirewoodDeliveryZone : NetworkBehaviour
     [ServerRpc(RequireOwnership = false)]
     void DepositMushroomServerRpc(ulong playerId)
     {
-        if (!fireIsActive.Value || burnedMushrooms.Value >= requiredMushrooms) return;
+        if (!taskIsActive.Value) return;
+        if (!fireIsActive.Value) return;
+        if (burnedMushrooms.Value >= requiredMushrooms) return;
+
         if (NetworkManager.Singleton.ConnectedClients.TryGetValue(playerId, out var client))
         {
             var inv = client.PlayerObject.GetComponent<PlayerInventory>();
@@ -160,16 +208,60 @@ public class FirewoodDeliveryZone : NetworkBehaviour
     [ServerRpc(RequireOwnership = false)]
     void LightFireServerRpc()
     {
+        if (!taskIsActive.Value) return;
         if (fireIsActive.Value) return;
+        if (depositedWood.Value < requiredWood) return;
 
-        // ✅ Setting the NetworkVariable triggers OnFireActiveChanged on ALL clients automatically
         fireIsActive.Value = true;
         Debug.Log("Fire activated!");
-        OnFireLit?.Invoke(); // server-side event for Task1
+        OnFireLit?.Invoke();
     }
 
     // ================================================================
-    // TESTING HELPER
+    // TASK ACTIVATION API
+    // Call this from Task1 when the firewood objective becomes active
+    // ================================================================
+
+    public void ActivateTask()
+    {
+        if (!IsServer)
+        {
+            Debug.LogWarning("[FirewoodDeliveryZone] ActivateTask can only be called on server!");
+            return;
+        }
+
+        taskIsActive.Value = true;
+        Debug.Log("[FirewoodDeliveryZone] Task activated.");
+    }
+
+    public void DeactivateTask()
+    {
+        if (!IsServer)
+        {
+            Debug.LogWarning("[FirewoodDeliveryZone] DeactivateTask can only be called on server!");
+            return;
+        }
+
+        taskIsActive.Value = false;
+        Debug.Log("[FirewoodDeliveryZone] Task deactivated.");
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    public void ActivateTaskServerRpc()
+    {
+        taskIsActive.Value = true;
+        Debug.Log("[FirewoodDeliveryZone] Task activated via ServerRpc.");
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    public void DeactivateTaskServerRpc()
+    {
+        taskIsActive.Value = false;
+        Debug.Log("[FirewoodDeliveryZone] Task deactivated via ServerRpc.");
+    }
+
+    // ================================================================
+    // TESTING HELPERS
     // ================================================================
 
     public void ForceCompleteMushroomBurning()
@@ -182,5 +274,18 @@ public class FirewoodDeliveryZone : NetworkBehaviour
 
         burnedMushrooms.Value = requiredMushrooms;
         Debug.Log($"[FirewoodDeliveryZone] Mushroom burning force completed! ({requiredMushrooms}/{requiredMushrooms})");
+    }
+
+    public void ForceActivateFire()
+    {
+        if (!NetworkManager.Singleton.IsServer)
+        {
+            Debug.LogWarning("[FirewoodDeliveryZone] ForceActivateFire can only be called on server!");
+            return;
+        }
+
+        fireIsActive.Value = true;
+        Debug.Log("[FirewoodDeliveryZone] Fire force activated.");
+        OnFireLit?.Invoke();
     }
 }

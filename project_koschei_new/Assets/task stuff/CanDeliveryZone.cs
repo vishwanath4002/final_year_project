@@ -7,6 +7,8 @@ public class CanDeliveryZone : NetworkBehaviour
 {
     [SerializeField] private int requiredCans = 12;
     [SerializeField] private Transform dropOffPoint;
+    [SerializeField] private GameObject zoneMarkerSprite;
+
     [SerializeField]
     private List<string> foodCanPrefabNames = new List<string>
     {
@@ -18,6 +20,8 @@ public class CanDeliveryZone : NetworkBehaviour
     public event Action OnCansComplete;
 
     private NetworkVariable<int> collectedCans = new NetworkVariable<int>(0);
+    private NetworkVariable<bool> taskIsActive = new NetworkVariable<bool>(false);
+
     private bool playerInZone = false;
     private GameObject playerInTrigger = null;
 
@@ -25,17 +29,40 @@ public class CanDeliveryZone : NetworkBehaviour
     {
         base.OnNetworkSpawn();
         collectedCans.OnValueChanged += OnCansChanged;
+        taskIsActive.OnValueChanged += OnTaskActiveChanged;
+
+        RefreshMarkerVisual();
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        base.OnNetworkDespawn();
+        collectedCans.OnValueChanged -= OnCansChanged;
+        taskIsActive.OnValueChanged -= OnTaskActiveChanged;
     }
 
     void OnCansChanged(int oldValue, int newValue)
     {
         Debug.Log($"Cans delivered: {newValue}/{requiredCans}");
+        RefreshMarkerVisual();
+
         if (newValue >= requiredCans)
         {
             Debug.Log("All cans delivered!");
             if (IsServer) OnCansComplete?.Invoke();
             CansCompleteClientRpc();
         }
+    }
+
+    void OnTaskActiveChanged(bool oldValue, bool newValue)
+    {
+        RefreshMarkerVisual();
+    }
+
+    void RefreshMarkerVisual()
+    {
+        if (zoneMarkerSprite != null)
+            zoneMarkerSprite.SetActive(taskIsActive.Value && collectedCans.Value < requiredCans);
     }
 
     void OnTriggerEnter(Collider other)
@@ -60,6 +87,8 @@ public class CanDeliveryZone : NetworkBehaviour
     {
         if (playerInZone && Input.GetKeyDown(KeyCode.E))
         {
+            if (!taskIsActive.Value) return;
+
             if (playerInTrigger != null)
             {
                 PlayerInventory inventory = playerInTrigger.GetComponent<PlayerInventory>();
@@ -88,15 +117,21 @@ public class CanDeliveryZone : NetworkBehaviour
     [ServerRpc(RequireOwnership = false)]
     void DepositCanServerRpc(ulong playerId)
     {
+        if (!taskIsActive.Value) return;
+        if (collectedCans.Value >= requiredCans) return;
+
         if (NetworkManager.Singleton.ConnectedClients.TryGetValue(playerId, out var client))
         {
             PlayerInventory inventory = client.PlayerObject.GetComponent<PlayerInventory>();
             if (inventory != null && inventory.IsHoldingItem())
             {
                 GameObject canType = inventory.GetHeldPrefab();
-                inventory.DepositItem();
-                SpawnCanInZone(canType);
-                collectedCans.Value++;
+                if (canType != null && IsFoodCan(canType))
+                {
+                    inventory.DepositItem();
+                    SpawnCanInZone(canType);
+                    collectedCans.Value++;
+                }
             }
         }
     }
@@ -104,6 +139,7 @@ public class CanDeliveryZone : NetworkBehaviour
     void SpawnCanInZone(GameObject canPrefabToSpawn)
     {
         if (canPrefabToSpawn == null) return;
+
         int canCount = collectedCans.Value;
         Vector3 spawnPos;
 
@@ -121,8 +157,6 @@ public class CanDeliveryZone : NetworkBehaviour
         }
 
         GameObject depositedCan = Instantiate(canPrefabToSpawn, spawnPos, Quaternion.identity);
-        var pickup = depositedCan.GetComponent<PickupObject>();
-        if (pickup != null) Destroy(pickup);
 
         foreach (Collider col in depositedCan.GetComponents<Collider>())
             if (col.isTrigger) col.enabled = false;
@@ -135,6 +169,22 @@ public class CanDeliveryZone : NetworkBehaviour
     void CansCompleteClientRpc()
     {
         Debug.Log("All cans delivered to the church!");
+    }
+
+    // ================================================================
+    // TASK ACTIVATION
+    // ================================================================
+
+    public void ActivateTask()
+    {
+        if (!NetworkManager.Singleton.IsServer)
+        {
+            Debug.LogWarning("[CanDeliveryZone] ActivateTask can only be called on server!");
+            return;
+        }
+
+        taskIsActive.Value = true;
+        Debug.Log("[CanDeliveryZone] Task activated.");
     }
 
     // ================================================================
@@ -153,7 +203,6 @@ public class CanDeliveryZone : NetworkBehaviour
             return;
         }
 
-        // Set cans to required count
         collectedCans.Value = requiredCans;
         Debug.Log($"[CanDeliveryZone] Can delivery force completed! ({requiredCans}/{requiredCans})");
     }
