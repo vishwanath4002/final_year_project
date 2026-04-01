@@ -29,7 +29,7 @@ public class ScientistNPCDialogue : NetworkBehaviour
                 "I am what remains of the advance team. We entered three days ago. There were four of us. Now there is me.",
                 "This place -- Koschei Station. Soviet research post. Abandoned. Flooded. Whatever happened here, it is not finished happening. You understand?",
                 "Your objective is not complicated. Find the researchers still alive in this zone. Stay with your group. Do not wander. This place does not forgive stupidity.",
-                "There is a woman waiting for you ahead. She has been in this zone longer than any of us. She knows the layout, the dangers, all of it. She will brief you properly.",
+                "There is a woman waiting for you in the church ahead. She has been in this zone longer than any of us. She knows the layout, the dangers, all of it. She will brief you properly.",
                 "Go. And try not to die before you even reach her."
             }
         }

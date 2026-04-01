@@ -252,9 +252,9 @@ MonoBehaviour:
       happened here, it is not finished happening. You understand?
     - Your objective is not complicated. Find the researchers still alive in this
       zone. Stay with your group. Do not wander. This place does not forgive stupidity.
-    - There is a woman waiting for you ahead. She has been in this zone longer than
-      any of us. She knows the layout, the dangers, all of it. She will brief you
-      properly.
+    - There is a woman waiting for you in the church ahead. She has been in this
+      zone longer than any of us. She knows the layout, the dangers, all of it. She
+      will brief you properly.
     - Go. And try not to die before you even reach her.
     secondsPerLine: 5
   animator: {fileID: 362966689410299862}
