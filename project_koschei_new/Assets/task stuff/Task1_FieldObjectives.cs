@@ -18,12 +18,13 @@ public class Task1_FieldObjectives : NetworkBehaviour, IGameTask
     public event Action OnTaskCompleted;
     public event Action OnTaskFailed;
 
-    bool mushroomsComplete = false;
-    bool cansComplete = false;
-    bool taskActive = false;
-    Coroutine timerCoroutine;
+    private bool mushroomsComplete = false;
+    private bool cansComplete = false;
+    private bool taskActive = false;
+    private Coroutine timerCoroutine;
 
     // ================================================================
+
     public void StartTask()
     {
         if (!NetworkManager.Singleton.IsServer)
@@ -33,31 +34,30 @@ public class Task1_FieldObjectives : NetworkBehaviour, IGameTask
         }
         if (taskActive)
         {
-            Debug.LogWarning("[Task1] StartTask called but task is already running.");
+            Debug.LogWarning("[Task1] Already running.");
             return;
         }
 
-        if (firewoodZone == null) Debug.LogError("[Task1] FirewoodZone is not assigned!");
-        if (canZone == null) Debug.LogError("[Task1] CanZone is not assigned!");
-        if (penaltySpawner == null) Debug.LogWarning("[Task1] PenaltySpawner not assigned -- no penalty on timer fail.");
+        if (firewoodZone == null) Debug.LogError("[Task1] FirewoodZone not assigned!");
+        if (canZone == null) Debug.LogError("[Task1] CanZone not assigned!");
 
         taskActive = true;
         mushroomsComplete = false;
         cansComplete = false;
 
-        // Subscribe to zone completion events
-        firewoodZone.OnMushroomsComplete += HandleMushroomsComplete;
-        firewoodZone.OnFireLit += HandleFireLit;
+        // Subscribe to zone events
         firewoodZone.OnWoodProgressChanged += HandleWoodProgress;
+        firewoodZone.OnFireLit += HandleFireLit;
         firewoodZone.OnMushroomProgressChanged += HandleMushroomProgress;
-        canZone.OnCansComplete += HandleCansComplete;
+        firewoodZone.OnMushroomsComplete += HandleMushroomsComplete;
         canZone.OnCanProgressChanged += HandleCanProgress;
+        canZone.OnCansComplete += HandleCansComplete;
 
         // Activate zone markers
         firewoodZone.ActivateTask();
         canZone.ActivateTask();
 
-        // Show HUD on all clients
+        // Show initial HUD on all clients
         ShowHudClientRpc(
             firewoodZone.GetRequiredWood(),
             firewoodZone.GetRequiredMushrooms(),
@@ -66,19 +66,14 @@ public class Task1_FieldObjectives : NetworkBehaviour, IGameTask
 
         timerCoroutine = StartCoroutine(TaskTimerRoutine());
 
-        Debug.Log($"[Task1] Task started! Timer: {taskDuration}s");
-        Debug.Log("[Task1] Objectives: burn mushrooms at firewood zone AND deliver cans to church.");
+        Debug.Log($"[Task1] Started. Timer: {taskDuration}s");
     }
 
     public void EndTask()
     {
-        if (!taskActive)
-        {
-            Debug.LogWarning("[Task1] EndTask called but task is not running.");
-            return;
-        }
+        if (!taskActive) return;
         CleanUp();
-        Debug.Log("[Task1] Task force-ended and cleaned up.");
+        Debug.Log("[Task1] Force-ended.");
     }
 
     // ================================================================
@@ -87,13 +82,11 @@ public class Task1_FieldObjectives : NetworkBehaviour, IGameTask
 
     IEnumerator TaskTimerRoutine()
     {
-        Debug.Log($"[Task1] Timer started -- {taskDuration}s remaining.");
         float remaining = taskDuration;
-
         while (remaining > 0f && taskActive)
         {
             if (Mathf.FloorToInt(remaining) % 60 == 0)
-                Debug.Log($"[Task1] Timer -- {remaining}s remaining.");
+                Debug.Log($"[Task1] {remaining}s remaining.");
             yield return new WaitForSeconds(1f);
             remaining -= 1f;
         }
@@ -101,71 +94,59 @@ public class Task1_FieldObjectives : NetworkBehaviour, IGameTask
         if (!taskActive) yield break;
 
         Debug.Log("[Task1] TIMER EXPIRED -- penalty scavengers incoming!");
-        Debug.Log("[Task1] Players must still complete objectives -- task is NOT failed yet.");
         penaltySpawner?.StartSpawning();
         OnTaskFailed?.Invoke();
     }
 
     // ================================================================
-    // Zone progress callbacks (server-side) -- broadcast to all clients
+    // Zone callbacks (server-side) -- broadcast to all clients
     // ================================================================
 
     void HandleWoodProgress(int current, int required)
-        => UpdateWoodHudClientRpc(current, required);
+    {
+        UpdateWoodHudClientRpc(current, required);
+
+        if (current >= required)
+            FirewoodDepositCompleteClientRpc(); // remove deposit line, show "light fire" line
+    }
 
     void HandleFireLit()
-        => UnlockMushroomHudClientRpc(firewoodZone.GetRequiredMushrooms());
+        => FireLitClientRpc(firewoodZone.GetRequiredMushrooms());
 
     void HandleMushroomProgress(int current, int required)
         => UpdateMushroomHudClientRpc(current, required);
 
-    void HandleCanProgress(int current, int required)
-        => UpdateCanHudClientRpc(current, required);
-
-    // ================================================================
-    // Zone completion callbacks (server-side)
-    // ================================================================
-
     void HandleMushroomsComplete()
     {
-        if (!taskActive)
-        {
-            Debug.LogWarning("[Task1] HandleMushroomsComplete called but task is not active.");
-            return;
-        }
-        Debug.Log("[Task1] Mushrooms objective COMPLETE.");
+        if (!taskActive) return;
+        Debug.Log("[Task1] Mushrooms COMPLETE.");
+        MushroomBurnCompleteClientRpc();
         mushroomsComplete = true;
         LogObjectiveStatus();
         CheckAllComplete();
     }
 
+    void HandleCanProgress(int current, int required)
+        => UpdateCanHudClientRpc(current, required);
+
     void HandleCansComplete()
     {
-        if (!taskActive)
-        {
-            Debug.LogWarning("[Task1] HandleCansComplete called but task is not active.");
-            return;
-        }
-        Debug.Log("[Task1] Cans objective COMPLETE.");
+        if (!taskActive) return;
+        Debug.Log("[Task1] Cans COMPLETE.");
+        CanDeliveryCompleteClientRpc();
         cansComplete = true;
         LogObjectiveStatus();
         CheckAllComplete();
     }
 
     void LogObjectiveStatus()
-    {
-        Debug.Log($"[Task1] Objective status -- Mushrooms: {(mushroomsComplete ? "DONE" : "pending")} | Cans: {(cansComplete ? "DONE" : "pending")}");
-    }
+        => Debug.Log($"[Task1] Mushrooms: {(mushroomsComplete ? "DONE" : "pending")} | Cans: {(cansComplete ? "DONE" : "pending")}");
 
     void CheckAllComplete()
     {
-        if (!mushroomsComplete || !cansComplete)
-        {
-            Debug.Log("[Task1] Not all objectives done yet -- waiting.");
-            return;
-        }
-        Debug.Log("[Task1] ALL objectives complete! Task 1 DONE.");
-        CompleteHudClientRpc();
+        if (!mushroomsComplete || !cansComplete) return;
+        Debug.Log("[Task1] ALL objectives complete!");
+        AllCompleteClientRpc();
         CleanUp();
         OnTaskCompleted?.Invoke();
     }
@@ -177,46 +158,58 @@ public class Task1_FieldObjectives : NetworkBehaviour, IGameTask
 
         if (firewoodZone != null)
         {
-            firewoodZone.OnMushroomsComplete -= HandleMushroomsComplete;
-            firewoodZone.OnFireLit -= HandleFireLit;
             firewoodZone.OnWoodProgressChanged -= HandleWoodProgress;
+            firewoodZone.OnFireLit -= HandleFireLit;
             firewoodZone.OnMushroomProgressChanged -= HandleMushroomProgress;
+            firewoodZone.OnMushroomsComplete -= HandleMushroomsComplete;
         }
         if (canZone != null)
         {
-            canZone.OnCansComplete -= HandleCansComplete;
             canZone.OnCanProgressChanged -= HandleCanProgress;
+            canZone.OnCansComplete -= HandleCansComplete;
         }
 
         penaltySpawner?.StopSpawning();
-        Debug.Log("[Task1] Cleaned up -- events unsubscribed, penalty spawner stopped.");
+        Debug.Log("[Task1] Cleaned up.");
     }
 
     // ================================================================
-    // ClientRpcs -- HUD updates sent to every client
+    // ClientRpcs
     // ================================================================
 
     [ClientRpc]
-    void ShowHudClientRpc(int requiredWood, int requiredMushrooms, int requiredCans)
-        => PlayerHUD.Local?.ShowTask1(requiredWood, requiredMushrooms, requiredCans);
+    void ShowHudClientRpc(int reqWood, int reqMushrooms, int reqCans)
+        => PlayerHUD.Local?.ShowTask1(reqWood, reqMushrooms, reqCans);
 
     [ClientRpc]
     void UpdateWoodHudClientRpc(int current, int required)
         => PlayerHUD.Local?.SetFirewoodProgress(current, required);
 
     [ClientRpc]
-    void UnlockMushroomHudClientRpc(int required)
-        => PlayerHUD.Local?.UnlockMushroomProgress(required);
+    void FirewoodDepositCompleteClientRpc()
+        => PlayerHUD.Local?.OnFirewoodDepositComplete();
+
+    [ClientRpc]
+    void FireLitClientRpc(int requiredMushrooms)
+        => PlayerHUD.Local?.OnFireLit(requiredMushrooms);
 
     [ClientRpc]
     void UpdateMushroomHudClientRpc(int current, int required)
         => PlayerHUD.Local?.SetMushroomProgress(current, required);
 
     [ClientRpc]
+    void MushroomBurnCompleteClientRpc()
+        => PlayerHUD.Local?.OnMushroomBurnComplete();
+
+    [ClientRpc]
     void UpdateCanHudClientRpc(int current, int required)
         => PlayerHUD.Local?.SetCanProgress(current, required);
 
     [ClientRpc]
-    void CompleteHudClientRpc()
-        => PlayerHUD.Local?.CompleteCurrentTask("Field Objectives");
+    void CanDeliveryCompleteClientRpc()
+        => PlayerHUD.Local?.OnCanDeliveryComplete();
+
+    [ClientRpc]
+    void AllCompleteClientRpc()
+        => PlayerHUD.Local?.CompleteCurrentTask("Field tasks complete");
 }
