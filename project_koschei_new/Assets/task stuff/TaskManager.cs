@@ -78,7 +78,7 @@ public class TaskManager : NetworkBehaviour
             Debug.Log($"[TaskManager] ========== PHASE CHANGED: {oldPhase} -> {newPhase} ==========");
             Debug.Log($"[TaskManager] {GetPhaseDescription(newPhase)}");
 
-            // ?? HUD update on ALL clients via NetworkVariable callback ??
+            // -- HUD update on ALL clients via NetworkVariable callback --
             ApplyHUDForPhase(newPhase);
         };
 
@@ -101,7 +101,7 @@ public class TaskManager : NetworkBehaviour
     }
 
     // ================================================================
-    // HUD helper — runs on every client from the NetworkVariable callback
+    // HUD helper -- runs on every client from the NetworkVariable callback
     // ================================================================
 
     void ApplyHUDForPhase(GamePhase phase)
@@ -233,7 +233,7 @@ public class TaskManager : NetworkBehaviour
     {
         SetPhase(GamePhase.Task1_Field);
 
-        // Activate firewood zone — marker appears, players can start depositing
+        // Activate firewood zone -- marker appears, players can start depositing
         firewoodZone?.ActivateTask();
 
         // Subscribe to sub-objective events to drive mid-task HUD updates
@@ -250,13 +250,13 @@ public class TaskManager : NetworkBehaviour
 
     void OnFireLit()
     {
-        // Fire is lit — tell all clients to update HUD to mushroom sub-task
+        // Fire is lit -- tell all clients to update HUD to mushroom sub-task
         FireLitClientRpc();
     }
 
     void OnMushroomsComplete()
     {
-        // Mushrooms done — activate can delivery zone and update HUD
+        // Mushrooms done -- activate can delivery zone and update HUD
         canDeliveryZone?.ActivateTask();
         MushroomsDoneClientRpc();
     }
@@ -439,7 +439,7 @@ public class TaskManager : NetworkBehaviour
     }
 
     // ================================================================
-    // CLIENT RPCS — mid-task HUD updates (sub-objectives inside Task1)
+    // CLIENT RPCS -- mid-task HUD updates (sub-objectives inside Task1)
     // ================================================================
 
     [ClientRpc]
@@ -452,7 +452,6 @@ public class TaskManager : NetworkBehaviour
     void MushroomsDoneClientRpc()
     {
         PlayerHUD.Local?.CompleteCurrentTask("Mushrooms burned");
-        // Slight delay before showing next line so the banner has room to breathe
         StartCoroutine(DelayedShowTask("Gather food cans scattered around and deliver them to the church.", 1.5f));
     }
 

@@ -113,7 +113,7 @@ public class PlayerHUD : NetworkBehaviour
 
         if (taskCompleteText != null)
         {
-            taskCompleteText.text = $"{completedTaskName} complete";
+            taskCompleteText.text = $"[Done]  {completedTaskName} complete";
             taskCompleteText.gameObject.SetActive(true);
         }
 
