@@ -3,7 +3,7 @@ using System.Collections;
 using Unity.Netcode;
 using UnityEngine;
 
-public class Task1_FieldObjectives : MonoBehaviour, IGameTask
+public class Task1_FieldObjectives : NetworkBehaviour, IGameTask
 {
     [Header("Zone References")]
     public FirewoodDeliveryZone firewoodZone;
@@ -23,6 +23,7 @@ public class Task1_FieldObjectives : MonoBehaviour, IGameTask
     bool taskActive = false;
     Coroutine timerCoroutine;
 
+    // ================================================================
     public void StartTask()
     {
         if (!NetworkManager.Singleton.IsServer)
@@ -38,19 +39,35 @@ public class Task1_FieldObjectives : MonoBehaviour, IGameTask
 
         if (firewoodZone == null) Debug.LogError("[Task1] FirewoodZone is not assigned!");
         if (canZone == null) Debug.LogError("[Task1] CanZone is not assigned!");
-        if (penaltySpawner == null) Debug.LogWarning("[Task1] PenaltySpawner is not assigned -- no penalty on timer fail.");
+        if (penaltySpawner == null) Debug.LogWarning("[Task1] PenaltySpawner not assigned -- no penalty on timer fail.");
 
         taskActive = true;
         mushroomsComplete = false;
         cansComplete = false;
 
+        // Subscribe to zone completion events
         firewoodZone.OnMushroomsComplete += HandleMushroomsComplete;
+        firewoodZone.OnFireLit += HandleFireLit;
+        firewoodZone.OnWoodProgressChanged += HandleWoodProgress;
+        firewoodZone.OnMushroomProgressChanged += HandleMushroomProgress;
         canZone.OnCansComplete += HandleCansComplete;
+        canZone.OnCanProgressChanged += HandleCanProgress;
+
+        // Activate zone markers
+        firewoodZone.ActivateTask();
+        canZone.ActivateTask();
+
+        // Show HUD on all clients
+        ShowHudClientRpc(
+            firewoodZone.GetRequiredWood(),
+            firewoodZone.GetRequiredMushrooms(),
+            canZone.GetRequiredCans()
+        );
 
         timerCoroutine = StartCoroutine(TaskTimerRoutine());
 
         Debug.Log($"[Task1] Task started! Timer: {taskDuration}s");
-        Debug.Log($"[Task1] Objectives: burn mushrooms at firewood zone AND deliver cans to church.");
+        Debug.Log("[Task1] Objectives: burn mushrooms at firewood zone AND deliver cans to church.");
     }
 
     public void EndTask()
@@ -64,6 +81,10 @@ public class Task1_FieldObjectives : MonoBehaviour, IGameTask
         Debug.Log("[Task1] Task force-ended and cleaned up.");
     }
 
+    // ================================================================
+    // Timer
+    // ================================================================
+
     IEnumerator TaskTimerRoutine()
     {
         Debug.Log($"[Task1] Timer started -- {taskDuration}s remaining.");
@@ -71,7 +92,6 @@ public class Task1_FieldObjectives : MonoBehaviour, IGameTask
 
         while (remaining > 0f && taskActive)
         {
-            // Log every 60 seconds
             if (Mathf.FloorToInt(remaining) % 60 == 0)
                 Debug.Log($"[Task1] Timer -- {remaining}s remaining.");
             yield return new WaitForSeconds(1f);
@@ -85,6 +105,26 @@ public class Task1_FieldObjectives : MonoBehaviour, IGameTask
         penaltySpawner?.StartSpawning();
         OnTaskFailed?.Invoke();
     }
+
+    // ================================================================
+    // Zone progress callbacks (server-side) -- broadcast to all clients
+    // ================================================================
+
+    void HandleWoodProgress(int current, int required)
+        => UpdateWoodHudClientRpc(current, required);
+
+    void HandleFireLit()
+        => UnlockMushroomHudClientRpc(firewoodZone.GetRequiredMushrooms());
+
+    void HandleMushroomProgress(int current, int required)
+        => UpdateMushroomHudClientRpc(current, required);
+
+    void HandleCanProgress(int current, int required)
+        => UpdateCanHudClientRpc(current, required);
+
+    // ================================================================
+    // Zone completion callbacks (server-side)
+    // ================================================================
 
     void HandleMushroomsComplete()
     {
@@ -125,6 +165,7 @@ public class Task1_FieldObjectives : MonoBehaviour, IGameTask
             return;
         }
         Debug.Log("[Task1] ALL objectives complete! Task 1 DONE.");
+        CompleteHudClientRpc();
         CleanUp();
         OnTaskCompleted?.Invoke();
     }
@@ -133,9 +174,49 @@ public class Task1_FieldObjectives : MonoBehaviour, IGameTask
     {
         taskActive = false;
         if (timerCoroutine != null) { StopCoroutine(timerCoroutine); timerCoroutine = null; }
-        if (firewoodZone != null) firewoodZone.OnMushroomsComplete -= HandleMushroomsComplete;
-        if (canZone != null) canZone.OnCansComplete -= HandleCansComplete;
+
+        if (firewoodZone != null)
+        {
+            firewoodZone.OnMushroomsComplete -= HandleMushroomsComplete;
+            firewoodZone.OnFireLit -= HandleFireLit;
+            firewoodZone.OnWoodProgressChanged -= HandleWoodProgress;
+            firewoodZone.OnMushroomProgressChanged -= HandleMushroomProgress;
+        }
+        if (canZone != null)
+        {
+            canZone.OnCansComplete -= HandleCansComplete;
+            canZone.OnCanProgressChanged -= HandleCanProgress;
+        }
+
         penaltySpawner?.StopSpawning();
         Debug.Log("[Task1] Cleaned up -- events unsubscribed, penalty spawner stopped.");
     }
+
+    // ================================================================
+    // ClientRpcs -- HUD updates sent to every client
+    // ================================================================
+
+    [ClientRpc]
+    void ShowHudClientRpc(int requiredWood, int requiredMushrooms, int requiredCans)
+        => PlayerHUD.Local?.ShowTask1(requiredWood, requiredMushrooms, requiredCans);
+
+    [ClientRpc]
+    void UpdateWoodHudClientRpc(int current, int required)
+        => PlayerHUD.Local?.SetFirewoodProgress(current, required);
+
+    [ClientRpc]
+    void UnlockMushroomHudClientRpc(int required)
+        => PlayerHUD.Local?.UnlockMushroomProgress(required);
+
+    [ClientRpc]
+    void UpdateMushroomHudClientRpc(int current, int required)
+        => PlayerHUD.Local?.SetMushroomProgress(current, required);
+
+    [ClientRpc]
+    void UpdateCanHudClientRpc(int current, int required)
+        => PlayerHUD.Local?.SetCanProgress(current, required);
+
+    [ClientRpc]
+    void CompleteHudClientRpc()
+        => PlayerHUD.Local?.CompleteCurrentTask("Field Objectives");
 }

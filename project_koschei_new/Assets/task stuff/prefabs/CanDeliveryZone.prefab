@@ -104,8 +104,8 @@ MonoBehaviour:
   - meat can round
   - meat can box
   zoneMarkerSprite: {fileID: 9151329091909407627}
-  depositPromptUI: {fileID: 0}
-  depositPromptText: {fileID: 0}
+  depositPromptUI: {fileID: 780077821541750298}
+  depositPromptText: {fileID: 7510570462883656420}
 --- !u!1001 &4565771210039719506
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -238,8 +238,24 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 68405648afc2ac24fba2469e32255731, type: 3}
+--- !u!1 &780077821541750298 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 8377674550817457702, guid: 68405648afc2ac24fba2469e32255731, type: 3}
+  m_PrefabInstance: {fileID: 9119822474369175612}
+  m_PrefabAsset: {fileID: 0}
 --- !u!4 &1945612634308251306 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 7318395957376360086, guid: 68405648afc2ac24fba2469e32255731, type: 3}
   m_PrefabInstance: {fileID: 9119822474369175612}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &7510570462883656420 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 1633388516528267992, guid: 68405648afc2ac24fba2469e32255731, type: 3}
+  m_PrefabInstance: {fileID: 9119822474369175612}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f4688fdb7df04437aeb418b961361dc5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 

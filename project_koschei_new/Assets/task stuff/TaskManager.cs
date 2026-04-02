@@ -49,7 +49,6 @@ public class TaskManager : NetworkBehaviour
     [Header("Debug -- Read Only")]
     [SerializeField] private GamePhase currentPhaseDisplay;
 
-    // Synced to all clients
     private NetworkVariable<int> _networkPhase = new NetworkVariable<int>(
         0,
         NetworkVariableReadPermission.Everyone,
@@ -60,6 +59,7 @@ public class TaskManager : NetworkBehaviour
     public GamePhase CurrentPhase => (GamePhase)_networkPhase.Value;
 
     // ================================================================
+
     void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
@@ -77,13 +77,10 @@ public class TaskManager : NetworkBehaviour
             currentPhaseDisplay = newPhase;
             Debug.Log($"[TaskManager] ========== PHASE CHANGED: {oldPhase} -> {newPhase} ==========");
             Debug.Log($"[TaskManager] {GetPhaseDescription(newPhase)}");
-
-            // -- HUD update on ALL clients via NetworkVariable callback --
             ApplyHUDForPhase(newPhase);
         };
 
-        // Apply immediately for late-joining clients
-        currentPhaseDisplay = (GamePhase)_networkPhase.Value;
+        currentPhaseDisplay = CurrentPhase;
         ApplyHUDForPhase(CurrentPhase);
 
         if (!IsServer) return;
@@ -101,7 +98,9 @@ public class TaskManager : NetworkBehaviour
     }
 
     // ================================================================
-    // HUD helper -- runs on every client from the NetworkVariable callback
+    // HUD -- runs on every client via the NetworkVariable callback.
+    // Task1 progress HUD is handled entirely by Task1_FieldObjectives
+    // via its own ClientRpcs, so we leave that case empty here.
     // ================================================================
 
     void ApplyHUDForPhase(GamePhase phase)
@@ -117,10 +116,9 @@ public class TaskManager : NetworkBehaviour
                 break;
 
             case GamePhase.Task1_Field:
-                // Zone markers are activated server-side in BeginTask1.
-                // HUD shows the first sub-task; the field task script updates it further
-                // via the ClientRpcs below as sub-objectives complete.
-                PlayerHUD.Local?.ShowTask("Collect firewood and bring it to the fire pit.");
+                // Task1_FieldObjectives.StartTask() sends ShowHudClientRpc to all clients
+                // which calls PlayerHUD.ShowTask1() with live progress tracking.
+                // Nothing to do here.
                 break;
 
             case GamePhase.ReturnBriefing:
@@ -160,15 +158,12 @@ public class TaskManager : NetworkBehaviour
     void OnNpc1StageCompleted(int stageIdx)
     {
         Debug.Log($"[TaskManager] NPC1 stage {stageIdx} complete (phase: {CurrentPhase})");
-
-        if (stageIdx == 0 && CurrentPhase == GamePhase.Intro)
-            CompleteIntro();
+        if (stageIdx == 0 && CurrentPhase == GamePhase.Intro) CompleteIntro();
     }
 
     void OnNpc2StageCompleted(int stageIdx)
     {
         Debug.Log($"[TaskManager] NPC2 (Dr. Voss) stage {stageIdx} complete (phase: {CurrentPhase})");
-
         if (stageIdx == 0 && CurrentPhase == GamePhase.Briefing) CompleteBriefing();
         else if (stageIdx == 1 && CurrentPhase == GamePhase.ReturnBriefing) CompleteReturnBriefing();
         else if (stageIdx == 2 && CurrentPhase == GamePhase.ReturnToVoss) CompleteReturnToVoss();
@@ -177,7 +172,6 @@ public class TaskManager : NetworkBehaviour
     void OnNpc3StageCompleted(int stageIdx)
     {
         Debug.Log($"[TaskManager] NPC3 (Dr. Petrov) stage {stageIdx} complete (phase: {CurrentPhase})");
-
         if (stageIdx == 0)
             Debug.Log("[TaskManager] NPC3 combat lines done -- scavengers still active.");
         else if (stageIdx == 1 && CurrentPhase == GamePhase.PetrovDebrief)
@@ -188,10 +182,7 @@ public class TaskManager : NetworkBehaviour
     // Phase 1 -- Intro
     // ================================================================
 
-    void BeginIntro()
-    {
-        SetPhase(GamePhase.Intro);
-    }
+    void BeginIntro() => SetPhase(GamePhase.Intro);
 
     public void CompleteIntro()
     {
@@ -205,13 +196,10 @@ public class TaskManager : NetworkBehaviour
     }
 
     // ================================================================
-    // Phase 2 -- Briefing (NPC2 stage 0)
+    // Phase 2 -- Briefing
     // ================================================================
 
-    void BeginBriefing()
-    {
-        SetPhase(GamePhase.Briefing);
-    }
+    void BeginBriefing() => SetPhase(GamePhase.Briefing);
 
     public void CompleteBriefing()
     {
@@ -227,38 +215,17 @@ public class TaskManager : NetworkBehaviour
 
     // ================================================================
     // Phase 3 -- Task 1
+    // Task1_FieldObjectives.StartTask() activates both zone markers and
+    // handles all HUD progress updates itself via ClientRpcs.
     // ================================================================
 
     void BeginTask1()
     {
         SetPhase(GamePhase.Task1_Field);
 
-        // Activate firewood zone -- marker appears, players can start depositing
-        firewoodZone?.ActivateTask();
-
-        // Subscribe to sub-objective events to drive mid-task HUD updates
-        if (firewoodZone != null)
-        {
-            firewoodZone.OnFireLit += OnFireLit;
-            firewoodZone.OnMushroomsComplete += OnMushroomsComplete;
-        }
-
         fieldTask.OnTaskCompleted += OnTask1Completed;
         fieldTask.OnTaskFailed += OnTask1TimerFailed;
         fieldTask.StartTask();
-    }
-
-    void OnFireLit()
-    {
-        // Fire is lit -- tell all clients to update HUD to mushroom sub-task
-        FireLitClientRpc();
-    }
-
-    void OnMushroomsComplete()
-    {
-        // Mushrooms done -- activate can delivery zone and update HUD
-        canDeliveryZone?.ActivateTask();
-        MushroomsDoneClientRpc();
     }
 
     void OnTask1Completed()
@@ -266,12 +233,6 @@ public class TaskManager : NetworkBehaviour
         Debug.Log("[TaskManager] Task 1 COMPLETE.");
         fieldTask.OnTaskCompleted -= OnTask1Completed;
         fieldTask.OnTaskFailed -= OnTask1TimerFailed;
-
-        if (firewoodZone != null)
-        {
-            firewoodZone.OnFireLit -= OnFireLit;
-            firewoodZone.OnMushroomsComplete -= OnMushroomsComplete;
-        }
 
         Task1CompleteClientRpc();
         BeginReturnBriefing();
@@ -282,8 +243,12 @@ public class TaskManager : NetworkBehaviour
         Debug.Log("[TaskManager] Task 1 timer expired -- penalty scavengers spawning. Task still active.");
     }
 
+    [ClientRpc]
+    void Task1CompleteClientRpc()
+        => PlayerHUD.Local?.CompleteCurrentTask("Field tasks complete");
+
     // ================================================================
-    // Phase 4 -- Return Briefing (NPC2 stage 1)
+    // Phase 4 -- Return Briefing
     // ================================================================
 
     void BeginReturnBriefing()
@@ -336,17 +301,18 @@ public class TaskManager : NetworkBehaviour
         HandleGameOver();
     }
 
-    // ================================================================
-    // Phase 6 -- Petrov Debrief (NPC3 stage 1)
-    // ================================================================
-
-    void BeginPetrovDebrief()
-    {
-        SetPhase(GamePhase.PetrovDebrief);
-    }
+    [ClientRpc]
+    void Task2CompleteClientRpc()
+        => PlayerHUD.Local?.CompleteCurrentTask("Petrov is safe");
 
     // ================================================================
-    // Phase 7 -- Return to Voss (NPC2 stage 2)
+    // Phase 6 -- Petrov Debrief
+    // ================================================================
+
+    void BeginPetrovDebrief() => SetPhase(GamePhase.PetrovDebrief);
+
+    // ================================================================
+    // Phase 7 -- Return to Voss
     // ================================================================
 
     void BeginReturnToVoss()
@@ -419,13 +385,8 @@ public class TaskManager : NetworkBehaviour
             fieldTask.OnTaskCompleted -= OnTask1Completed;
             fieldTask.OnTaskFailed -= OnTask1TimerFailed;
             fieldTask.EndTask();
-
-            if (firewoodZone != null)
-            {
-                firewoodZone.OnFireLit -= OnFireLit;
-                firewoodZone.OnMushroomsComplete -= OnMushroomsComplete;
-            }
         }
+
         if (CurrentPhase == GamePhase.Task2_ScavengerRaid)
         {
             scavengerRaidTask.OnTaskCompleted -= OnTask2Completed;
@@ -439,77 +400,38 @@ public class TaskManager : NetworkBehaviour
     }
 
     // ================================================================
-    // CLIENT RPCS -- mid-task HUD updates (sub-objectives inside Task1)
-    // ================================================================
-
-    [ClientRpc]
-    void FireLitClientRpc()
-    {
-        PlayerHUD.Local?.ShowTask("The fire is lit. Collect mushrooms and burn them in the flames.");
-    }
-
-    [ClientRpc]
-    void MushroomsDoneClientRpc()
-    {
-        PlayerHUD.Local?.CompleteCurrentTask("Mushrooms burned");
-        StartCoroutine(DelayedShowTask("Gather food cans scattered around and deliver them to the church.", 1.5f));
-    }
-
-    [ClientRpc]
-    void Task1CompleteClientRpc()
-    {
-        PlayerHUD.Local?.CompleteCurrentTask("Field tasks complete");
-    }
-
-    [ClientRpc]
-    void Task2CompleteClientRpc()
-    {
-        PlayerHUD.Local?.CompleteCurrentTask("Petrov is safe");
-    }
-
-    System.Collections.IEnumerator DelayedShowTask(string desc, float delay)
-    {
-        yield return new WaitForSeconds(delay);
-        PlayerHUD.Local?.ShowTask(desc);
-    }
-
-    // ================================================================
-    // TESTING HELPERS
+    // Testing Helpers
     // ================================================================
 
     public void ForceCompleteMushroomTask()
     {
-        if (!IsServer) { Debug.LogWarning("[TaskManager] ForceCompleteMushroomTask can only be called on server!"); return; }
-        if (CurrentPhase != GamePhase.Task1_Field) { Debug.LogWarning($"[TaskManager] ForceCompleteMushroomTask ignored -- not in Task1_Field (current: {CurrentPhase})"); return; }
-
-        if (firewoodZone != null) { firewoodZone.ForceCompleteMushroomBurning(); Debug.Log("[TaskManager] Mushroom task force completed."); }
+        if (!IsServer) { Debug.LogWarning("[TaskManager] Server only."); return; }
+        if (CurrentPhase != GamePhase.Task1_Field) { Debug.LogWarning($"[TaskManager] Not in Task1_Field."); return; }
+        if (firewoodZone != null) firewoodZone.ForceCompleteMushroomBurning();
         else Debug.LogError("[TaskManager] firewoodZone is null!");
     }
 
     public void ForceCompleteFoodCanTask()
     {
-        if (!IsServer) { Debug.LogWarning("[TaskManager] ForceCompleteFoodCanTask can only be called on server!"); return; }
-        if (CurrentPhase != GamePhase.Task1_Field) { Debug.LogWarning($"[TaskManager] ForceCompleteFoodCanTask ignored -- not in Task1_Field (current: {CurrentPhase})"); return; }
-
-        if (canDeliveryZone != null) { canDeliveryZone.ForceCompleteCanDelivery(); Debug.Log("[TaskManager] Food can task force completed."); }
+        if (!IsServer) { Debug.LogWarning("[TaskManager] Server only."); return; }
+        if (CurrentPhase != GamePhase.Task1_Field) { Debug.LogWarning($"[TaskManager] Not in Task1_Field."); return; }
+        if (canDeliveryZone != null) canDeliveryZone.ForceCompleteCanDelivery();
         else Debug.LogError("[TaskManager] canDeliveryZone is null!");
     }
 
     public void ForceCompleteScavengerRaid()
     {
-        if (!IsServer) { Debug.LogWarning("[TaskManager] ForceCompleteScavengerRaid can only be called on server!"); return; }
-        if (CurrentPhase != GamePhase.Task2_ScavengerRaid) { Debug.LogWarning($"[TaskManager] ForceCompleteScavengerRaid ignored -- not in Task2_ScavengerRaid (current: {CurrentPhase})"); return; }
-
-        if (scavengerRaidTask != null) { scavengerRaidTask.ForceCompleteTask(); Debug.Log("[TaskManager] Scavenger raid force completed."); }
+        if (!IsServer) { Debug.LogWarning("[TaskManager] Server only."); return; }
+        if (CurrentPhase != GamePhase.Task2_ScavengerRaid) { Debug.LogWarning($"[TaskManager] Not in Task2_ScavengerRaid."); return; }
+        if (scavengerRaidTask != null) scavengerRaidTask.ForceCompleteTask();
         else Debug.LogError("[TaskManager] scavengerRaidTask is null!");
     }
 
     public void ForceStartBossFight()
     {
-        if (!IsServer) { Debug.LogWarning("[TaskManager] ForceStartBossFight can only be called on server!"); return; }
-
+        if (!IsServer) { Debug.LogWarning("[TaskManager] Server only."); return; }
         if (CurrentPhase == GamePhase.PetrovDebrief || CurrentPhase == GamePhase.ReturnToVoss)
-        { Debug.Log("[TaskManager] Skipping dialogues, going straight to boss fight."); BeginBossFight(); }
+            BeginBossFight();
         else
             Debug.LogWarning($"[TaskManager] ForceStartBossFight ignored -- phase is {CurrentPhase}.");
     }
@@ -530,23 +452,20 @@ public class TaskManager : NetworkBehaviour
         OnPhaseChanged?.Invoke(phase);
     }
 
-    string GetPhaseDescription(GamePhase phase)
+    string GetPhaseDescription(GamePhase phase) => phase switch
     {
-        return phase switch
-        {
-            GamePhase.Intro => "Players should approach NPC1 and press E.",
-            GamePhase.Briefing => "Players should find Dr. Voss (NPC2) and press E.",
-            GamePhase.Task1_Field => "Players must burn mushrooms AND deliver food cans.",
-            GamePhase.ReturnBriefing => "NPC2 stage 1 unlocked. Players return to Dr. Voss.",
-            GamePhase.Task2_ScavengerRaid => "Players must protect Dr. Petrov from scavenger waves.",
-            GamePhase.PetrovDebrief => "NPC3 stage 1 unlocked. Players talk to Dr. Petrov for lore.",
-            GamePhase.ReturnToVoss => "NPC2 stage 2 unlocked. Players return to Dr. Voss.",
-            GamePhase.BossFight => "NPC1 is dead. Boss has spawned. Impostor disabled.",
-            GamePhase.Victory => "Boss defeated. All objectives complete.",
-            GamePhase.GameOver => "All players dead or objective failed.",
-            _ => "Unknown phase."
-        };
-    }
+        GamePhase.Intro => "Players should approach NPC1 and press E.",
+        GamePhase.Briefing => "Players should find Dr. Voss (NPC2) and press E.",
+        GamePhase.Task1_Field => "Players must burn mushrooms AND deliver food cans.",
+        GamePhase.ReturnBriefing => "NPC2 stage 1 unlocked. Players return to Dr. Voss.",
+        GamePhase.Task2_ScavengerRaid => "Players must protect Dr. Petrov from scavenger waves.",
+        GamePhase.PetrovDebrief => "NPC3 stage 1 unlocked. Players talk to Dr. Petrov for lore.",
+        GamePhase.ReturnToVoss => "NPC2 stage 2 unlocked. Players return to Dr. Voss.",
+        GamePhase.BossFight => "NPC1 is dead. Boss has spawned. Impostor disabled.",
+        GamePhase.Victory => "Boss defeated. All objectives complete.",
+        GamePhase.GameOver => "All players dead or objective failed.",
+        _ => "Unknown phase."
+    };
 
     void ValidateReferences()
     {
