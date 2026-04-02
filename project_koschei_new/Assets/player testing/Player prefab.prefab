@@ -3155,16 +3155,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4bd0dfba8c10d0a43b79546120dda130, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  hudPanel: {fileID: 623244433128711102}
-  playerCanvas: {fileID: 2396389778728901968}
-  healthBarFill: {fileID: 3784496888766440250}
-  healthText: {fileID: 7358418924959221228}
-  maxHealth: 100
-  ammoText: {fileID: 1720367544371198382}
-  reloadText: {fileID: 5588305313462433961}
-  inventoryGroup: {fileID: 9029633597264243367}
-  itemNameText: {fileID: 2336629568199510912}
-  holdHintText: {fileID: 3605231053252441578}
   taskPanel: {fileID: 88611329837445204}
   taskDescription: {fileID: 3821669025316826389}
   taskCompleteText: {fileID: 4052493533778351142}

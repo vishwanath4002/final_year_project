@@ -3,6 +3,23 @@ using UnityEngine;
 
 public class PickupObject : NetworkBehaviour
 {
+    [Header("Pickup Prompt")]
+    [SerializeField] private GameObject pickupPromptSprite;
+
+    private void Awake()
+    {
+        if (pickupPromptSprite != null)
+            pickupPromptSprite.SetActive(false);
+    }
+
+    // Called locally by ThirdPersonShooterController when crosshair enters/leaves.
+    // SetActive on a non-networked child only affects this client's screen.
+    public void ShowPickupPrompt(bool show)
+    {
+        if (pickupPromptSprite != null)
+            pickupPromptSprite.SetActive(show);
+    }
+
     // Called from ThirdPersonShooterController when player aims at this object and presses E
     public void TryPickup(GameObject playerObject)
     {
@@ -12,30 +29,25 @@ public class PickupObject : NetworkBehaviour
             return;
         }
 
-        // IMPORTANT: The playerObject might be a child or the actual NetworkObject might be on parent
         NetworkObject playerNetObj = playerObject.GetComponentInParent<NetworkObject>();
         if (playerNetObj == null)
-        {
             playerNetObj = playerObject.GetComponent<NetworkObject>();
-        }
 
         if (playerNetObj == null)
         {
-            Debug.LogError($"Player '{playerObject.name}' doesn't have NetworkObject component! Is this a spawned network player?");
+            Debug.LogError($"Player '{playerObject.name}' doesn't have NetworkObject component!");
             return;
         }
 
         if (!playerNetObj.IsSpawned)
         {
-            Debug.LogError($"Player NetworkObject is not spawned yet!");
+            Debug.LogError("Player NetworkObject is not spawned yet!");
             return;
         }
 
         PlayerInventory inventory = playerObject.GetComponent<PlayerInventory>();
         if (inventory == null)
-        {
             inventory = playerObject.GetComponentInParent<PlayerInventory>();
-        }
 
         if (inventory != null && !inventory.IsHoldingItem())
         {
@@ -88,7 +100,6 @@ public class PickupObject : NetworkBehaviour
             Debug.Log($"[SERVER] Picking up {prefabReference.name} for player {playerId}");
             inventory.PickupItem(prefabReference);
 
-            // Despawn and destroy the object
             if (NetworkObject != null && NetworkObject.IsSpawned)
             {
                 Debug.Log("[SERVER] Despawning network object");

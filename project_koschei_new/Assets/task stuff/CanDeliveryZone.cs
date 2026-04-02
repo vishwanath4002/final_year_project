@@ -5,46 +5,66 @@ using UnityEngine;
 
 public class CanDeliveryZone : NetworkBehaviour
 {
+    [Header("Setup")]
     [SerializeField] private int requiredCans = 12;
     [SerializeField] private Transform dropOffPoint;
-    [SerializeField] private GameObject zoneMarkerSprite;
-
     [SerializeField]
     private List<string> foodCanPrefabNames = new List<string>
     {
-        "soda can", "spam can", "meat can", "can 2", "can small", "can tall 2", "can tall",
-        "meat can box old", "meat can round", "meat can box"
+        "soda can", "spam can", "meat can", "can 2", "can small",
+        "can tall 2", "can tall", "meat can box old", "meat can round", "meat can box"
     };
 
-    // ── Task1 listens to this (server-side only) ──
+    [Header("Zone Marker")]
+    [SerializeField] private GameObject zoneMarkerSprite;
+
+    [Header("Deposit Prompt")]
+    [SerializeField] private GameObject depositPromptUI;
+    [SerializeField] private TMPro.TextMeshProUGUI depositPromptText;
+
+    // Task1 listens to this (server-side only)
     public event Action OnCansComplete;
 
+    // Progress event for live HUD counts (server-side only)
+    public event Action<int, int> OnCanProgressChanged;
+
     private NetworkVariable<int> collectedCans = new NetworkVariable<int>(0);
-    private NetworkVariable<bool> taskIsActive = new NetworkVariable<bool>(false);
 
     private bool playerInZone = false;
     private GameObject playerInTrigger = null;
 
+    public int GetCollectedCans() => collectedCans.Value;
+    public int GetRequiredCans() => requiredCans;
+
+    // ================================================================
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
         collectedCans.OnValueChanged += OnCansChanged;
-        taskIsActive.OnValueChanged += OnTaskActiveChanged;
 
-        RefreshMarkerVisual();
+        if (zoneMarkerSprite != null)
+            zoneMarkerSprite.SetActive(collectedCans.Value < requiredCans);
+
+        if (depositPromptUI != null)
+            depositPromptUI.SetActive(false);
     }
 
     public override void OnNetworkDespawn()
     {
         base.OnNetworkDespawn();
         collectedCans.OnValueChanged -= OnCansChanged;
-        taskIsActive.OnValueChanged -= OnTaskActiveChanged;
     }
+
+    // ================================================================
+    // NetworkVariable callback
+    // ================================================================
 
     void OnCansChanged(int oldValue, int newValue)
     {
         Debug.Log($"Cans delivered: {newValue}/{requiredCans}");
-        RefreshMarkerVisual();
+
+        if (zoneMarkerSprite != null)
+            zoneMarkerSprite.SetActive(newValue < requiredCans);
 
         if (newValue >= requiredCans)
         {
@@ -52,61 +72,88 @@ public class CanDeliveryZone : NetworkBehaviour
             if (IsServer) OnCansComplete?.Invoke();
             CansCompleteClientRpc();
         }
+
+        if (IsServer) OnCanProgressChanged?.Invoke(newValue, requiredCans);
     }
 
-    void OnTaskActiveChanged(bool oldValue, bool newValue)
-    {
-        RefreshMarkerVisual();
-    }
-
-    void RefreshMarkerVisual()
-    {
-        if (zoneMarkerSprite != null)
-            zoneMarkerSprite.SetActive(taskIsActive.Value && collectedCans.Value < requiredCans);
-    }
+    // ================================================================
+    // Trigger
+    // ================================================================
 
     void OnTriggerEnter(Collider other)
     {
-        if (other.CompareTag("Player"))
-        {
-            playerInZone = true;
-            playerInTrigger = other.gameObject;
-        }
+        if (!other.CompareTag("Player")) return;
+        playerInZone = true;
+        playerInTrigger = other.gameObject;
+
+        var inv = other.GetComponent<PlayerInventory>();
+        if (inv != null) inv.SetDropLocked(true);
     }
 
     void OnTriggerExit(Collider other)
     {
-        if (other.CompareTag("Player"))
-        {
-            playerInZone = false;
-            playerInTrigger = null;
-        }
+        if (!other.CompareTag("Player")) return;
+        playerInZone = false;
+        playerInTrigger = null;
+
+        var inv = other.GetComponent<PlayerInventory>();
+        if (inv != null) inv.SetDropLocked(false);
+
+        if (depositPromptUI != null)
+            depositPromptUI.SetActive(false);
     }
+
+    // ================================================================
+    // Update
+    // ================================================================
 
     void Update()
     {
-        if (playerInZone && Input.GetKeyDown(KeyCode.E))
-        {
-            if (!taskIsActive.Value) return;
+        if (!playerInZone) return;
 
-            if (playerInTrigger != null)
-            {
-                PlayerInventory inventory = playerInTrigger.GetComponent<PlayerInventory>();
-                if (inventory != null && inventory.IsHoldingItem())
-                {
-                    GameObject heldPrefab = inventory.GetHeldPrefab();
-                    if (heldPrefab != null && IsFoodCan(heldPrefab))
-                        DepositCanServerRpc(NetworkManager.Singleton.LocalClientId);
-                    else
-                        Debug.Log("Deposit option: NO. Item is not a valid food can.");
-                }
-                else
-                {
-                    Debug.Log("Deposit option: NO. Not holding anything.");
-                }
-            }
+        PlayerInventory inventory = playerInTrigger != null
+            ? playerInTrigger.GetComponent<PlayerInventory>()
+            : null;
+
+        UpdateDepositPrompt(inventory);
+
+        if (!Input.GetKeyDown(KeyCode.E)) return;
+
+        if (inventory != null && inventory.IsHoldingItem())
+        {
+            GameObject heldPrefab = inventory.GetHeldPrefab();
+            if (heldPrefab != null && IsFoodCan(heldPrefab))
+                DepositCanServerRpc(NetworkManager.Singleton.LocalClientId);
+            else
+                Debug.Log("Deposit option: NO. Item is not a valid food can.");
+        }
+        else
+        {
+            Debug.Log("Deposit option: NO. Not holding anything.");
         }
     }
+
+    void UpdateDepositPrompt(PlayerInventory inv)
+    {
+        if (depositPromptUI == null) return;
+
+        if (inv == null || !inv.IsHoldingItem())
+        {
+            depositPromptUI.SetActive(false);
+            return;
+        }
+
+        GameObject held = inv.GetHeldPrefab();
+        bool canDeposit = held != null && IsFoodCan(held) && collectedCans.Value < requiredCans;
+
+        depositPromptUI.SetActive(canDeposit);
+        if (canDeposit && depositPromptText != null)
+            depositPromptText.text = "Press [E] to deposit Food Can";
+    }
+
+    // ================================================================
+    // ServerRpc + helpers
+    // ================================================================
 
     bool IsFoodCan(GameObject itemPrefab)
     {
@@ -117,23 +164,18 @@ public class CanDeliveryZone : NetworkBehaviour
     [ServerRpc(RequireOwnership = false)]
     void DepositCanServerRpc(ulong playerId)
     {
-        if (!taskIsActive.Value) return;
         if (collectedCans.Value >= requiredCans) return;
+        if (!NetworkManager.Singleton.ConnectedClients.TryGetValue(playerId, out var client)) return;
 
-        if (NetworkManager.Singleton.ConnectedClients.TryGetValue(playerId, out var client))
-        {
-            PlayerInventory inventory = client.PlayerObject.GetComponent<PlayerInventory>();
-            if (inventory != null && inventory.IsHoldingItem())
-            {
-                GameObject canType = inventory.GetHeldPrefab();
-                if (canType != null && IsFoodCan(canType))
-                {
-                    inventory.DepositItem();
-                    SpawnCanInZone(canType);
-                    collectedCans.Value++;
-                }
-            }
-        }
+        PlayerInventory inventory = client.PlayerObject.GetComponent<PlayerInventory>();
+        if (inventory == null || !inventory.IsHoldingItem()) return;
+
+        GameObject canType = inventory.GetHeldPrefab();
+        if (canType == null || !IsFoodCan(canType)) return;
+
+        inventory.DepositItem();
+        SpawnCanInZone(canType);
+        collectedCans.Value++;
     }
 
     void SpawnCanInZone(GameObject canPrefabToSpawn)
@@ -158,6 +200,10 @@ public class CanDeliveryZone : NetworkBehaviour
 
         GameObject depositedCan = Instantiate(canPrefabToSpawn, spawnPos, Quaternion.identity);
 
+        // Disable pickup so deposited cans can't be picked back up
+        var pickup = depositedCan.GetComponent<PickupObject>();
+        if (pickup != null) pickup.enabled = false;
+
         foreach (Collider col in depositedCan.GetComponents<Collider>())
             if (col.isTrigger) col.enabled = false;
 
@@ -172,29 +218,14 @@ public class CanDeliveryZone : NetworkBehaviour
     }
 
     // ================================================================
-    // TASK ACTIVATION
+    // Public helpers
     // ================================================================
 
     public void ActivateTask()
     {
-        if (!NetworkManager.Singleton.IsServer)
-        {
-            Debug.LogWarning("[CanDeliveryZone] ActivateTask can only be called on server!");
-            return;
-        }
-
-        taskIsActive.Value = true;
         Debug.Log("[CanDeliveryZone] Task activated.");
     }
 
-    // ================================================================
-    // TESTING HELPER
-    // ================================================================
-
-    /// <summary>
-    /// Force completes the can delivery objective (testing only).
-    /// Called by TaskManager.ForceCompleteFoodCanTask() via GameFlowTester.
-    /// </summary>
     public void ForceCompleteCanDelivery()
     {
         if (!NetworkManager.Singleton.IsServer)
@@ -202,7 +233,6 @@ public class CanDeliveryZone : NetworkBehaviour
             Debug.LogWarning("[CanDeliveryZone] ForceCompleteCanDelivery can only be called on server!");
             return;
         }
-
         collectedCans.Value = requiredCans;
         Debug.Log($"[CanDeliveryZone] Can delivery force completed! ({requiredCans}/{requiredCans})");
     }

@@ -1,17 +1,10 @@
 using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using Cinemachine;
 using StarterAssets;
-using UnityEngine.InputSystem;
 using UnityEngine.Animations.Rigging;
 using Unity.Netcode;
 
-/// <summary>
-/// Multiplayer-ready third person shooter controller
-/// Handles aiming, shooting, and interaction systems with proper network synchronization
-/// INCLUDES AIM TARGET POSITION SYNCHRONIZATION FOR CORRECT REMOTE PLAYER AIMING
-/// </summary>
 public class ThirdPersonShooterController : NetworkBehaviour
 {
     [Header("Animation Rig")]
@@ -37,10 +30,8 @@ public class ThirdPersonShooterController : NetworkBehaviour
     [SerializeField] private AudioClip gunshotClip;
     [SerializeField] private AudioClip reloadClip;
     [SerializeField] private AudioSource weaponAudioSource;
-    [Range(0f, 1f)]
-    [SerializeField] private float gunshotVolume = 0.8f;
-    [Range(0f, 1f)]
-    [SerializeField] private float reloadVolume = 0.8f;
+    [Range(0f, 1f)][SerializeField] private float gunshotVolume = 0.8f;
+    [Range(0f, 1f)][SerializeField] private float reloadVolume = 0.8f;
 
     [Header("Weapon Settings")]
     [SerializeField] private float damagePerShot = 35f;
@@ -56,28 +47,16 @@ public class ThirdPersonShooterController : NetworkBehaviour
 
     // Network synced variables
     private NetworkVariable<int> currentAmmo = new NetworkVariable<int>(
-        30,
-        NetworkVariableReadPermission.Everyone,
-        NetworkVariableWritePermission.Owner
-    );
+        30, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
 
     private NetworkVariable<bool> isReloading = new NetworkVariable<bool>(
-        false,
-        NetworkVariableReadPermission.Everyone,
-        NetworkVariableWritePermission.Owner
-    );
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
 
     private NetworkVariable<bool> isAiming = new NetworkVariable<bool>(
-        false,
-        NetworkVariableReadPermission.Everyone,
-        NetworkVariableWritePermission.Owner
-    );
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
 
     private NetworkVariable<Vector3> networkAimTargetPosition = new NetworkVariable<Vector3>(
-        Vector3.zero,
-        NetworkVariableReadPermission.Everyone,
-        NetworkVariableWritePermission.Owner
-    );
+        Vector3.zero, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
 
     // Component references
     private ThirdPersonController thirdPersonController;
@@ -85,7 +64,7 @@ public class ThirdPersonShooterController : NetworkBehaviour
     private PlayerInventory playerInventory;
     private Animator animator;
 
-    // State variables
+    // State
     private float aimRigWeight = 0f;
     private float nextTimeToFire = 0f;
     private int bulletsFired = 0;
@@ -95,6 +74,10 @@ public class ThirdPersonShooterController : NetworkBehaviour
     private RaycastHit currentRaycastHit;
     private bool hasValidRaycast = false;
 
+    // Pickup prompt tracking (local player only)
+    private PickupObject _currentAimedPickup = null;
+
+    // ================================================================
     private void Awake()
     {
         thirdPersonController = GetComponent<ThirdPersonController>();
@@ -102,7 +85,7 @@ public class ThirdPersonShooterController : NetworkBehaviour
         animator = GetComponent<Animator>();
         playerInventory = GetComponent<PlayerInventory>();
 
-        Debug.Log($"[ThirdPersonShooterController] Component Check:");
+        Debug.Log("[ThirdPersonShooterController] Component Check:");
         Debug.Log($"  ThirdPersonController: {(thirdPersonController != null ? "Found" : "NULL")}");
         Debug.Log($"  StarterAssetsInputs: {(starterAssetsInputs != null ? "Found" : "NULL")}");
         Debug.Log($"  PlayerInventory: {(playerInventory != null ? "Found (Optional)" : "NULL (Optional)")}");
@@ -116,27 +99,23 @@ public class ThirdPersonShooterController : NetworkBehaviour
 
         if (!IsOwner)
         {
-            if (aimVirtualCamera != null)
-                aimVirtualCamera.gameObject.SetActive(false);
-
-            if (debugTransform != null)
-                debugTransform.gameObject.SetActive(true);
+            if (aimVirtualCamera != null) aimVirtualCamera.gameObject.SetActive(false);
+            if (debugTransform != null) debugTransform.gameObject.SetActive(true);
 
             isAiming.OnValueChanged += OnAimingChanged;
             networkAimTargetPosition.OnValueChanged += OnAimTargetPositionChanged;
 
-            Debug.Log($"[ThirdPersonShooterController] Remote player spawned - Listening for aim updates");
+            Debug.Log("[ThirdPersonShooterController] Remote player spawned.");
             return;
         }
 
         currentAmmo.Value = magazineSize;
-        Debug.Log($"[ThirdPersonShooterController] Local player spawned - Script enabled, Ammo: {currentAmmo.Value}");
+        Debug.Log($"[ThirdPersonShooterController] Local player spawned. Ammo: {currentAmmo.Value}");
     }
 
     public override void OnNetworkDespawn()
     {
         base.OnNetworkDespawn();
-
         if (!IsOwner)
         {
             isAiming.OnValueChanged -= OnAimingChanged;
@@ -144,12 +123,11 @@ public class ThirdPersonShooterController : NetworkBehaviour
         }
     }
 
+    // ================================================================
     private void Update()
     {
-        if (IsOwner)
-            UpdateLocalPlayer();
-        else
-            UpdateRemotePlayer();
+        if (IsOwner) UpdateLocalPlayer();
+        else UpdateRemotePlayer();
     }
 
     private void UpdateLocalPlayer()
@@ -165,6 +143,9 @@ public class ThirdPersonShooterController : NetworkBehaviour
             networkAimTargetPosition.Value = currentRaycastHit.point;
         }
 
+        // Update pickup prompt every frame based on what the crosshair is over
+        UpdatePickupPrompt();
+
         if (playerInventory != null)
         {
             HandlePickup();
@@ -175,17 +156,35 @@ public class ThirdPersonShooterController : NetworkBehaviour
         HandleAiming();
     }
 
+    // Shows prompt on whichever PickupObject the crosshair is over,
+    // hides it the moment the crosshair moves away. Only runs on the owner
+    // so SetActive never touches other clients' screens.
+    private void UpdatePickupPrompt()
+    {
+        PickupObject aimed = null;
+
+        if (hasValidRaycast && currentHitTransform != null &&
+            Vector3.Distance(transform.position, currentRaycastHit.point) <= interactRange)
+        {
+            aimed = currentHitTransform.GetComponent<PickupObject>();
+        }
+
+        if (aimed != _currentAimedPickup)
+        {
+            if (_currentAimedPickup != null) _currentAimedPickup.ShowPickupPrompt(false);
+            if (aimed != null) aimed.ShowPickupPrompt(true);
+            _currentAimedPickup = aimed;
+        }
+    }
+
     private void UpdateRemotePlayer()
     {
         float targetWeight = isAiming.Value ? 1f : 0f;
         if (aimRig != null)
             aimRig.weight = Mathf.Lerp(aimRig.weight, targetWeight, Time.deltaTime * 20f);
 
-        if (aimTargetTransform != null)
-            aimTargetTransform.position = networkAimTargetPosition.Value;
-
-        if (debugTransform != null)
-            debugTransform.position = networkAimTargetPosition.Value;
+        if (aimTargetTransform != null) aimTargetTransform.position = networkAimTargetPosition.Value;
+        if (debugTransform != null) debugTransform.position = networkAimTargetPosition.Value;
 
         if (animator != null)
         {
@@ -209,12 +208,11 @@ public class ThirdPersonShooterController : NetworkBehaviour
 
     private void OnAimTargetPositionChanged(Vector3 previousValue, Vector3 newValue)
     {
-        if (aimTargetTransform != null)
-            aimTargetTransform.position = newValue;
-        if (debugTransform != null)
-            debugTransform.position = newValue;
+        if (aimTargetTransform != null) aimTargetTransform.position = newValue;
+        if (debugTransform != null) debugTransform.position = newValue;
     }
 
+    // ================================================================
     private void PerformAimRaycast()
     {
         Vector2 screenCenterPoint = new Vector2(Screen.width / 2f, Screen.height / 2f);
@@ -272,11 +270,9 @@ public class ThirdPersonShooterController : NetworkBehaviour
     private void EnterAimMode()
     {
         if (starterAssetsInputs == null) return;
-
         starterAssetsInputs.sprint = false;
 
-        if (aimVirtualCamera != null)
-            aimVirtualCamera.gameObject.SetActive(true);
+        if (aimVirtualCamera != null) aimVirtualCamera.gameObject.SetActive(true);
 
         if (thirdPersonController != null)
         {
@@ -295,7 +291,6 @@ public class ThirdPersonShooterController : NetworkBehaviour
             Vector3 worldAimTarget = currentRaycastHit.point;
             worldAimTarget.y = transform.position.y;
             Vector3 aimDirection = (worldAimTarget - transform.position).normalized;
-
             if (aimDirection != Vector3.zero)
                 transform.forward = Vector3.Lerp(transform.forward, aimDirection, Time.deltaTime * 20f);
         }
@@ -307,8 +302,7 @@ public class ThirdPersonShooterController : NetworkBehaviour
     {
         if (starterAssetsInputs == null) return;
 
-        if (aimVirtualCamera != null)
-            aimVirtualCamera.gameObject.SetActive(false);
+        if (aimVirtualCamera != null) aimVirtualCamera.gameObject.SetActive(false);
 
         if (thirdPersonController != null)
         {
@@ -330,7 +324,6 @@ public class ThirdPersonShooterController : NetworkBehaviour
     private void HandleReload()
     {
         if (starterAssetsInputs == null) return;
-
         if (starterAssetsInputs.reload && currentAmmo.Value < magazineSize && !isReloading.Value)
             StartCoroutine(Reload());
     }
@@ -351,6 +344,10 @@ public class ThirdPersonShooterController : NetworkBehaviour
                     PickupObject pickup = currentHitTransform.GetComponent<PickupObject>();
                     if (pickup != null)
                     {
+                        // Hide prompt before object despawns so it doesn't linger
+                        pickup.ShowPickupPrompt(false);
+                        _currentAimedPickup = null;
+
                         pickup.TryPickup(gameObject);
                         Debug.Log($"[Pickup] Picked up: {currentHitTransform.name}");
                     }
@@ -374,7 +371,8 @@ public class ThirdPersonShooterController : NetworkBehaviour
             if (playerInventory.IsHoldingItem())
             {
                 Vector3 dropPos = transform.position + Vector3.up * 1f + transform.forward * 2f;
-                playerInventory.DropItemServerRpc(dropPos);
+                // TryDropItem checks dropLocked before calling the ServerRpc
+                playerInventory.TryDropItem(dropPos);
                 Debug.Log($"[Drop] Dropped item at position: {dropPos}");
             }
         }
@@ -385,25 +383,23 @@ public class ThirdPersonShooterController : NetworkBehaviour
         if (isReloading.Value) return;
 
         SetAnimationBoolServerRpc("shooting", true);
-
         currentAmmo.Value--;
         bulletsFired++;
 
         Debug.Log($"[Shooting] Bullet #{bulletsFired} fired! Ammo: {currentAmmo.Value}/{magazineSize}");
 
-        // Play muzzle flash and sound instantly for local player (no network delay)
         PlayMuzzleEffectsLocal();
 
         if (hasValidRaycast)
         {
-            bool isTarget = currentHitTransform != null && currentHitTransform.GetComponent<BulletTarget>() != null;
-
+            bool isTarget = currentHitTransform != null &&
+                                          currentHitTransform.GetComponent<BulletTarget>() != null;
             ulong targetNetworkObjectId = 0;
+
             if (isTarget && currentHitTransform != null)
             {
                 NetworkObject networkObject = currentHitTransform.GetComponent<NetworkObject>();
-                if (networkObject != null)
-                    targetNetworkObjectId = networkObject.NetworkObjectId;
+                if (networkObject != null) targetNetworkObjectId = networkObject.NetworkObjectId;
             }
 
             ShootServerRpc(currentRaycastHit.point, isTarget, targetNetworkObjectId);
@@ -415,20 +411,19 @@ public class ThirdPersonShooterController : NetworkBehaviour
         if (muzzleFlashPrefab != null && muzzlePoint != null)
         {
             GameObject flash = Instantiate(muzzleFlashPrefab, muzzlePoint.position, muzzlePoint.rotation);
-            Destroy(flash, 0.1f); // force destroy after 0.1 seconds
+            Destroy(flash, 0.1f);
         }
-
         if (weaponAudioSource != null && gunshotClip != null)
             weaponAudioSource.PlayOneShot(gunshotClip, gunshotVolume);
     }
-
 
     [ServerRpc]
     private void ShootServerRpc(Vector3 hitPoint, bool isTarget, ulong targetNetworkObjectId)
     {
         if (isTarget && targetNetworkObjectId != 0)
         {
-            if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetNetworkObjectId, out NetworkObject networkObject))
+            if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(
+                    targetNetworkObjectId, out NetworkObject networkObject))
             {
                 Health health = networkObject.GetComponent<Health>();
                 if (health != null)
@@ -442,29 +437,24 @@ public class ThirdPersonShooterController : NetworkBehaviour
                 }
             }
         }
-
         ShootClientRpc(hitPoint, isTarget);
     }
 
     [ClientRpc]
     private void ShootClientRpc(Vector3 hitPoint, bool isTarget)
     {
-        // Hit VFX
         if (isTarget && vfxHitGreen != null)
             Instantiate(vfxHitGreen, hitPoint, Quaternion.identity);
         else if (!isTarget && vfxHitRed != null)
             Instantiate(vfxHitRed, hitPoint, Quaternion.identity);
 
-        // Play muzzle effects for remote players watching this player shoot
-        // Owner already played it locally in Shoot() for zero latency
         if (!IsOwner)
         {
             if (muzzleFlashPrefab != null && muzzlePoint != null)
             {
                 GameObject flash = Instantiate(muzzleFlashPrefab, muzzlePoint.position, muzzlePoint.rotation);
-                Destroy(flash, 0.1f); // force destroy after 0.1 seconds
+                Destroy(flash, 0.1f);
             }
-
             if (weaponAudioSource != null && gunshotClip != null)
                 weaponAudioSource.PlayOneShot(gunshotClip, gunshotVolume);
         }
@@ -478,13 +468,9 @@ public class ThirdPersonShooterController : NetworkBehaviour
         SetAnimationBoolServerRpc("shooting", false);
 
         Debug.Log("[Reload] Reloading...");
+        if (starterAssetsInputs != null) starterAssetsInputs.shoot = false;
 
-        if (starterAssetsInputs != null)
-            starterAssetsInputs.shoot = false;
-
-        // Reduce movement speed while reloading
-        float originalMoveSpeed = 0f;
-        float originalSprintSpeed = 0f;
+        float originalMoveSpeed = 0f, originalSprintSpeed = 0f;
         if (thirdPersonController != null)
         {
             originalMoveSpeed = thirdPersonController.MoveSpeed;
@@ -493,11 +479,9 @@ public class ThirdPersonShooterController : NetworkBehaviour
             thirdPersonController.SprintSpeed = originalSprintSpeed * reloadSpeedMultiplier;
         }
 
-        // Play reload sound locally for owner
         if (weaponAudioSource != null && reloadClip != null)
             weaponAudioSource.PlayOneShot(reloadClip, reloadVolume);
 
-        // Sync reload sound to all other clients
         PlayReloadSoundClientRpc();
 
         yield return new WaitForSeconds(reloadTime);
@@ -505,7 +489,6 @@ public class ThirdPersonShooterController : NetworkBehaviour
         currentAmmo.Value = magazineSize;
         isReloading.Value = false;
 
-        // Restore movement speed
         if (thirdPersonController != null)
         {
             thirdPersonController.MoveSpeed = originalMoveSpeed;
@@ -513,61 +496,25 @@ public class ThirdPersonShooterController : NetworkBehaviour
         }
 
         Debug.Log("[Reload] Complete!");
-
         ResetAnimationTriggerServerRpc("reload");
-
-        if (starterAssetsInputs != null)
-            starterAssetsInputs.reload = false;
+        if (starterAssetsInputs != null) starterAssetsInputs.reload = false;
     }
 
     [ClientRpc]
     private void PlayReloadSoundClientRpc()
     {
-        // Remote players hear the reload sound
         if (!IsOwner && weaponAudioSource != null && reloadClip != null)
             weaponAudioSource.PlayOneShot(reloadClip, reloadVolume);
     }
 
     #region Animation Network Synchronization
 
-    [ServerRpc]
-    private void SetAnimationBoolServerRpc(string paramName, bool value)
-    {
-        SetAnimationBoolClientRpc(paramName, value);
-    }
-
-    [ClientRpc]
-    private void SetAnimationBoolClientRpc(string paramName, bool value)
-    {
-        if (animator != null)
-            animator.SetBool(paramName, value);
-    }
-
-    [ServerRpc]
-    private void SetAnimationTriggerServerRpc(string paramName)
-    {
-        SetAnimationTriggerClientRpc(paramName);
-    }
-
-    [ClientRpc]
-    private void SetAnimationTriggerClientRpc(string paramName)
-    {
-        if (animator != null)
-            animator.SetTrigger(paramName);
-    }
-
-    [ServerRpc]
-    private void ResetAnimationTriggerServerRpc(string paramName)
-    {
-        ResetAnimationTriggerClientRpc(paramName);
-    }
-
-    [ClientRpc]
-    private void ResetAnimationTriggerClientRpc(string paramName)
-    {
-        if (animator != null)
-            animator.ResetTrigger(paramName);
-    }
+    [ServerRpc] private void SetAnimationBoolServerRpc(string p, bool v) => SetAnimationBoolClientRpc(p, v);
+    [ClientRpc] private void SetAnimationBoolClientRpc(string p, bool v) { if (animator != null) animator.SetBool(p, v); }
+    [ServerRpc] private void SetAnimationTriggerServerRpc(string p) => SetAnimationTriggerClientRpc(p);
+    [ClientRpc] private void SetAnimationTriggerClientRpc(string p) { if (animator != null) animator.SetTrigger(p); }
+    [ServerRpc] private void ResetAnimationTriggerServerRpc(string p) => ResetAnimationTriggerClientRpc(p);
+    [ClientRpc] private void ResetAnimationTriggerClientRpc(string p) { if (animator != null) animator.ResetTrigger(p); }
 
     #endregion
 

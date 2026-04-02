@@ -16,11 +16,31 @@ public class PlayerInventory : NetworkBehaviour
         if (heldPrefabIndex.Value < 0) return null;
         var prefabList = NetworkManager.Singleton.NetworkConfig.Prefabs.Prefabs;
         if (heldPrefabIndex.Value < prefabList.Count)
-        {
             return prefabList[heldPrefabIndex.Value].Prefab;
-        }
         return null;
     }
+
+    // ================================================================
+    // Drop lock -- set by delivery zones so players cannot drop items
+    // while standing inside them. Checked locally before the ServerRpc.
+    // ================================================================
+
+    private bool dropLocked = false;
+    public void SetDropLocked(bool locked) => dropLocked = locked;
+
+    // Call this from ThirdPersonShooterController instead of DropItemServerRpc directly.
+    // Silently blocks the drop while inside a delivery zone.
+    public void TryDropItem(Vector3 dropPosition)
+    {
+        if (dropLocked)
+        {
+            Debug.Log("[PlayerInventory] Drop blocked -- inside a delivery zone.");
+            return;
+        }
+        DropItemServerRpc(dropPosition);
+    }
+
+    // ================================================================
 
     [ServerRpc(RequireOwnership = false)]
     public void DropItemServerRpc(Vector3 dropPosition)
