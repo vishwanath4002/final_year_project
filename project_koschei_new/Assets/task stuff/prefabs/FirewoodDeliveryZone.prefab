@@ -107,8 +107,8 @@ MonoBehaviour:
   requiredWood: 5
   requiredMushrooms: 13
   zoneMarkerSprite: {fileID: 2530707678920554020}
-  depositPromptUI: {fileID: 0}
-  depositPromptText: {fileID: 0}
+  depositPromptUI: {fileID: 5026503538621496878}
+  depositPromptText: {fileID: 2821565607061199568}
 --- !u!1001 &3411955349835738387
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -237,6 +237,22 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 68405648afc2ac24fba2469e32255731, type: 3}
+--- !u!114 &2821565607061199568 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 1633388516528267992, guid: 68405648afc2ac24fba2469e32255731, type: 3}
+  m_PrefabInstance: {fileID: 3567625836239075336}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f4688fdb7df04437aeb418b961361dc5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+--- !u!1 &5026503538621496878 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 8377674550817457702, guid: 68405648afc2ac24fba2469e32255731, type: 3}
+  m_PrefabInstance: {fileID: 3567625836239075336}
+  m_PrefabAsset: {fileID: 0}
 --- !u!4 &6058162363727324830 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 7318395957376360086, guid: 68405648afc2ac24fba2469e32255731, type: 3}

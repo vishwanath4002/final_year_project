@@ -2946,7 +2946,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   taskPanel: {fileID: 88611329837445204}
-  taskDescription: {fileID: 3821669025316826389}
+  taskText: {fileID: 3821669025316826389}
   taskCompleteText: {fileID: 4052493533778351142}
   completeLingerDuration: 3
 --- !u!114 &6304590166020961297
