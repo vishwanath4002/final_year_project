@@ -125,3 +125,6 @@ llm_backend/.ruff_cache/
 # IDE configs
 llm_backend/.idea/
 llm_backend/.vscode/
+project_koschei_new/Packages/manifest.json
+project_koschei_new/Packages/manifest.json
+project_koschei_new/Packages/packages-lock.json
