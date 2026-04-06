@@ -481,6 +481,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 19a1ac870f4e69e40a5d06a344b29131, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  minPlayersToStart: 1
   lobbyIdText: {fileID: 2108675731}
   timerText: {fileID: 1917707916}
   startGameButton: {fileID: 303368144}

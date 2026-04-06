@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -34,6 +35,7 @@ public class TaskManager : NetworkBehaviour
 
     [Header("NPC2 -- Dr. Voss")]
     [SerializeField] ScientistNPCDialogue npc2Dialogue;
+    [SerializeField] ScientistNPCController npc2Controller; // Dr. Voss — used for death anim + proximity
 
     [Header("NPC3 -- Dr. Petrov")]
     [SerializeField] ScientistNPCDialogue npc3Dialogue;
@@ -42,6 +44,10 @@ public class TaskManager : NetworkBehaviour
     [Header("Boss Fight")]
     [SerializeField] GameObject bossPrefab;
     [SerializeField] Transform bossSpawnPoint;
+    [Tooltip("How close a player must be to Dr. Voss to trigger the boss fight (after ReturnToVoss phase)")]
+    [SerializeField] float bossProximityTriggerRadius = 5f;
+    [Tooltip("Tag used to find players when checking proximity")]
+    [SerializeField] string playerTag = "Player";
 
     [Header("Impostor")]
     [SerializeField] ImpostorBackendConnector impostorConnector;
@@ -54,6 +60,10 @@ public class TaskManager : NetworkBehaviour
         NetworkVariableReadPermission.Everyone,
         NetworkVariableWritePermission.Server
     );
+
+    // Tracks spawned boss NetworkObject so we can listen for its death
+    private NetworkObject _spawnedBoss;
+    private bool _checkingBossProximity = false;
 
     public event Action<GamePhase> OnPhaseChanged;
     public GamePhase CurrentPhase => (GamePhase)_networkPhase.Value;
@@ -98,9 +108,7 @@ public class TaskManager : NetworkBehaviour
     }
 
     // ================================================================
-    // HUD -- runs on every client via the NetworkVariable callback.
-    // Task1 progress HUD is handled entirely by Task1_FieldObjectives
-    // via its own ClientRpcs, so we leave that case empty here.
+    // HUD
     // ================================================================
 
     void ApplyHUDForPhase(GamePhase phase)
@@ -110,41 +118,29 @@ public class TaskManager : NetworkBehaviour
             case GamePhase.Intro:
                 PlayerHUD.Local?.ShowTask("Find the contact near the camp and speak with them.");
                 break;
-
             case GamePhase.Briefing:
                 PlayerHUD.Local?.ShowTask("Head to Dr. Voss and receive your briefing.");
                 break;
-
             case GamePhase.Task1_Field:
-                // Task1_FieldObjectives.StartTask() sends ShowHudClientRpc to all clients
-                // which calls PlayerHUD.ShowTask1() with live progress tracking.
-                // Nothing to do here.
                 break;
-
             case GamePhase.ReturnBriefing:
                 PlayerHUD.Local?.ShowTask("Return to Dr. Voss for your next orders.");
                 break;
-
             case GamePhase.Task2_ScavengerRaid:
                 PlayerHUD.Local?.ShowTask("Head to Dr. Petrov's location and protect him from the scavengers.");
                 break;
-
             case GamePhase.PetrovDebrief:
                 PlayerHUD.Local?.ShowTask("Speak with Dr. Petrov.");
                 break;
-
             case GamePhase.ReturnToVoss:
                 PlayerHUD.Local?.ShowTask("Return to Dr. Voss and report back.");
                 break;
-
             case GamePhase.BossFight:
-                PlayerHUD.Local?.ClearTask();
+                PlayerHUD.Local?.ShowTask("Defeat the boss!");
                 break;
-
             case GamePhase.Victory:
-                PlayerHUD.Local?.CompleteCurrentTask("Mission complete");
+                PlayerHUD.Local?.CompleteCurrentTask("Mission complete! The creature has been defeated.");
                 break;
-
             case GamePhase.GameOver:
                 PlayerHUD.Local?.ClearTask();
                 break;
@@ -166,7 +162,8 @@ public class TaskManager : NetworkBehaviour
         Debug.Log($"[TaskManager] NPC2 (Dr. Voss) stage {stageIdx} complete (phase: {CurrentPhase})");
         if (stageIdx == 0 && CurrentPhase == GamePhase.Briefing) CompleteBriefing();
         else if (stageIdx == 1 && CurrentPhase == GamePhase.ReturnBriefing) CompleteReturnBriefing();
-        else if (stageIdx == 2 && CurrentPhase == GamePhase.ReturnToVoss) CompleteReturnToVoss();
+        // Stage 2 (ReturnToVoss) is no longer dialogue-triggered —
+        // boss fight now starts when players get close to Dr. Voss.
     }
 
     void OnNpc3StageCompleted(int stageIdx)
@@ -215,14 +212,11 @@ public class TaskManager : NetworkBehaviour
 
     // ================================================================
     // Phase 3 -- Task 1
-    // Task1_FieldObjectives.StartTask() activates both zone markers and
-    // handles all HUD progress updates itself via ClientRpcs.
     // ================================================================
 
     void BeginTask1()
     {
         SetPhase(GamePhase.Task1_Field);
-
         fieldTask.OnTaskCompleted += OnTask1Completed;
         fieldTask.OnTaskFailed += OnTask1TimerFailed;
         fieldTask.StartTask();
@@ -233,7 +227,6 @@ public class TaskManager : NetworkBehaviour
         Debug.Log("[TaskManager] Task 1 COMPLETE.");
         fieldTask.OnTaskCompleted -= OnTask1Completed;
         fieldTask.OnTaskFailed -= OnTask1TimerFailed;
-
         Task1CompleteClientRpc();
         BeginReturnBriefing();
     }
@@ -244,8 +237,7 @@ public class TaskManager : NetworkBehaviour
     }
 
     [ClientRpc]
-    void Task1CompleteClientRpc()
-        => PlayerHUD.Local?.CompleteCurrentTask("Field tasks complete");
+    void Task1CompleteClientRpc() => PlayerHUD.Local?.CompleteCurrentTask("Field tasks complete");
 
     // ================================================================
     // Phase 4 -- Return Briefing
@@ -275,7 +267,6 @@ public class TaskManager : NetworkBehaviour
     void BeginTask2()
     {
         SetPhase(GamePhase.Task2_ScavengerRaid);
-
         scavengerRaidTask.OnTaskCompleted += OnTask2Completed;
         scavengerRaidTask.OnTaskFailed += OnTask2Failed;
         scavengerRaidTask.StartTask();
@@ -286,9 +277,7 @@ public class TaskManager : NetworkBehaviour
         Debug.Log("[TaskManager] Task 2 COMPLETE -- Petrov is safe.");
         scavengerRaidTask.OnTaskCompleted -= OnTask2Completed;
         scavengerRaidTask.OnTaskFailed -= OnTask2Failed;
-
         npc3Dialogue?.UnlockNextStage();
-
         Task2CompleteClientRpc();
         BeginPetrovDebrief();
     }
@@ -302,8 +291,7 @@ public class TaskManager : NetworkBehaviour
     }
 
     [ClientRpc]
-    void Task2CompleteClientRpc()
-        => PlayerHUD.Local?.CompleteCurrentTask("Petrov is safe");
+    void Task2CompleteClientRpc() => PlayerHUD.Local?.CompleteCurrentTask("Petrov is safe");
 
     // ================================================================
     // Phase 6 -- Petrov Debrief
@@ -313,12 +301,63 @@ public class TaskManager : NetworkBehaviour
 
     // ================================================================
     // Phase 7 -- Return to Voss
+    // Boss fight now triggers by player PROXIMITY to Dr. Voss,
+    // not by completing a dialogue stage.
     // ================================================================
 
     void BeginReturnToVoss()
     {
         SetPhase(GamePhase.ReturnToVoss);
-        npc2Dialogue?.UnlockNextStage();
+
+        // Play Dr. Voss's death animation on all clients immediately
+        KillVossClientRpc();
+
+        // Start polling proximity — boss spawns when players reach the body
+        if (!_checkingBossProximity)
+            StartCoroutine(WaitForPlayerNearVoss());
+    }
+
+    IEnumerator WaitForPlayerNearVoss()
+    {
+        _checkingBossProximity = true;
+        Debug.Log("[TaskManager] Waiting for players to approach Dr. Voss's body...");
+
+        // Use npc2Controller's transform if assigned, else fall back to npc2Dialogue's transform
+        Transform vossTransform = npc2Controller != null
+            ? npc2Controller.transform
+            : (npc2Dialogue != null ? npc2Dialogue.transform : null);
+
+        if (vossTransform == null)
+        {
+            Debug.LogWarning("[TaskManager] Cannot find Dr. Voss transform -- boss fight will not auto-trigger by proximity.");
+            _checkingBossProximity = false;
+            yield break;
+        }
+
+        while (CurrentPhase == GamePhase.ReturnToVoss)
+        {
+            if (IsAnyPlayerNear(vossTransform.position, bossProximityTriggerRadius))
+            {
+                Debug.Log("[TaskManager] Player reached Dr. Voss's body — starting boss fight!");
+                _checkingBossProximity = false;
+                BeginBossFight();
+                yield break;
+            }
+            yield return new WaitForSeconds(0.3f);
+        }
+
+        _checkingBossProximity = false;
+    }
+
+    bool IsAnyPlayerNear(Vector3 point, float radius)
+    {
+        GameObject[] players = GameObject.FindGameObjectsWithTag(playerTag);
+        foreach (GameObject p in players)
+        {
+            if (Vector3.Distance(p.transform.position, point) <= radius)
+                return true;
+        }
+        return false;
     }
 
     public void CompleteReturnToVoss()
@@ -336,28 +375,72 @@ public class TaskManager : NetworkBehaviour
     // Phase 8 -- Boss Fight
     // ================================================================
 
+    [ClientRpc]
+    void KillVossClientRpc()
+    {
+        // Trigger the death animation directly on Dr. Voss's Animator on every client.
+        // Use npc2Controller's transform if assigned, else fall back to npc2Dialogue.
+        GameObject vossGO = npc2Controller != null
+            ? npc2Controller.gameObject
+            : (npc2Dialogue != null ? npc2Dialogue.gameObject : null);
+
+        if (vossGO == null)
+        {
+            Debug.LogWarning("[TaskManager] KillVossClientRpc: cannot find Dr. Voss GameObject.");
+            return;
+        }
+
+        Animator anim = vossGO.GetComponentInChildren<Animator>();
+        if (anim != null)
+            anim.SetTrigger("die");
+        else
+            Debug.LogWarning("[TaskManager] KillVossClientRpc: no Animator found on Dr. Voss.");
+    }
+
     void BeginBossFight()
     {
         SetPhase(GamePhase.BossFight);
 
         impostorConnector?.DisableImpostorSpawning();
 
+        // Kill NPC1
         if (npc1Dialogue != null)
             npc1Dialogue.SyncKillNPC();
         else
             Debug.LogWarning("[TaskManager] npc1Dialogue not assigned -- NPC1 won't die.");
 
+        // Spawn the boss
         if (bossPrefab != null && bossSpawnPoint != null)
         {
             GameObject boss = Instantiate(bossPrefab, bossSpawnPoint.position, bossSpawnPoint.rotation);
-            NetworkObject netObj = boss.GetComponent<NetworkObject>();
-            if (netObj != null) netObj.Spawn(true);
-            Debug.Log($"[TaskManager] Boss spawned at {bossSpawnPoint.position}.");
+            _spawnedBoss = boss.GetComponent<NetworkObject>();
+            if (_spawnedBoss != null)
+            {
+                _spawnedBoss.Spawn(true);
+                Debug.Log($"[TaskManager] Boss spawned at {bossSpawnPoint.position}.");
+
+                // Hook into boss Health so we know when it dies
+                Health bossHealth = boss.GetComponent<Health>();
+                if (bossHealth != null)
+                    StartCoroutine(WaitForBossDeath(bossHealth));
+                else
+                    Debug.LogWarning("[TaskManager] Boss has no Health component -- OnBossDefeated must be called manually.");
+            }
         }
         else
         {
             Debug.LogWarning("[TaskManager] bossPrefab or bossSpawnPoint not assigned -- boss not spawned.");
         }
+    }
+
+    IEnumerator WaitForBossDeath(Health bossHealth)
+    {
+        // Poll until the boss is dead (Health.IsDead returns true)
+        while (bossHealth != null && !bossHealth.IsDead())
+            yield return new WaitForSeconds(0.5f);
+
+        Debug.Log("[TaskManager] Boss death detected by health poll.");
+        OnBossDefeated();
     }
 
     public void OnBossDefeated()
@@ -368,8 +451,18 @@ public class TaskManager : NetworkBehaviour
             Debug.LogWarning($"[TaskManager] OnBossDefeated ignored -- phase is {CurrentPhase}");
             return;
         }
+
         SetPhase(GamePhase.Victory);
+        ShowVictoryClientRpc();
         GameManager.Instance?.TriggerVictory();
+    }
+
+    [ClientRpc]
+    void ShowVictoryClientRpc()
+    {
+        // Show a prominent victory message on every client's HUD
+        PlayerHUD.Local?.CompleteCurrentTask("VICTORY! The creature has been defeated. The station is saved.");
+        Debug.Log("[TaskManager] Victory message shown on client.");
     }
 
     // ================================================================
@@ -454,33 +547,34 @@ public class TaskManager : NetworkBehaviour
 
     string GetPhaseDescription(GamePhase phase) => phase switch
     {
-        GamePhase.Intro => "Players should approach NPC1 and press E.",
-        GamePhase.Briefing => "Players should find Dr. Voss (NPC2) and press E.",
-        GamePhase.Task1_Field => "Players must burn mushrooms AND deliver food cans.",
-        GamePhase.ReturnBriefing => "NPC2 stage 1 unlocked. Players return to Dr. Voss.",
+        GamePhase.Intro               => "Players should approach NPC1 and press E.",
+        GamePhase.Briefing            => "Players should find Dr. Voss (NPC2) and press E.",
+        GamePhase.Task1_Field         => "Players must burn mushrooms AND deliver food cans.",
+        GamePhase.ReturnBriefing      => "NPC2 stage 1 unlocked. Players return to Dr. Voss.",
         GamePhase.Task2_ScavengerRaid => "Players must protect Dr. Petrov from scavenger waves.",
-        GamePhase.PetrovDebrief => "NPC3 stage 1 unlocked. Players talk to Dr. Petrov for lore.",
-        GamePhase.ReturnToVoss => "NPC2 stage 2 unlocked. Players return to Dr. Voss.",
-        GamePhase.BossFight => "NPC1 is dead. Boss has spawned. Impostor disabled.",
-        GamePhase.Victory => "Boss defeated. All objectives complete.",
-        GamePhase.GameOver => "All players dead or objective failed.",
-        _ => "Unknown phase."
+        GamePhase.PetrovDebrief       => "NPC3 stage 1 unlocked. Players talk to Dr. Petrov for lore.",
+        GamePhase.ReturnToVoss        => "Players return to Dr. Voss. Boss triggers on proximity.",
+        GamePhase.BossFight           => "Dr. Voss despawned. NPC1 is dead. Boss has spawned. Impostor disabled.",
+        GamePhase.Victory             => "Boss defeated. All objectives complete.",
+        GamePhase.GameOver            => "All players dead or objective failed.",
+        _                             => "Unknown phase."
     };
 
     void ValidateReferences()
     {
-        if (fieldTask == null) Debug.LogError("[TaskManager] fieldTask not assigned!");
-        if (scavengerRaidTask == null) Debug.LogError("[TaskManager] scavengerRaidTask not assigned!");
-        if (firewoodZone == null) Debug.LogWarning("[TaskManager] firewoodZone not assigned - testing helpers won't work!");
-        if (canDeliveryZone == null) Debug.LogWarning("[TaskManager] canDeliveryZone not assigned - testing helpers won't work!");
-        if (npc1Dialogue == null) Debug.LogError("[TaskManager] npc1Dialogue not assigned!");
-        if (npc1Controller == null) Debug.LogWarning("[TaskManager] npc1Controller not assigned.");
-        if (npc2Dialogue == null) Debug.LogError("[TaskManager] npc2Dialogue not assigned!");
-        if (npc3Dialogue == null) Debug.LogError("[TaskManager] npc3Dialogue not assigned!");
-        if (npc3Controller == null) Debug.LogWarning("[TaskManager] npc3Controller not assigned.");
-        if (bossPrefab == null) Debug.LogWarning("[TaskManager] bossPrefab not assigned!");
-        if (bossSpawnPoint == null) Debug.LogWarning("[TaskManager] bossSpawnPoint not assigned!");
-        if (impostorConnector == null) Debug.LogWarning("[TaskManager] impostorConnector not assigned.");
+        if (fieldTask == null)             Debug.LogError("[TaskManager] fieldTask not assigned!");
+        if (scavengerRaidTask == null)     Debug.LogError("[TaskManager] scavengerRaidTask not assigned!");
+        if (firewoodZone == null)          Debug.LogWarning("[TaskManager] firewoodZone not assigned.");
+        if (canDeliveryZone == null)       Debug.LogWarning("[TaskManager] canDeliveryZone not assigned.");
+        if (npc1Dialogue == null)          Debug.LogError("[TaskManager] npc1Dialogue not assigned!");
+        if (npc1Controller == null)        Debug.LogWarning("[TaskManager] npc1Controller not assigned.");
+        if (npc2Dialogue == null)          Debug.LogError("[TaskManager] npc2Dialogue not assigned!");
+        if (npc2Controller == null)        Debug.LogWarning("[TaskManager] npc2Controller not assigned -- proximity will use npc2Dialogue transform as fallback.");
+        if (npc3Dialogue == null)          Debug.LogError("[TaskManager] npc3Dialogue not assigned!");
+        if (npc3Controller == null)        Debug.LogWarning("[TaskManager] npc3Controller not assigned.");
+        if (bossPrefab == null)            Debug.LogWarning("[TaskManager] bossPrefab not assigned!");
+        if (bossSpawnPoint == null)        Debug.LogWarning("[TaskManager] bossSpawnPoint not assigned!");
+        if (impostorConnector == null)     Debug.LogWarning("[TaskManager] impostorConnector not assigned.");
     }
 
     public override void OnDestroy()
