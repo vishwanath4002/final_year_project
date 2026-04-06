@@ -16,7 +16,7 @@ public class Health : NetworkBehaviour
     [SerializeField] private bool enableDebugDamage = false;
     [SerializeField] private float debugDamageAmount = 25f;
     [SerializeField] private KeyCode debugDamageKey = KeyCode.K;
-    
+
     private NetworkVariable<float> currentHealth = new NetworkVariable<float>(
         100f,
         NetworkVariableReadPermission.Everyone,
@@ -35,11 +35,8 @@ public class Health : NetworkBehaviour
 
     private void Update()
     {
-        if (!enableDebugDamage) 
-        {
-            return;
-        }
-        
+        if (!enableDebugDamage) return;
+
         if (Input.GetKeyDown(debugDamageKey))
         {
             if (IsServer)
@@ -49,8 +46,6 @@ public class Health : NetworkBehaviour
             }
         }
     }
-
-
 
     public override void OnNetworkSpawn()
     {
@@ -62,11 +57,9 @@ public class Health : NetworkBehaviour
             isDead.Value = false;
         }
 
-        // Subscribe to death state changes for all clients
         currentHealth.OnValueChanged += OnHealthChanged;
         isDead.OnValueChanged += OnDeathStateChanged;
 
-        // Initialize UI
         if (healthBar != null)
         {
             healthBar.SetMaxHealth(maxHealth);
@@ -87,7 +80,6 @@ public class Health : NetworkBehaviour
     {
         if (newValue && !previousValue)
         {
-            // Death just occurred, handle it on all clients
             Debug.Log($"[Health] {gameObject.name} death state changed on client");
             HandleDeathOnClient();
         }
@@ -99,28 +91,18 @@ public class Health : NetworkBehaviour
 
     public void TakeDamage(float damage)
     {
-        // Only server can modify health
         if (!IsServer)
         {
             Debug.LogWarning($"[Health] TakeDamage called on client - ignored");
             return;
         }
 
-        if (isDead.Value) 
-        {
-            return;
-        }
+        if (isDead.Value) return;
 
         if (damage > 0)
-        {
             damage = Mathf.Max(damage - defence, 0f);
-            currentHealth.Value -= damage;
-        }
-        else
-        {
-            // Healing (negative damage)
-            currentHealth.Value -= damage;
-        }
+
+        currentHealth.Value -= damage;
 
         Debug.Log($"[Health] {gameObject.name} took {damage} damage. Remaining HP: {currentHealth.Value}");
 
@@ -136,85 +118,64 @@ public class Health : NetworkBehaviour
         Debug.Log($"[Health] {gameObject.name} health changed: {newValue}");
 
         if (healthBar != null)
-        {
             healthBar.SetHealth(newValue);
-        }
 
-        
         HealthMaterialChanger changer = GetComponent<HealthMaterialChanger>();
         if (changer != null)
-        {
             changer.UpdateMaterial();
-        }   
-        
     }
 
-    public float GetCurrentHealth()
-    {
-        return currentHealth.Value;
-    }
+    public float GetCurrentHealth()  => currentHealth.Value;
+    public float GetMaxHealth()      => maxHealth;
+    public float GetHealthPercent()  => maxHealth <= 0f ? 0f : currentHealth.Value / maxHealth;
+    public bool  IsDead()            => isDead.Value;
 
-    public float GetMaxHealth()
+    public void ResetHealth()
     {
-        return maxHealth;
-    }
-
-    public float GetHealthPercent()
-    {
-        if (maxHealth <= 0f) return 0f;
-        return currentHealth.Value / maxHealth;
-    }
-
-    public bool IsDead()
-    {
-        return isDead.Value;
+        if (!IsServer) return;
+        currentHealth.Value = maxHealth;
+        isDead.Value = false;
     }
 
     private void Die()
     {
-        // Only server can trigger death
         if (!IsServer) return;
         if (isDead.Value) return;
 
         isDead.Value = true;
-
         Debug.Log($"[Health] {gameObject.name} died on server!");
-
-        // The actual death handling will be done in OnDeathStateChanged
-        // which triggers on all clients including server
+        // HandleDeathOnClient() fires automatically via OnDeathStateChanged on all clients
     }
 
     private void HandleDeathOnClient()
     {
         Debug.Log($"[Health] {gameObject.name} handling death on client");
 
-        // Check if this is a PLAYER (has PlayerHealthHandler)
+        // Delegate player death to PlayerHealthHandler
         PlayerHealthHandler playerHandler = GetComponent<PlayerHealthHandler>();
         if (playerHandler != null)
         {
-            // Let PlayerHealthHandler handle player death completely
             Debug.Log("[Health] Player detected - delegating death handling to PlayerHealthHandler");
             return;
         }
 
-        // Below code only runs for AI/NPCs, NOT players
+        // Below runs for AI/NPCs only
 
-        // 1️⃣ Stop NavMeshAgent (if exists)
+        // 1. Stop NavMeshAgent — ONLY if the agent is actually on the NavMesh.
+        //    On clients, agents are not placed on the NavMesh, so we must guard
+        //    against calling isStopped on an inactive agent (causes "Stop" error).
         NavMeshAgent agent;
-        if (TryGetComponent(out agent))
+        if (TryGetComponent(out agent) && agent.isOnNavMesh)
         {
             agent.isStopped = true;
-            //agent.enabled = false;
         }
 
-        // 2️⃣ Disable AILocomotion (if exists)
+        // 2. Disable AILocomotion (if exists)
         AILocomotion ai;
         if (TryGetComponent(out ai))
-        {
             ai.enabled = false;
-        }
 
-        // 3️⃣ Stop Rigidbody (if exists)
+        // 3. Stop Rigidbody (if exists)
         Rigidbody rb;
         if (TryGetComponent(out rb))
         {
@@ -223,38 +184,26 @@ public class Health : NetworkBehaviour
             rb.isKinematic = true;
         }
 
-        // 4️⃣ Disable ALL Colliders (safe for AI & non-AI)
-        Collider[] colliders = GetComponentsInChildren<Collider>();
-        foreach (Collider col in colliders)
-        {
+        // 4. Disable all colliders
+        foreach (Collider col in GetComponentsInChildren<Collider>())
             col.enabled = false;
-        }
 
-        // 5️⃣ Trigger death animation safely
+        // 5. Trigger death animation
         Animator animator;
         if (TryGetComponent(out animator))
         {
-            bool hasDieTrigger = false;
             foreach (var param in animator.parameters)
             {
-                if (param.type == AnimatorControllerParameterType.Trigger &&
-                    param.name == "die")
+                if (param.type == AnimatorControllerParameterType.Trigger && param.name == "die")
                 {
-                    hasDieTrigger = true;
+                    animator.SetTrigger("die");
                     break;
                 }
             }
-
-            if (hasDieTrigger)
-            {
-                animator.SetTrigger("die");
-            }
         }
 
-        // 6️⃣ Optional destroy (only on server)
+        // 6. Destroy on server only
         if (IsServer && destroyAfterSeconds > 0f)
-        {
             Destroy(gameObject, destroyAfterSeconds);
-        }
     }
 }
