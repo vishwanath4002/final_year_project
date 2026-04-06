@@ -78,7 +78,7 @@ public class AlienMovement : MonoBehaviour
     float attackMoveLockTimer;
 
     bool isDead;
-    bool isReady = false; // true once the agent is confirmed on the NavMesh
+    bool isReady = false;
 
     // -----------------------------------------------------------------------
     // Unity lifecycle
@@ -96,15 +96,11 @@ public class AlienMovement : MonoBehaviour
         agent.speed = patrolSpeed;
         state = AIState.Patrol;
 
-        // The NavMeshAgent may not be placed on the mesh yet the frame it spawns
-        // (common on clients in a Netcode game). Wait until it's ready.
         StartCoroutine(WaitForNavMeshThenStart());
     }
 
-    // Waits until the agent is actually on the NavMesh before issuing any commands.
     IEnumerator WaitForNavMeshThenStart()
     {
-        // Give Unity up to 2 seconds; on the server this usually resolves in 1-2 frames.
         float timeout = 2f;
         while (!agent.isOnNavMesh && timeout > 0f)
         {
@@ -299,10 +295,8 @@ public class AlienMovement : MonoBehaviour
     {
         if (currentTarget == null) return;
 
-        if (currentTargetIsScientist)
-            currentTarget.GetComponent<Health>()?.TakeDamage(10f);
-        else
-            currentTarget.GetComponent<Health>()?.TakeDamage(10f);
+        // Both players and the scientist use Health — single unified call
+        currentTarget.GetComponent<Health>()?.TakeDamage(10f);
     }
 
     // -----------------------------------------------------------------------
@@ -417,7 +411,12 @@ public class AlienMovement : MonoBehaviour
 
         StartCoroutine(DespawnAfterDeathAnim());
 
-        GetComponent<ScavengerRaidTask>()?.Die();
+        // Notify ScavengerRaidTask via AlienDeathNotifier so kill count updates correctly
+        AlienDeathNotifier notifier = GetComponent<AlienDeathNotifier>();
+        if (notifier != null)
+            notifier.TriggerDeath();
+        else
+            Debug.LogWarning("[AlienMovement] No AlienDeathNotifier found — ScavengerRaidTask won't count this kill.");
 
         enabled = false;
     }

@@ -1,31 +1,20 @@
 using System;
 using UnityEngine;
 
+/// <summary>
+/// Sits on the alien prefab.
+/// ScavengerRaidTask subscribes to OnDied at spawn time.
+/// AlienMovement calls TriggerDeath() when the alien dies.
+/// </summary>
 public class AlienDeathNotifier : MonoBehaviour
 {
     public event Action OnDied;
-    bool notified = false;
 
     /// <summary>
-    /// Called by AlienMovement.Die() when the alien is killed.
-    /// Fires the OnDied event so ScavengerRaidTask can track kill count.
-    /// Does NOT destroy the GameObject -- AlienMovement.Die() schedules
-    /// Destroy(gameObject, 30f) so the corpse stays for the animation.
+    /// Called by AlienMovement.Die() to fire the death event.
     /// </summary>
-    public void Die()
+    public void TriggerDeath()
     {
-        if (notified) return;
-        notified = true;
         OnDied?.Invoke();
-    }
-
-    // Safety net: if the object is destroyed by some other path, still fire the event
-    void OnDestroy()
-    {
-        if (!notified)
-        {
-            notified = true;
-            OnDied?.Invoke();
-        }
     }
 }
