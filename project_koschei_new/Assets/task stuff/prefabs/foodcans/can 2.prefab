@@ -99,7 +99,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  GlobalObjectIdHash: 940739732
+  GlobalObjectIdHash: 3143117284
   InScenePlacedSourceGlobalObjectIdHash: 0
   AlwaysReplicateAsRoot: 0
   SynchronizeTransform: 1
@@ -120,7 +120,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 557ad95b364472e47a0c7a3a1029cf90, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  pickupPromptSprite: {fileID: 0}
+  pickupPromptSprite: {fileID: 5734563124459200196}
+  isStackableCan: 1
 --- !u!114 &-3315962622855078718
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -335,6 +336,11 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 1041be207caf13a48950a13b9c2afbda, type: 3}
+--- !u!1 &5734563124459200196 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 3209878420516192454, guid: 1041be207caf13a48950a13b9c2afbda, type: 3}
+  m_PrefabInstance: {fileID: 7142293040965524994}
+  m_PrefabAsset: {fileID: 0}
 --- !u!4 &6793136896041895540 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4420449808034289782, guid: 1041be207caf13a48950a13b9c2afbda, type: 3}

@@ -6,61 +6,59 @@ public class PickupObject : NetworkBehaviour
     [Header("Pickup Prompt")]
     [SerializeField] private GameObject pickupPromptSprite;
 
+    [Header("Stacking")]
+    [Tooltip("Enable for food cans — allows up to 3 to stack in inventory.")]
+    [SerializeField] private bool isStackableCan = false;
+
     private void Awake()
     {
         if (pickupPromptSprite != null)
             pickupPromptSprite.SetActive(false);
     }
 
-    // Called locally by ThirdPersonShooterController when crosshair enters/leaves.
-    // SetActive on a non-networked child only affects this client's screen.
+    // Called locally by ThirdPersonShooterController when crosshair enters/leaves
     public void ShowPickupPrompt(bool show)
     {
         if (pickupPromptSprite != null)
             pickupPromptSprite.SetActive(show);
     }
 
-    // Called from ThirdPersonShooterController when player aims at this object and presses E
+    // Returns true if the given inventory can currently receive this item
+    public bool CanBePickedUpBy(PlayerInventory inventory)
+    {
+        if (inventory == null) return false;
+        return isStackableCan ? inventory.CanPickupCan() : !inventory.IsHoldingItem();
+    }
+
     public void TryPickup(GameObject playerObject)
     {
-        if (playerObject == null)
-        {
-            Debug.LogError("playerObject is null in TryPickup!");
-            return;
-        }
+        if (playerObject == null) { Debug.LogError("playerObject is null in TryPickup!"); return; }
 
-        NetworkObject playerNetObj = playerObject.GetComponentInParent<NetworkObject>();
-        if (playerNetObj == null)
-            playerNetObj = playerObject.GetComponent<NetworkObject>();
+        NetworkObject playerNetObj = playerObject.GetComponentInParent<NetworkObject>()
+                                  ?? playerObject.GetComponent<NetworkObject>();
 
-        if (playerNetObj == null)
-        {
-            Debug.LogError($"Player '{playerObject.name}' doesn't have NetworkObject component!");
-            return;
-        }
+        if (playerNetObj == null)    { Debug.LogError($"Player '{playerObject.name}' has no NetworkObject!"); return; }
+        if (!playerNetObj.IsSpawned) { Debug.LogError("Player NetworkObject is not spawned yet!"); return; }
 
-        if (!playerNetObj.IsSpawned)
-        {
-            Debug.LogError("Player NetworkObject is not spawned yet!");
-            return;
-        }
+        PlayerInventory inventory = playerObject.GetComponent<PlayerInventory>()
+                                 ?? playerObject.GetComponentInParent<PlayerInventory>();
 
-        PlayerInventory inventory = playerObject.GetComponent<PlayerInventory>();
         if (inventory == null)
-            inventory = playerObject.GetComponentInParent<PlayerInventory>();
+        {
+            Debug.LogError("PlayerInventory not found on player!");
+            return;
+        }
 
-        if (inventory != null && !inventory.IsHoldingItem())
+        if (CanBePickedUpBy(inventory))
         {
             Debug.Log($"Calling TryPickupServerRpc for player {playerNetObj.OwnerClientId}");
             TryPickupServerRpc(playerNetObj.OwnerClientId);
         }
-        else if (inventory == null)
-        {
-            Debug.LogError("PlayerInventory not found on player or parent!");
-        }
         else
         {
-            Debug.Log("Player is already holding an item!");
+            Debug.Log(isStackableCan
+                ? "[Pickup] Can stack is full (3/3)."
+                : "[Pickup] Already holding an item.");
         }
     }
 
@@ -70,71 +68,45 @@ public class PickupObject : NetworkBehaviour
         Debug.Log($"[SERVER] TryPickupServerRpc called for player {playerId}");
 
         if (!NetworkManager.Singleton.ConnectedClients.TryGetValue(playerId, out var client))
-        {
-            Debug.LogError($"Could not find client with ID {playerId}");
-            return;
-        }
+        { Debug.LogError($"Client {playerId} not found."); return; }
 
         if (client.PlayerObject == null)
-        {
-            Debug.LogError($"Client {playerId} has null PlayerObject!");
-            return;
-        }
+        { Debug.LogError($"Client {playerId} has null PlayerObject!"); return; }
 
         PlayerInventory inventory = client.PlayerObject.GetComponent<PlayerInventory>();
         if (inventory == null)
-        {
-            Debug.LogError($"PlayerInventory not found on client {playerId} player object!");
-            return;
-        }
+        { Debug.LogError($"PlayerInventory not found on client {playerId}!"); return; }
 
-        if (inventory.IsHoldingItem())
+        if (!CanBePickedUpBy(inventory))
         {
-            Debug.Log($"Player {playerId} is already holding an item!");
+            Debug.Log($"[SERVER] Player {playerId} can't receive this item right now.");
             return;
         }
 
         GameObject prefabReference = FindPrefabInNetworkList();
-        if (prefabReference != null)
-        {
-            Debug.Log($"[SERVER] Picking up {prefabReference.name} for player {playerId}");
+        if (prefabReference == null)
+        { Debug.LogError($"Prefab not found in NetworkPrefabs for: {gameObject.name}"); return; }
+
+        if (isStackableCan)
+            inventory.PickupCan(prefabReference);
+        else
             inventory.PickupItem(prefabReference);
 
-            if (NetworkObject != null && NetworkObject.IsSpawned)
-            {
-                Debug.Log("[SERVER] Despawning network object");
-                NetworkObject.Despawn();
-            }
-            Destroy(gameObject);
-        }
-        else
-        {
-            Debug.LogError($"Could not find prefab for {gameObject.name} in NetworkPrefabs list!");
-        }
+        if (NetworkObject != null && NetworkObject.IsSpawned)
+            NetworkObject.Despawn();
+        Destroy(gameObject);
     }
 
     GameObject FindPrefabInNetworkList()
     {
         string cleanName = gameObject.name.Replace("(Clone)", "").Trim();
-        Debug.Log($"Looking for prefab with name: {cleanName}");
+        if (NetworkManager.Singleton == null) return null;
 
-        if (NetworkManager.Singleton == null)
-        {
-            Debug.LogError("NetworkManager.Singleton is null!");
-            return null;
-        }
+        foreach (var np in NetworkManager.Singleton.NetworkConfig.Prefabs.Prefabs)
+            if (np.Prefab.name == cleanName)
+                return np.Prefab;
 
-        var prefabList = NetworkManager.Singleton.NetworkConfig.Prefabs.Prefabs;
-        foreach (var networkPrefab in prefabList)
-        {
-            if (networkPrefab.Prefab.name == cleanName)
-            {
-                Debug.Log($"Found matching prefab: {networkPrefab.Prefab.name}");
-                return networkPrefab.Prefab;
-            }
-        }
-
-        Debug.LogError($"No matching prefab found for: {cleanName}. Make sure it's in NetworkManager's Network Prefabs list!");
+        Debug.LogError($"No matching prefab for: {cleanName}");
         return null;
     }
 }

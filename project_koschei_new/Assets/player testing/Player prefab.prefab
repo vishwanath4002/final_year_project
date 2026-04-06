@@ -2948,6 +2948,10 @@ MonoBehaviour:
   taskPanel: {fileID: 88611329837445204}
   taskText: {fileID: 3821669025316826389}
   taskCompleteText: {fileID: 4052493533778351142}
+  heldItemPanel: {fileID: 9029633597264243367}
+  heldItemText: {fileID: 2336629568199510912}
+  normalFontSize: 18
+  canStackFontSize: 13
   completeLingerDuration: 3
 --- !u!114 &6304590166020961297
 MonoBehaviour:

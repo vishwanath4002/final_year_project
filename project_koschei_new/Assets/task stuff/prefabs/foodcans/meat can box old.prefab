@@ -170,7 +170,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 557ad95b364472e47a0c7a3a1029cf90, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  pickupPromptSprite: {fileID: 0}
+  pickupPromptSprite: {fileID: 833916412157844033}
+  isStackableCan: 1
 --- !u!114 &-6614608926378672902
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -279,6 +280,11 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 1041be207caf13a48950a13b9c2afbda, type: 3}
+--- !u!1 &833916412157844033 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 3209878420516192454, guid: 1041be207caf13a48950a13b9c2afbda, type: 3}
+  m_PrefabInstance: {fileID: 2817403869192395399}
+  m_PrefabAsset: {fileID: 0}
 --- !u!4 &1892068515403645681 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4420449808034289782, guid: 1041be207caf13a48950a13b9c2afbda, type: 3}
