@@ -11,7 +11,7 @@ namespace Koshcei
 
         [Header("Game Settings")]
         [Tooltip("Minimum players required before the host can start the game.")]
-        [SerializeField] private int minPlayersToStart = 1;
+        [SerializeField] private int minPlayersToStart = 2;
 
         [Header("UI References")]
         [SerializeField] private TextMeshProUGUI lobbyIdText;
