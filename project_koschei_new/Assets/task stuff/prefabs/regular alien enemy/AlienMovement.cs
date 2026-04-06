@@ -15,45 +15,45 @@ public class AlienMovement : MonoBehaviour
     // -----------------------------------------------------------------------
 
     [Header("Movement")]
-    public float patrolSpeed         = 2f;
-    public float chaseSpeed          = 4f;
+    public float patrolSpeed = 2f;
+    public float chaseSpeed = 4f;
 
     [Header("Patrol / Idle")]
-    public float patrolRadius        = 10f;
-    public float idleTimeAtPoint     = 2f;
+    public float patrolRadius = 10f;
+    public float idleTimeAtPoint = 2f;
 
     [Header("Search")]
-    public float searchDuration      = 4f;
+    public float searchDuration = 4f;
 
     [Header("Attack")]
     [Tooltip("Distance from the player at which the alien can land a hit.")]
-    public float attackRange         = 2f;
-    public string attack1Trigger     = "Attack1Trigger";
-    public string attack2Trigger     = "Attack2Trigger";
-    public float attack1Cooldown     = 1.2f;
-    public float attack2Cooldown     = 1.5f;
+    public float attackRange = 2f;
+    public string attack1Trigger = "Attack1Trigger";
+    public string attack2Trigger = "Attack2Trigger";
+    public float attack1Cooldown = 1.2f;
+    public float attack2Cooldown = 1.5f;
     [Tooltip("How long movement is locked while attack 1 plays.")]
-    public float attack1Duration     = 0.8f;
+    public float attack1Duration = 0.8f;
     [Tooltip("How long movement is locked while attack 2 plays.")]
-    public float attack2Duration     = 1.0f;
+    public float attack2Duration = 1.0f;
 
     [Header("Rotation")]
-    public float turnSpeed           = 10f;
+    public float turnSpeed = 10f;
 
     [Header("Animation")]
     public Animator animator;
-    public string moveXParam         = "MoveX";
-    public string moveZParam         = "MoveZ";
+    public string moveXParam = "MoveX";
+    public string moveZParam = "MoveZ";
 
     [Header("Sensor")]
     public AlienSensor sensor;
 
     [Header("Death")]
-    public string deathTrigger       = "die";
+    public string deathTrigger = "die";
     [Tooltip("Seconds to wait after death before destroying the GameObject.")]
-    public float despawnDelay        = 30f;
+    public float despawnDelay = 30f;
     [Tooltip("Length of the death animation clip. Animator is disabled after this so the pose freezes.")]
-    public float deathAnimDuration   = 2.5f;
+    public float deathAnimDuration = 2.5f;
 
     // -----------------------------------------------------------------------
     // ScavengerRaidTask -- assigned at runtime, null outside that task
@@ -64,20 +64,21 @@ public class AlienMovement : MonoBehaviour
     // Private state
     // -----------------------------------------------------------------------
 
-    NavMeshAgent        agent;
-    AIState             state                  = AIState.Patrol;
+    NavMeshAgent agent;
+    AIState state = AIState.Patrol;
 
-    Transform           currentTarget;
-    bool                currentTargetIsScientist;
-    Vector3             lastSeenTargetPos;
-    Vector3             homePosition;
+    Transform currentTarget;
+    bool currentTargetIsScientist;
+    Vector3 lastSeenTargetPos;
+    Vector3 homePosition;
 
-    float               stateTimer;
-    float               attackTimer;
-    bool                isAttacking;
-    float               attackMoveLockTimer;
+    float stateTimer;
+    float attackTimer;
+    bool isAttacking;
+    float attackMoveLockTimer;
 
-    bool                isDead;
+    bool isDead;
+    bool isReady = false; // true once the agent is confirmed on the NavMesh
 
     // -----------------------------------------------------------------------
     // Unity lifecycle
@@ -88,19 +89,43 @@ public class AlienMovement : MonoBehaviour
         agent = GetComponent<NavMeshAgent>();
 
         if (animator == null) animator = GetComponentInChildren<Animator>();
-        if (sensor    == null) sensor   = GetComponentInChildren<AlienSensor>();
+        if (sensor == null)   sensor   = GetComponentInChildren<AlienSensor>();
 
-        homePosition         = transform.position;
+        homePosition = transform.position;
         agent.updateRotation = false;
-        agent.speed          = patrolSpeed;
-
+        agent.speed = patrolSpeed;
         state = AIState.Patrol;
+
+        // The NavMeshAgent may not be placed on the mesh yet the frame it spawns
+        // (common on clients in a Netcode game). Wait until it's ready.
+        StartCoroutine(WaitForNavMeshThenStart());
+    }
+
+    // Waits until the agent is actually on the NavMesh before issuing any commands.
+    IEnumerator WaitForNavMeshThenStart()
+    {
+        // Give Unity up to 2 seconds; on the server this usually resolves in 1-2 frames.
+        float timeout = 2f;
+        while (!agent.isOnNavMesh && timeout > 0f)
+        {
+            timeout -= Time.deltaTime;
+            yield return null;
+        }
+
+        if (!agent.isOnNavMesh)
+        {
+            Debug.LogWarning($"[AlienMovement] {gameObject.name} could not be placed on NavMesh — AI disabled.");
+            enabled = false;
+            yield break;
+        }
+
+        isReady = true;
         SetRandomPatrolDestination();
     }
 
     void Update()
     {
-        if (isDead) return;
+        if (isDead || !isReady) return;
 
         if (!isAttacking)
         {
@@ -108,16 +133,16 @@ public class AlienMovement : MonoBehaviour
 
             if (player != null)
             {
-                currentTarget            = player;
+                currentTarget = player;
                 currentTargetIsScientist = false;
-                lastSeenTargetPos        = player.position;
+                lastSeenTargetPos = player.position;
                 SwitchToChase();
             }
             else if (scientistTarget != null && scientistTarget.gameObject.activeInHierarchy)
             {
-                currentTarget            = scientistTarget;
+                currentTarget = scientistTarget;
                 currentTargetIsScientist = true;
-                lastSeenTargetPos        = scientistTarget.position;
+                lastSeenTargetPos = scientistTarget.position;
                 SwitchToChase();
             }
         }
@@ -149,19 +174,19 @@ public class AlienMovement : MonoBehaviour
 
     void UpdatePatrol()
     {
-        if (isAttacking) return;
+        if (isAttacking || !agent.isOnNavMesh) return;
 
         if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance + 0.1f)
         {
-            state           = AIState.Idle;
-            stateTimer      = idleTimeAtPoint;
+            state = AIState.Idle;
+            stateTimer = idleTimeAtPoint;
             agent.isStopped = true;
         }
     }
 
     void SetRandomPatrolDestination()
     {
-        if (isAttacking) return;
+        if (isAttacking || !agent.isOnNavMesh) return;
 
         Vector2 circle    = Random.insideUnitCircle * patrolRadius;
         Vector3 candidate = homePosition + new Vector3(circle.x, 0f, circle.y);
@@ -185,7 +210,7 @@ public class AlienMovement : MonoBehaviour
         stateTimer -= Time.deltaTime;
         if (stateTimer <= 0f)
         {
-            state       = AIState.Patrol;
+            state = AIState.Patrol;
             agent.speed = patrolSpeed;
             SetRandomPatrolDestination();
         }
@@ -198,17 +223,19 @@ public class AlienMovement : MonoBehaviour
     void SwitchToChase()
     {
         if (state == AIState.Chase) return;
-        state       = AIState.Chase;
+        state = AIState.Chase;
         agent.speed = chaseSpeed;
-        if (!isAttacking) agent.isStopped = false;
+        if (!isAttacking && agent.isOnNavMesh) agent.isStopped = false;
     }
 
     void UpdateChase()
     {
+        if (!agent.isOnNavMesh) return;
+
         if (isAttacking)
         {
             agent.isStopped = true;
-            agent.velocity  = Vector3.zero;
+            agent.velocity = Vector3.zero;
             if (currentTarget != null) FaceTarget(currentTarget.position);
             return;
         }
@@ -237,7 +264,7 @@ public class AlienMovement : MonoBehaviour
 
             if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance + 0.2f)
             {
-                state      = AIState.Search;
+                state = AIState.Search;
                 stateTimer = searchDuration;
             }
         }
@@ -247,20 +274,20 @@ public class AlienMovement : MonoBehaviour
     {
         if (attackTimer > 0f || animator == null || isAttacking) return;
 
-        isAttacking         = true;
-        agent.isStopped     = true;
-        agent.velocity      = Vector3.zero;
+        isAttacking = true;
+        agent.isStopped = true;
+        agent.velocity = Vector3.zero;
 
         if (Random.Range(0, 2) == 0)
         {
             animator.SetTrigger(attack1Trigger);
-            attackTimer         = attack1Cooldown;
+            attackTimer = attack1Cooldown;
             attackMoveLockTimer = attack1Duration;
         }
         else
         {
             animator.SetTrigger(attack2Trigger);
-            attackTimer         = attack2Cooldown;
+            attackTimer = attack2Cooldown;
             attackMoveLockTimer = attack2Duration;
         }
     }
@@ -273,7 +300,7 @@ public class AlienMovement : MonoBehaviour
         if (currentTarget == null) return;
 
         if (currentTargetIsScientist)
-            currentTarget.GetComponent<ScientistHealth>()?.TakeDamage(10f);
+            currentTarget.GetComponent<Health>()?.TakeDamage(10f);
         else
             currentTarget.GetComponent<Health>()?.TakeDamage(10f);
     }
@@ -284,7 +311,7 @@ public class AlienMovement : MonoBehaviour
 
     void UpdateSearch()
     {
-        if (isAttacking) return;
+        if (isAttacking || !agent.isOnNavMesh) return;
 
         agent.SetDestination(lastSeenTargetPos);
 
@@ -295,11 +322,11 @@ public class AlienMovement : MonoBehaviour
 
             if (stateTimer <= 0f)
             {
-                currentTarget            = null;
+                currentTarget = null;
                 currentTargetIsScientist = false;
-                agent.isStopped          = false;
-                state                    = AIState.Patrol;
-                agent.speed              = patrolSpeed;
+                agent.isStopped = false;
+                state = AIState.Patrol;
+                agent.speed = patrolSpeed;
                 SetRandomPatrolDestination();
             }
         }
@@ -311,7 +338,6 @@ public class AlienMovement : MonoBehaviour
 
     void HandleRotation()
     {
-        // Only rotate while the agent is actually moving
         if (agent.velocity.sqrMagnitude > 0.1f && !isAttacking)
             FaceTarget(agent.velocity.normalized + transform.position);
     }
@@ -338,7 +364,7 @@ public class AlienMovement : MonoBehaviour
 
         Vector3 worldVel = isAttacking ? Vector3.zero : agent.velocity;
         Vector3 localVel = transform.InverseTransformDirection(worldVel);
-        float   maxSpeed = agent.speed > 0f ? agent.speed : 1f;
+        float maxSpeed   = agent.speed > 0f ? agent.speed : 1f;
 
         animator.SetFloat(moveXParam, Mathf.Clamp(localVel.x / maxSpeed, -1f, 1f));
         animator.SetFloat(moveZParam, Mathf.Clamp(localVel.z / maxSpeed, -1f, 1f));
@@ -357,22 +383,19 @@ public class AlienMovement : MonoBehaviour
 
         state = AIState.Dead;
 
-        // Hard-stop NavMeshAgent entirely
-        if (agent != null)
+        if (agent != null && agent.isOnNavMesh)
         {
             agent.ResetPath();
             agent.isStopped = true;
-            agent.velocity  = Vector3.zero;
-            //agent.enabled   = false;
+            agent.velocity = Vector3.zero;
         }
 
-        // Freeze physics
         Rigidbody rb = GetComponent<Rigidbody>();
         if (rb != null)
         {
-            rb.velocity        = Vector3.zero;
+            rb.velocity = Vector3.zero;
             rb.angularVelocity = Vector3.zero;
-            rb.isKinematic     = true;
+            rb.isKinematic = true;
         }
 
         if (sensor != null) sensor.enabled = false;
@@ -383,10 +406,6 @@ public class AlienMovement : MonoBehaviour
         foreach (Collider col in GetComponentsInChildren<Collider>())
             col.enabled = false;
 
-        // Play death animation.
-        // Must trigger BEFORE disabling this component — StartCoroutine
-        // requires the MonoBehaviour to be enabled. Coroutines continue
-        // running on a disabled component as long as the GameObject is active.
         if (animator != null)
         {
             foreach (var param in animator.parameters)
@@ -396,22 +415,17 @@ public class AlienMovement : MonoBehaviour
             animator.SetTrigger(deathTrigger);
         }
 
-        // Start despawn coroutine BEFORE disabling this component
         StartCoroutine(DespawnAfterDeathAnim());
 
-        // Notify ScavengerRaidTask
-        GetComponent<AlienDeathNotifier>()?.Die();
+        GetComponent<ScavengerRaidTask>()?.Die();
 
-        // Disable Update() — coroutines keep running while GameObject is active
         enabled = false;
     }
 
-    // Destroys the GameObject as soon as the death animation finishes.
     IEnumerator DespawnAfterDeathAnim()
     {
         yield return new WaitForSeconds(deathAnimDuration);
-        if (animator != null)
-            animator.enabled = false;
+        if (animator != null) animator.enabled = false;
         Destroy(gameObject);
     }
 }
