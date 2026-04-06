@@ -407,9 +407,6 @@ namespace Koshcei
                     Debug.Log("[LobbyManager] Temp approval -- player spawn deferred to SpawnManager.");
                 };
 
-                var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
-                Debug.Log($"Attempting to host on: {transport.ConnectionData.Address}:{transport.ConnectionData.Port}");
-                
                 bool started = NetworkManager.Singleton.StartHost();
                 if (!started)
                 {
