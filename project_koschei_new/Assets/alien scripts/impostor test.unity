@@ -597,6 +597,10 @@ PrefabInstance:
       propertyPath: groundCheck
       value: 
       objectReference: {fileID: 642625104}
+    - target: {fileID: 5461763166939671200, guid: 7a9b1cad235ca9143ac8e08dc1cfac9e, type: 3}
+      propertyPath: m_Convex
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 6908005012459267188, guid: 7a9b1cad235ca9143ac8e08dc1cfac9e, type: 3}
       propertyPath: GlobalObjectIdHash
       value: 1609684816
@@ -604,6 +608,14 @@ PrefabInstance:
     - target: {fileID: 6908005012459267188, guid: 7a9b1cad235ca9143ac8e08dc1cfac9e, type: 3}
       propertyPath: InScenePlacedSourceGlobalObjectIdHash
       value: 3472138449
+      objectReference: {fileID: 0}
+    - target: {fileID: 8682105211135510366, guid: 7a9b1cad235ca9143ac8e08dc1cfac9e, type: 3}
+      propertyPath: m_IsTrigger
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8682105211135510366, guid: 7a9b1cad235ca9143ac8e08dc1cfac9e, type: 3}
+      propertyPath: m_ProvidesContacts
+      value: 1
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
