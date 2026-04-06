@@ -613,7 +613,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  GlobalObjectIdHash: 691558128
+  GlobalObjectIdHash: 2359796033
   InScenePlacedSourceGlobalObjectIdHash: 0
   AlwaysReplicateAsRoot: 0
   SynchronizeTransform: 1
@@ -646,7 +646,7 @@ MonoBehaviour:
   attack2Cooldown: 1.5
   attack1Duration: 2.1
   attack2Duration: 2.1
-  turnSpeed: 10
+  turnSpeed: 15
   animator: {fileID: 3600447987726435479}
   moveXParam: MoveX
   moveZParam: MoveZ
@@ -736,7 +736,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   targetTag: Player
   damage: 10
-  attackRange: 3
+  attackRange: 4
   attackCooldown: 2
   attackDuration: 0.8
   damageColliders:

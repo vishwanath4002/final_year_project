@@ -213194,7 +213194,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 400911283755929277, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       propertyPath: dieParam
-      value: dead
+      value: die
       objectReference: {fileID: 0}
     - target: {fileID: 400911283755929277, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       propertyPath: patrolRadius
@@ -213210,7 +213210,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -3.928894
+      value: -3.32
       objectReference: {fileID: 0}
     - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       propertyPath: m_LocalPosition.y
@@ -213218,7 +213218,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 113.793335
+      value: 118.46
       objectReference: {fileID: 0}
     - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       propertyPath: m_LocalRotation.w
@@ -217657,11 +217657,11 @@ MonoBehaviour:
   buildingCenter: {fileID: 1393555088}
   scientistNPC: {fileID: 1461466544}
   alienPrefab: {fileID: 8070923430143094911, guid: fa28d04f0fe6d4f44b548ea292dd8ecf, type: 3}
-  totalAliens: 40
+  totalAliens: 30
   aliensPerWave: 5
   timeBetweenWaves: 12
   spawnStaggerInterval: 0.35
-  spawnRadius: 30
+  spawnRadius: 20
   spawnRadiusJitter: 3
   alienPatrolRadius: 8
 --- !u!1001 &1692129402
@@ -252523,11 +252523,11 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 400911283755929277, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       propertyPath: dieParam
-      value: dead
+      value: die
       objectReference: {fileID: 0}
     - target: {fileID: 400911283755929277, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       propertyPath: patrolRadius
-      value: 10
+      value: 7
       objectReference: {fileID: 0}
     - target: {fileID: 596278783192970733, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       propertyPath: GlobalObjectIdHash
@@ -252539,7 +252539,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 97.0506
+      value: 97.34
       objectReference: {fileID: 0}
     - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       propertyPath: m_LocalPosition.y
@@ -252547,7 +252547,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 431.99158
+      value: 431.29
       objectReference: {fileID: 0}
     - target: {fileID: 3272605897372547121, guid: 02d09b5bfc970914cb55a277b810da57, type: 3}
       propertyPath: m_LocalRotation.w

@@ -6941,8 +6941,8 @@ MonoBehaviour:
   agentAcceleration: 8
   agentAngularSpeed: 720
   agentStoppingDistance: 0.2
-  viewDistance: 15
-  viewAngle: 90
+  viewDistance: 40
+  viewAngle: 160
   proximityRange: 2
   sightMask:
     serializedVersion: 2
@@ -6954,7 +6954,7 @@ MonoBehaviour:
   obstacleMask:
     serializedVersion: 2
     m_Bits: 9
-  patrolSpeed: 2
+  patrolSpeed: 3
   chaseSpeed: 5
   patrolRadius: 10
   attackRange: 2
@@ -6986,7 +6986,7 @@ MonoBehaviour:
   attackTurnSpeed: 10
   speedParam: Speed
   enableRegen: 1
-  regenPerSecond: 1
+  regenPerSecond: 5
   showState: 1
   showDetectionOrigin: 1
   showViewDistance: 1

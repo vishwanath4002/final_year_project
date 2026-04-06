@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
+using Unity.Netcode;
 
 public class AlienMovement : MonoBehaviour
 {
@@ -424,7 +425,19 @@ public class AlienMovement : MonoBehaviour
     IEnumerator DespawnAfterDeathAnim()
     {
         yield return new WaitForSeconds(deathAnimDuration);
+
         if (animator != null) animator.enabled = false;
-        Destroy(gameObject);
+
+        NetworkObject netObj = GetComponent<NetworkObject>();
+        if (netObj != null && netObj.IsSpawned)
+        {
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer)
+                netObj.Despawn(true);
+            // else: server will despawn it; client just waits
+        }
+        else
+        {
+            Destroy(gameObject);
+        }
     }
 }
